@@ -54,8 +54,10 @@ file on every write (temp file in the same dir, then rename).
 - `tmuxTarget` is `SESSION:@WINDOW.%PANE`. When absent and the enrolling process has
   `$TMUX_PANE`, the CLI resolves it at `on` time with
   `tmux display-message -p -t $TMUX_PANE '#{session_name}:#{window_id}.#{pane_id}'`.
-- `pid` is the process to liveness-check. Absent: fall back to the Claude session file's pid; neither: treat as
-  alive. `mood` is one of `ready`, `needsInput`, `blocked`.
+- `pid` is the process to liveness-check. Absent on a `claude-code` record, the record is alive only while a Claude
+  session file carries its `sessionId` and that file's pid is alive, except that a record with no such file counts
+  as alive until its `updatedAt` is 30 s old, so enrollment cannot lose a race with Claude Code writing the file.
+  Absent on any other agent: treat as alive. `mood` is one of `ready`, `needsInput`, `blocked`.
 - `visible: true` is the only thing that makes a pet appear, `enabled: false` makes `show` a no-op, and deleting the
   file removes the pet.
 - `activeSubagentIds` holds the `agent_id` of every background subagent the session has started and not yet finished.
@@ -88,8 +90,15 @@ about to be re-invoked, and its own `Stop` decides.
 Claude Code writes `~/.claude/sessions/<pid>.json` for every live session, carrying `pid`,
 `sessionId`, `cwd`, `name`, `nameSource`, `status`, `tmux` and `messagingSocketPath`.
 `ClaudeSessionDirectory` matches PetSession.sessionId to one of these by `sessionId` to fill in a
-missing label, tmux target or pid. `kill(pid, 0)` failing with ESRCH means the session is dead:
-the daemon removes the pet and deletes the PetSession file. Never trust `status`, it goes stale.
+missing label or tmux target. Never trust `status`, it goes stale.
+
+`ProcessLiveness.isAlive(session:claudeSession:)` is the one liveness rule, and the daemon sweep and
+the `status` table both call it, so they cannot disagree. A `preview-` record is always alive. A
+record with its own `pid` is alive while `kill(pid, 0)` says so. A `claude-code` record without a
+`pid` is alive only while a Claude session file carries its `sessionId` and that file's pid is alive,
+with the 30 s grace above for a record whose file is not there at all. Any other agent without a
+`pid` is alive. When the rule says dead, the daemon dives the pet and deletes the PetSession file,
+which is what sweeps records that a missed `SessionEnd` hook left behind.
 
 ## Session differentiation
 

@@ -39,6 +39,8 @@ in place and prints the `rm -rf` command to run if you want the state directory 
 - `~/.agent-pet/daemon.log` holds the daemon's output. Each run starts with a line like
   `agent-pet daemon started pid 80924 parent 1 at 2026-09-29T17:04:11Z`, so you can tell which
   run produced a later crash trace. The daemon truncates the log at startup once it passes 1 MB.
+- A record left behind by a session that ended without its `SessionEnd` hook shows `ALIVE no` and the
+  daemon deletes it within about 5 s. To drop one by hand, run `agent-pet remove --session ID`.
 - No pet after a crash: launchd restarts the daemon on its own, and the next `Stop` hook also
   kickstarts it. `launchctl kickstart gui/$(id -u)/com.agent-pet.daemon` forces the issue.
 - `~/.agent-pet/hooks.log` holds one line per hook event agent-pet handled, such as
