@@ -1,0 +1,93 @@
+import Foundation
+
+enum SessionCommands {
+    static func turnOn(flags: ParsedFlags) -> Int32 {
+        guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
+            return CommandFeedback.reportMissingSession()
+        }
+        do {
+            let enrolled = PetEnrollment.enroll(
+                sessionId: sessionId,
+                overrides: try FlagParsing.identityOverrides(in: flags)
+            )
+            DaemonCommand.ensureRunning()
+            let label = PetLabel.resolve(session: enrolled, claudeSession: nil)
+            print("pet on for \(label), accent \(enrolled.resolvedAccent.rawValue)")
+            if let target = promptBarColorSyncTarget(session: enrolled, flags: flags) {
+                PromptBarColorSync.applyAccent(enrolled.resolvedAccent, target: target)
+            }
+            return ExitCode.success
+        } catch let failure as FlagParseFailure {
+            return failure.report()
+        } catch {
+            return CommandFeedback.reportUsage()
+        }
+    }
+
+    static func turnOff(flags: ParsedFlags) -> Int32 {
+        guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
+            return CommandFeedback.reportMissingSession()
+        }
+        guard let disabled = PetEnrollment.disable(sessionId: sessionId) else {
+            return ExitCode.success
+        }
+        if let target = promptBarColorSyncTarget(session: disabled, flags: flags) {
+            PromptBarColorSync.applyDefaultColor(target: target)
+        }
+        return ExitCode.success
+    }
+
+    static func show(flags: ParsedFlags) -> Int32 {
+        guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
+            return CommandFeedback.reportMissingSession()
+        }
+        do {
+            let overrides = try FlagParsing.identityOverrides(in: flags)
+            let requestedMood = try FlagParsing.mood(in: flags)
+            let store = PetSessionStore()
+            guard let existing = store.load(sessionId: sessionId), existing.enabled else {
+                return ExitCode.success
+            }
+            if overrides.hasAnyOverride {
+                store.save(overrides.applied(to: existing))
+            }
+            PetTurnState.show(
+                sessionId: sessionId,
+                mood: requestedMood ?? existing.mood,
+                message: flags.value(for: .message)
+            )
+            DaemonCommand.ensureRunning()
+            return ExitCode.success
+        } catch let failure as FlagParseFailure {
+            return failure.report()
+        } catch {
+            return CommandFeedback.reportUsage()
+        }
+    }
+
+    static func hide(flags: ParsedFlags) -> Int32 {
+        guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
+            return CommandFeedback.reportMissingSession()
+        }
+        PetTurnState.hide(sessionId: sessionId)
+        return ExitCode.success
+    }
+
+    static func remove(flags: ParsedFlags) -> Int32 {
+        guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
+            return CommandFeedback.reportMissingSession()
+        }
+        PetSessionStore().delete(sessionId: sessionId)
+        return ExitCode.success
+    }
+
+    private static func promptBarColorSyncTarget(session: PetSession, flags: ParsedFlags) -> TmuxTarget? {
+        guard !flags.isPresent(.noColorSync) else { return nil }
+        switch session.agent {
+        case .claudeCode:
+            return session.parsedTmuxTarget
+        case .pi:
+            return nil
+        }
+    }
+}

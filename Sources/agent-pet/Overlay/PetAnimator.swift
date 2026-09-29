@@ -1,0 +1,278 @@
+import AppKit
+
+enum PetGroundPhase {
+    case emerging
+    case grounded
+    case diving
+    case submerged
+}
+
+final class PetAnimator {
+    private static let framesPerSecond: Double = 8
+    private static let walkSpeedInPointsPerSecond: CGFloat = 40
+    private static let emergeDurationInSeconds: Double = 0.45
+    private static let emergeChromeFadeInDurationInSeconds: Double = 0.15
+    private static let diveChromeFadeOutDurationInSeconds: Double = 0.1
+    private static let diveDescentDurationInSeconds: Double = 0.35
+    private static let minimumPauseInSeconds: Double = 1
+    private static let maximumPauseInSeconds: Double = 3
+    private static let minimumWalkInSeconds: Double = 1.5
+    private static let maximumWalkInSeconds: Double = 5
+    private static let waveDurationInSeconds: Double = 1.5
+    private static let waveProbability: Double = 0.35
+    private static let fullyUnderground: Double = 1
+    private static let fullyAboveGround: Double = 0
+    private static let opaqueChrome: Double = 1
+    private static let transparentChrome: Double = 0
+
+    private(set) var animationName: SpriteAnimationName = .emerge
+    private(set) var frameTick = 0
+    private(set) var facingLeft = false
+    private(set) var horizontalOffsetFromHome: CGFloat = 0
+    private(set) var bubbleVerticalOffset: CGFloat = 0
+    private(set) var groundPhase: PetGroundPhase = .emerging
+    private(set) var groundOffsetFraction: Double = PetAnimator.fullyUnderground
+    private(set) var chromeOpacity: Double = PetAnimator.transparentChrome
+    private(set) var groundAnimationProgress: Double = 0
+
+    private var frameClockInSeconds: Double = 0
+    private var remainingActivityInSeconds: Double = 0
+    private var bubblePhaseInSeconds: Double = 0
+    private var phaseElapsedSeconds: Double = 0
+    private var walkDirection: CGFloat = 1
+
+    init() {
+        startEmerging(fromGroundOffsetFraction: PetAnimator.fullyUnderground)
+    }
+
+    var isSubmerged: Bool {
+        switch groundPhase {
+        case .submerged: return true
+        case .emerging, .grounded, .diving: return false
+        }
+    }
+
+    var playsGroundAnimationOnce: Bool {
+        switch groundPhase {
+        case .emerging, .diving: return true
+        case .grounded, .submerged: return false
+        }
+    }
+
+    func requestEmerge() {
+        switch groundPhase {
+        case .emerging, .grounded:
+            return
+        case .diving, .submerged:
+            startEmerging(fromGroundOffsetFraction: groundOffsetFraction)
+        }
+    }
+
+    func requestDive() {
+        switch groundPhase {
+        case .diving, .submerged:
+            return
+        case .emerging, .grounded:
+            startDiving(fromGroundOffsetFraction: groundOffsetFraction)
+        }
+    }
+
+    func advance(elapsedSeconds: Double, mood: PetMood) {
+        advanceFrameClock(elapsedSeconds: elapsedSeconds)
+        advanceBubbleBob(elapsedSeconds: elapsedSeconds)
+
+        switch groundPhase {
+        case .emerging:
+            advanceEmerging(elapsedSeconds: elapsedSeconds)
+        case .grounded:
+            advanceMoodBehavior(elapsedSeconds: elapsedSeconds, mood: mood)
+        case .diving:
+            advanceDiving(elapsedSeconds: elapsedSeconds)
+        case .submerged:
+            return
+        }
+    }
+
+    private func startEmerging(fromGroundOffsetFraction startingFraction: Double) {
+        groundPhase = .emerging
+        groundOffsetFraction = PetAnimator.clampedUnitValue(startingFraction)
+        phaseElapsedSeconds = PetAnimator.emergeElapsedSeconds(
+            forGroundOffsetFraction: groundOffsetFraction
+        )
+        chromeOpacity = PetAnimator.emergeChromeOpacity(phaseElapsedSeconds: phaseElapsedSeconds)
+        groundAnimationProgress = phaseElapsedSeconds / PetAnimator.emergeDurationInSeconds
+        beginGroundAnimation(named: .emerge)
+    }
+
+    private func startDiving(fromGroundOffsetFraction startingFraction: Double) {
+        groundPhase = .diving
+        groundOffsetFraction = PetAnimator.clampedUnitValue(startingFraction)
+        phaseElapsedSeconds = PetAnimator.diveElapsedSeconds(
+            forGroundOffsetFraction: groundOffsetFraction
+        )
+        chromeOpacity = PetAnimator.diveChromeOpacity(phaseElapsedSeconds: phaseElapsedSeconds)
+        groundAnimationProgress = PetAnimator.diveDescentProgress(phaseElapsedSeconds: phaseElapsedSeconds)
+        beginGroundAnimation(named: .dive)
+    }
+
+    private func beginGroundAnimation(named groundAnimationName: SpriteAnimationName) {
+        animationName = groundAnimationName
+        frameTick = 0
+        frameClockInSeconds = 0
+        remainingActivityInSeconds = 0
+    }
+
+    private func advanceEmerging(elapsedSeconds: Double) {
+        phaseElapsedSeconds += elapsedSeconds
+        let progress = min(1, phaseElapsedSeconds / PetAnimator.emergeDurationInSeconds)
+        groundAnimationProgress = progress
+        groundOffsetFraction = PetAnimator.easeOutRemainingDistance(progress: progress)
+        chromeOpacity = PetAnimator.emergeChromeOpacity(phaseElapsedSeconds: phaseElapsedSeconds)
+        guard progress >= 1 else { return }
+        groundPhase = .grounded
+        groundOffsetFraction = PetAnimator.fullyAboveGround
+        chromeOpacity = PetAnimator.opaqueChrome
+        groundAnimationProgress = 0
+        beginWalking()
+    }
+
+    private func advanceDiving(elapsedSeconds: Double) {
+        phaseElapsedSeconds += elapsedSeconds
+        chromeOpacity = PetAnimator.diveChromeOpacity(phaseElapsedSeconds: phaseElapsedSeconds)
+        let progress = PetAnimator.diveDescentProgress(phaseElapsedSeconds: phaseElapsedSeconds)
+        groundAnimationProgress = progress
+        groundOffsetFraction = PetAnimator.easeInTravelledDistance(progress: progress)
+        guard progress >= 1 else { return }
+        groundPhase = .submerged
+        groundOffsetFraction = PetAnimator.fullyUnderground
+        chromeOpacity = PetAnimator.transparentChrome
+    }
+
+    private func advanceMoodBehavior(elapsedSeconds: Double, mood: PetMood) {
+        switch mood {
+        case .ready:
+            advanceWandering(elapsedSeconds: elapsedSeconds)
+        case .needsInput:
+            settle(on: .idle)
+        case .blocked:
+            settle(on: .sit)
+        }
+    }
+
+    private func advanceFrameClock(elapsedSeconds: Double) {
+        let secondsPerFrame = 1 / PetAnimator.framesPerSecond
+        frameClockInSeconds += elapsedSeconds
+        while frameClockInSeconds >= secondsPerFrame {
+            frameClockInSeconds -= secondsPerFrame
+            frameTick += 1
+        }
+    }
+
+    private func advanceBubbleBob(elapsedSeconds: Double) {
+        bubblePhaseInSeconds += elapsedSeconds
+        let normalizedWave = (sin(bubblePhaseInSeconds * PetGeometry.bubbleBobRadiansPerSecond) + 1) / 2
+        bubbleVerticalOffset = CGFloat(normalizedWave) * PetGeometry.bubbleBobAmplitude
+    }
+
+    private func advanceWandering(elapsedSeconds: Double) {
+        remainingActivityInSeconds -= elapsedSeconds
+        switch animationName {
+        case .walk:
+            walk(elapsedSeconds: elapsedSeconds)
+            if remainingActivityInSeconds <= 0 { beginResting() }
+        case .idle, .wave:
+            if remainingActivityInSeconds <= 0 { beginWalking() }
+        case .sit, .emerge, .dive:
+            beginWalking()
+        }
+    }
+
+    private func settle(on restingAnimation: SpriteAnimationName) {
+        guard animationName != restingAnimation else { return }
+        animationName = restingAnimation
+        frameTick = 0
+        frameClockInSeconds = 0
+        remainingActivityInSeconds = 0
+    }
+
+    private func beginWalking() {
+        animationName = .walk
+        frameTick = 0
+        remainingActivityInSeconds = Double.random(
+            in: PetAnimator.minimumWalkInSeconds...PetAnimator.maximumWalkInSeconds
+        )
+    }
+
+    private func beginResting() {
+        frameTick = 0
+        if Double.random(in: 0...1) < PetAnimator.waveProbability {
+            animationName = .wave
+            remainingActivityInSeconds = PetAnimator.waveDurationInSeconds
+            return
+        }
+        animationName = .idle
+        remainingActivityInSeconds = Double.random(
+            in: PetAnimator.minimumPauseInSeconds...PetAnimator.maximumPauseInSeconds
+        )
+    }
+
+    private func walk(elapsedSeconds: Double) {
+        horizontalOffsetFromHome += walkDirection
+            * PetAnimator.walkSpeedInPointsPerSecond
+            * CGFloat(elapsedSeconds)
+        if horizontalOffsetFromHome > LaneLayout.wanderHalfWidth {
+            horizontalOffsetFromHome = LaneLayout.wanderHalfWidth
+            turnAround()
+        } else if horizontalOffsetFromHome < -LaneLayout.wanderHalfWidth {
+            horizontalOffsetFromHome = -LaneLayout.wanderHalfWidth
+            turnAround()
+        }
+    }
+
+    private func turnAround() {
+        walkDirection *= -1
+        facingLeft = walkDirection < 0
+    }
+
+    private static func clampedUnitValue(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+
+    private static func easeOutRemainingDistance(progress: Double) -> Double {
+        let remaining = 1 - clampedUnitValue(progress)
+        return remaining * remaining
+    }
+
+    private static func easeInTravelledDistance(progress: Double) -> Double {
+        let travelled = clampedUnitValue(progress)
+        return travelled * travelled
+    }
+
+    private static func emergeElapsedSeconds(forGroundOffsetFraction fraction: Double) -> Double {
+        (1 - sqrt(clampedUnitValue(fraction))) * emergeDurationInSeconds
+    }
+
+    private static func diveElapsedSeconds(forGroundOffsetFraction fraction: Double) -> Double {
+        let remainingFraction = clampedUnitValue(fraction)
+        guard remainingFraction > fullyAboveGround else { return 0 }
+        return diveChromeFadeOutDurationInSeconds + sqrt(remainingFraction) * diveDescentDurationInSeconds
+    }
+
+    private static func emergeChromeOpacity(phaseElapsedSeconds: Double) -> Double {
+        let fadeInStartInSeconds = emergeDurationInSeconds - emergeChromeFadeInDurationInSeconds
+        let elapsedSinceFadeInStart = phaseElapsedSeconds - fadeInStartInSeconds
+        guard elapsedSinceFadeInStart > 0 else { return transparentChrome }
+        return clampedUnitValue(elapsedSinceFadeInStart / emergeChromeFadeInDurationInSeconds)
+    }
+
+    private static func diveChromeOpacity(phaseElapsedSeconds: Double) -> Double {
+        let fadeOutProgress = clampedUnitValue(phaseElapsedSeconds / diveChromeFadeOutDurationInSeconds)
+        return opaqueChrome - fadeOutProgress
+    }
+
+    private static func diveDescentProgress(phaseElapsedSeconds: Double) -> Double {
+        let descentElapsedSeconds = phaseElapsedSeconds - diveChromeFadeOutDurationInSeconds
+        guard descentElapsedSeconds > 0 else { return 0 }
+        return min(1, descentElapsedSeconds / diveDescentDurationInSeconds)
+    }
+}
