@@ -13,6 +13,7 @@ enum StatusCommand {
     private static let enabledColumnWidth = 8
     private static let visibleColumnWidth = 8
     private static let moodColumnWidth = 11
+    private static let agentsColumnWidth = 7
 
     static func run() -> Int32 {
         let sessions = PetSessionStore().list().sorted { leftSession, rightSession in
@@ -37,6 +38,7 @@ enum StatusCommand {
             enabled: "ENABLED",
             visible: "VISIBLE",
             mood: "MOOD",
+            agents: "AGENTS",
             alive: "ALIVE"
         )
     }
@@ -49,6 +51,7 @@ enum StatusCommand {
             enabled: yesOrNo(session.enabled),
             visible: yesOrNo(session.visible),
             mood: session.mood.rawValue,
+            agents: "\(session.activeSubagentIds.count)",
             alive: yesOrNo(ProcessLiveness.isAlive(session: session, claudeSession: claudeSession))
         )
     }
@@ -60,6 +63,7 @@ enum StatusCommand {
         enabled: String,
         visible: String,
         mood: String,
+        agents: String,
         alive: String
     ) -> String {
         [
@@ -69,6 +73,7 @@ enum StatusCommand {
             padded(enabled, width: enabledColumnWidth),
             padded(visible, width: visibleColumnWidth),
             padded(mood, width: moodColumnWidth),
+            padded(agents, width: agentsColumnWidth),
             alive
         ].joined(separator: columnGap)
     }

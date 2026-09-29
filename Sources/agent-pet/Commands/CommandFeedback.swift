@@ -30,6 +30,11 @@ enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportMissingTmuxTarget(_ sessionId: String) -> Int32 {
+        writeToStandardError("no tmux target for session \(sessionId).")
+        return ExitCode.usage
+    }
+
     static func reportUsage() -> Int32 {
         writeToStandardError(usageText)
         return ExitCode.usage
@@ -57,6 +62,7 @@ enum CommandFeedback {
       status           list enrolled sessions and the daemon pid
       hook             read one hook JSON object from stdin and dispatch
       preview          show a fake pet for a few seconds
+      focus            jump to this session's tmux pane and terminal tab
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

@@ -30,6 +30,8 @@ enum AgentPetCommandLine {
             return HookCommand.run(flags: flags)
         case .preview:
             return PreviewCommand.run(flags: flags)
+        case .focus:
+            return FocusCommand.run(flags: flags)
         }
     }
 }

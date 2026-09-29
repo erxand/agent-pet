@@ -19,6 +19,7 @@ LAUNCH_AGENT_LABEL="com.agent-pet.daemon"
 LAUNCH_AGENT_PLIST_PATH="${LAUNCH_AGENTS_DIRECTORY}/${LAUNCH_AGENT_LABEL}.plist"
 LAUNCH_AGENT_DOMAIN_TARGET="gui/$(id -u)"
 LAUNCH_AGENT_SERVICE_TARGET="${LAUNCH_AGENT_DOMAIN_TARGET}/${LAUNCH_AGENT_LABEL}"
+LAUNCH_AGENT_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 mkdir -p "${HOME}/.local/bin"
 mkdir -p "${SESSIONS_DIRECTORY}"
@@ -59,6 +60,11 @@ cat > "${LAUNCH_AGENT_PLIST_PATH}" <<PLIST
         <string>${BINARY_SOURCE_PATH}</string>
         <string>daemon</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>${LAUNCH_AGENT_PATH}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

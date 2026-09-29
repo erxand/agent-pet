@@ -27,6 +27,7 @@ struct PetSession: Codable {
     var tmuxTarget: String?
     var pid: Int32?
     var sprite: String?
+    var activeSubagentIds: [String]
     var updatedAt: Double
 
     var isPreview: Bool {
@@ -57,6 +58,7 @@ extension PetSession {
         tmuxTarget = try container.decodeIfPresent(String.self, forKey: .tmuxTarget)
         pid = try container.decodeIfPresent(Int32.self, forKey: .pid)
         sprite = try container.decodeIfPresent(String.self, forKey: .sprite)
+        activeSubagentIds = try container.decodeIfPresent([String].self, forKey: .activeSubagentIds) ?? []
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
     }
 
@@ -74,6 +76,7 @@ extension PetSession {
             tmuxTarget: nil,
             pid: nil,
             sprite: nil,
+            activeSubagentIds: [],
             updatedAt: Date().timeIntervalSince1970
         )
     }

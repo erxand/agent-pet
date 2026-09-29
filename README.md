@@ -51,10 +51,14 @@ in place and prints the `rm -rf` command to run if you want the state directory 
 - `/pet <nickname>` enrolls with a custom nickname.
 - `/pet <nickname> cyan` enrolls with a custom nickname and a specific accent color.
 - `/pet off` unenrolls this session; its pet stops appearing.
-- Clicking a pet focuses that session's tmux pane and terminal app, then hides the pet.
-  Right-clicking just hides it.
+- Clicking a pet focuses that session's tmux pane and terminal tab, then hides the pet.
+  Right-clicking just hides it. See "Focusing a session" below.
+- `agent-pet focus [--session ID]` runs exactly what a click runs, from any shell, so you can
+  test focusing without waiting for a pet. It exits 2 when the session has no record or no
+  tmux pane. Add `--no-client-switch` to select the window and pane and leave every attached
+  client where it is.
 - `agent-pet status` prints a table of enrolled sessions (id, label, accent, enabled,
-  visible, mood, alive) and the daemon's pid.
+  visible, mood, running subagent count, alive) and the daemon's pid.
 - `agent-pet preview` shows a fake pet for a fixed number of seconds so you can check the
   overlay without enrolling a real session.
 
@@ -87,6 +91,29 @@ Every pet uses the same orange pixel body by default. Sessions differ in four wa
 - Sprite pack: `--sprite <name>` picks a different body from `~/.agent-pet/sprites/`, so two
   sessions can run different creatures. See sprites/README.md.
 
+## Focusing a session
+
+Clicking a pet, and `agent-pet focus`, do the same five steps:
+
+1. `tmux select-window` on the session's window.
+2. `tmux select-pane` on its pane.
+3. `tmux list-clients`, then `tmux switch-client -c <client tty>` to put a client on that
+   session. The client is the one already attached to the session if there is one, otherwise
+   the most recently active client. A client already on the session needs no switch.
+4. If iTerm2 is running, an AppleScript finds the tab whose tty is that client's tty, selects
+   the tab and its session, brings that window to the front and activates iTerm2.
+5. If step 4 finds nothing, or your terminal is not iTerm2, the first running terminal among
+   iTerm2, Terminal and Ghostty is activated instead.
+
+The first time step 4 runs, macOS asks whether agent-pet may control iTerm2. Allow it to get
+the exact tab. Deny it and you keep everything else: the tmux window and pane are still
+selected, and the terminal still comes to the front.
+
+The daemon runs under launchd with a minimal `PATH`, so it finds tmux by absolute path:
+`$TMUX_EXECUTABLE` if you set it, then `/opt/homebrew/bin/tmux`, `/usr/local/bin/tmux`,
+`/usr/bin/tmux`, then the first `tmux` on `PATH`. With no tmux anywhere, every tmux step is
+skipped and only the terminal is activated.
+
 ## How it decides when to show
 
 The `/pet` skill registers session-scoped hooks that call `agent-pet hook` on every
@@ -94,10 +121,28 @@ relevant event. Each hook run is async and never blocks or fails the turn.
 
 | event | what agent-pet does |
 |---|---|
-| `Stop` | shows the pet with mood `ready`, with the first line of the assistant's last message as the status text |
-| `Notification`, when the type is `permission_prompt` or `agent_needs_input` | shows the pet with mood `needsInput` |
-| `UserPromptSubmit`, `PreToolUse` | hides the pet, since the session is working again |
+| `Stop`, with no background subagents left | shows the pet with mood `ready`, with the first line of the assistant's last message as the status text |
+| `Stop`, with background subagents still running | keeps the pet hidden, because the session is waiting on its own subagents |
+| `Notification`, when the type is `permission_prompt` or `agent_needs_input` | shows the pet with mood `needsInput`, even while subagents run |
+| `SubagentStart` | records that subagent as running; shows and hides nothing |
+| `SubagentStop` | records that subagent as finished; shows and hides nothing |
+| `UserPromptSubmit` | forgets every recorded subagent and hides the pet |
+| `PreToolUse` | hides the pet, since the session is working again |
 | `SessionEnd` | deletes the session's pet record entirely |
+
+Claude Code fires `Stop` when the main agent's turn ends, and it fires it even when the
+session started subagents in the background, because finishing one of those subagents
+re-invokes the main agent. So `Stop` on its own does not mean the session is waiting on you,
+and agent-pet holds the pet back until the session has no running subagent left. A permission
+prompt is the exception: it waits on you whatever the subagents are doing.
+
+`UserPromptSubmit` clears the list as well as hiding the pet. A new prompt from you makes the
+last turn's bookkeeping stale, and the clear also repairs a `SubagentStop` that never arrived,
+so a missed event costs you one turn at most.
+
+A session you enrolled before this change has only the five older hooks, because the `/pet`
+skill registers its hooks at the moment you invoke it. Run `/pet` again in that session to pick
+up `SubagentStart` and `SubagentStop`.
 
 ## Prompt bar color sync
 
@@ -161,7 +206,7 @@ console with a `[agent-pet]` prefix and never interrupt the turn.
 ~/.agent-pet/
   sessions/<session_id>.json   one record per enrolled session: nickname, label, accent,
                                 mood, message, agent, tmuxTarget, pid, sprite, enabled,
-                                visible, updatedAt
+                                visible, activeSubagentIds, updatedAt
   sprites/<pack>/              installed sprite packs, see sprites/README.md
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon stderr

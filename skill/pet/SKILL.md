@@ -27,6 +27,16 @@ hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
           async: true
+  SubagentStart:
+    - hooks:
+        - type: command
+          command: '"$HOME/.local/bin/agent-pet" hook'
+          async: true
+  SubagentStop:
+    - hooks:
+        - type: command
+          command: '"$HOME/.local/bin/agent-pet" hook'
+          async: true
 ---
 
 Parse `$ARGUMENTS`.

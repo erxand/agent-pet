@@ -6,6 +6,8 @@ enum HookEventName: String {
     case userPromptSubmit = "UserPromptSubmit"
     case preToolUse = "PreToolUse"
     case sessionEnd = "SessionEnd"
+    case subagentStart = "SubagentStart"
+    case subagentStop = "SubagentStop"
 }
 
 enum HookNotificationType: String {
@@ -16,12 +18,14 @@ enum HookNotificationType: String {
 struct HookPayload: Codable {
     let hookEventName: String?
     let sessionId: String?
+    let agentId: String?
     let notificationType: String?
     let lastAssistantMessage: String?
 
     enum CodingKeys: String, CodingKey {
         case hookEventName = "hook_event_name"
         case sessionId = "session_id"
+        case agentId = "agent_id"
         case notificationType = "notification_type"
         case lastAssistantMessage = "last_assistant_message"
     }
@@ -39,19 +43,36 @@ enum HookCommand {
 
         switch eventName {
         case .stop:
-            showAndEnsureDaemon(
-                sessionId: sessionId,
-                mood: .ready,
-                message: firstLineSummary(of: payload.lastAssistantMessage)
-            )
+            handleStop(payload: payload, sessionId: sessionId)
         case .notification:
             handleNotification(payload: payload, sessionId: sessionId)
-        case .userPromptSubmit, .preToolUse:
+        case .subagentStart:
+            guard let agentId = payload.agentId else { break }
+            PetSubagentTracking.recordStart(sessionId: sessionId, agentId: agentId)
+        case .subagentStop:
+            guard let agentId = payload.agentId else { break }
+            PetSubagentTracking.recordStop(sessionId: sessionId, agentId: agentId)
+        case .userPromptSubmit:
+            PetSubagentTracking.clear(sessionId: sessionId)
+            PetTurnState.hide(sessionId: sessionId)
+        case .preToolUse:
             PetTurnState.hide(sessionId: sessionId)
         case .sessionEnd:
             PetSessionStore().delete(sessionId: sessionId)
         }
         return ExitCode.success
+    }
+
+    private static func handleStop(payload: HookPayload, sessionId: String) {
+        guard !PetTurnState.hasActiveSubagents(sessionId: sessionId) else {
+            PetTurnState.hide(sessionId: sessionId)
+            return
+        }
+        showAndEnsureDaemon(
+            sessionId: sessionId,
+            mood: .ready,
+            message: firstLineSummary(of: payload.lastAssistantMessage)
+        )
     }
 
     private static func handleNotification(payload: HookPayload, sessionId: String) {

@@ -4,25 +4,37 @@ enum TmuxSubcommand: String {
     case selectWindow = "select-window"
     case selectPane = "select-pane"
     case switchClient = "switch-client"
+    case listClients = "list-clients"
     case displayMessage = "display-message"
     case sendKeys = "send-keys"
 }
 
 enum CommandSwitch: String, CaseIterable {
     case noColorSync = "--no-color-sync"
+    case noClientSwitch = "--no-client-switch"
 }
 
 enum TmuxCommandRunner {
     static let targetFlag = "-t"
     static let printFlag = "-p"
+    static let formatFlag = "-F"
     static let literalFlag = "-l"
+    static let clientFlag = "-c"
     static let enterKeyName = "Enter"
 
-    private static let environmentExecutablePath = "/usr/bin/env"
+    static let executablePath: String? = resolveExecutablePath()
+
     private static let tmuxExecutableName = "tmux"
+    private static let wellKnownExecutablePaths = [
+        "/opt/homebrew/bin/tmux",
+        "/usr/local/bin/tmux",
+        "/usr/bin/tmux"
+    ]
+    private static let searchPathSeparator: Character = ":"
+    private static let pathComponentSeparator = "/"
 
     static func run(subcommand: TmuxSubcommand, arguments: [String]) {
-        let process = makeProcess(subcommand: subcommand, arguments: arguments)
+        guard let process = makeProcess(subcommand: subcommand, arguments: arguments) else { return }
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -34,7 +46,7 @@ enum TmuxCommandRunner {
     }
 
     static func capture(subcommand: TmuxSubcommand, arguments: [String]) -> String? {
-        let process = makeProcess(subcommand: subcommand, arguments: arguments)
+        guard let process = makeProcess(subcommand: subcommand, arguments: arguments) else { return nil }
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = FileHandle.nullDevice
@@ -51,12 +63,37 @@ enum TmuxCommandRunner {
         return output.isEmpty ? nil : output
     }
 
-    private static func makeProcess(subcommand: TmuxSubcommand, arguments: [String]) -> Process {
+    private static func makeProcess(subcommand: TmuxSubcommand, arguments: [String]) -> Process? {
+        guard let resolvedExecutablePath = executablePath else { return nil }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: environmentExecutablePath)
-        process.arguments = [tmuxExecutableName, subcommand.rawValue] + arguments
+        process.executableURL = URL(fileURLWithPath: resolvedExecutablePath)
+        process.arguments = [subcommand.rawValue] + arguments
         process.standardInput = FileHandle.nullDevice
         return process
+    }
+
+    private static func resolveExecutablePath() -> String? {
+        let environment = ProcessInfo.processInfo.environment
+        if let overriddenPath = environment[EnvironmentVariableName.tmuxExecutable],
+           isExecutableFile(atPath: overriddenPath) {
+            return overriddenPath
+        }
+        for candidatePath in wellKnownExecutablePaths where isExecutableFile(atPath: candidatePath) {
+            return candidatePath
+        }
+        guard let searchPath = environment[EnvironmentVariableName.executableSearchPath] else { return nil }
+        for directoryPath in searchPath.split(separator: searchPathSeparator) {
+            let candidatePath = String(directoryPath) + pathComponentSeparator + tmuxExecutableName
+            if isExecutableFile(atPath: candidatePath) {
+                return candidatePath
+            }
+        }
+        return nil
+    }
+
+    private static func isExecutableFile(atPath path: String) -> Bool {
+        guard !path.isEmpty else { return false }
+        return FileManager.default.isExecutableFile(atPath: path)
     }
 }
 

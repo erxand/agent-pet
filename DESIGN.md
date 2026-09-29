@@ -42,7 +42,7 @@ file on every write (temp file in the same dir, then rename).
 {"sessionId":"1dd88945-2a6c-4903-88f8-c8837c6cd8d3","enabled":true,"visible":false,
  "nickname":"evidence set","label":"evidence set pipelines","accent":"cyan","mood":"ready",
  "message":"MR ready for review","agent":"claude-code","tmuxTarget":"par:@1.%1","pid":71481,
- "sprite":"claude","updatedAt":1790014288.12}
+ "sprite":"claude","activeSubagentIds":[],"updatedAt":1790014288.12}
 ```
 
 - `agent` is `claude-code` or `pi`, defaulting to `claude-code`. `nickname`, `label`, `accent`
@@ -56,6 +56,9 @@ file on every write (temp file in the same dir, then rename).
   alive. `mood` is one of `ready`, `needsInput`, `blocked`.
 - `visible: true` is the only thing that makes a pet appear, `enabled: false` makes `show` a no-op, and deleting the
   file removes the pet.
+- `activeSubagentIds` holds the `agent_id` of every background subagent the session has started and not yet finished.
+  It defaults to empty when absent, so records written before this field existed still decode. Only the three narrow
+  writers `PetSubagentTracking.recordStart`, `recordStop` and `clear` touch it.
 
 ## Enrichment from Claude Code's own session files
 
@@ -109,19 +112,34 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID]` | visible false |
 | `remove [--session ID]` | delete the record |
-| `status` | table: session id (short), label, accent, enabled, visible, mood, alive; plus daemon pid |
+| `status` | table: session id (short), label, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`) for N seconds (default 20) so the overlay can be tested without a real session |
+| `focus [--session ID] [--no-client-switch]` | run the same `SessionFocuser.focus` a left click runs, so focusing can be tested from a shell; exit 2 when the record is missing or has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client |
 
 ## `hook` dispatch on `hook_event_name`
 
 | event | action |
 |---|---|
-| `Stop` | `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present) |
-| `Notification` with `notification_type` in `permission_prompt`, `agent_needs_input` | `show --mood needsInput` |
-| `UserPromptSubmit`, `PreToolUse` | `hide` |
+| `Stop`, record has no active subagent ids | `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present) |
+| `Stop`, record has active subagent ids | `hide`, and do not ensure the daemon |
+| `Notification` with `notification_type` in `permission_prompt`, `agent_needs_input` | `show --mood needsInput`, whatever the subagent set holds |
+| `SubagentStart` | `PetSubagentTracking.recordStart` with the payload's `agent_id`; shows and hides nothing |
+| `SubagentStop` | `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
+| `UserPromptSubmit` | `PetSubagentTracking.clear`, then `hide` |
+| `PreToolUse` | `hide` |
 | `SessionEnd` | `remove` |
 | anything else | nothing |
+
+Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
+background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
+on its own therefore does not mean the session is waiting on Xander, so the record carries
+`activeSubagentIds` and a `Stop` with a non-empty set hides instead of showing. A permission prompt
+is the exception, because it really is waiting on Xander whatever the subagents are doing.
+
+`UserPromptSubmit` clears the set as well as hiding: a new prompt from Xander makes the previous
+turn's bookkeeping stale, and the clear self-heals a `SubagentStop` that never arrived, so a missed
+event can strand the pet for one turn at most.
 
 The hook path must be fast (<50 ms) and never throw. Unknown JSON, missing fields or a missing
 state dir all exit 0 quietly.
@@ -134,7 +152,9 @@ crash left every later hook updating records that nothing drew.
 
 - `install.sh` writes `~/Library/LaunchAgents/com.agent-pet.daemon.plist` with label
   `com.agent-pet.daemon`, `ProgramArguments` of the absolute binary path plus `daemon`, `RunAtLoad`
-  and `KeepAlive` true, `ProcessType` `Interactive`, `LimitLoadToSessionType` `Aqua`, and both
+  and `KeepAlive` true, `ProcessType` `Interactive`, `LimitLoadToSessionType` `Aqua`,
+  `EnvironmentVariables` with `PATH` of
+  `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, and both
   `StandardOutPath` and `StandardErrorPath` set to `~/.agent-pet/daemon.log`. It then runs
   `launchctl bootout gui/<uid>/com.agent-pet.daemon`, ignoring failure, and
   `launchctl bootstrap gui/<uid> <plist>`. `uninstall.sh` does the bootout and removes the plist.
@@ -165,9 +185,8 @@ crash left every later hook updating records that nothing drew.
   leftward travel), random idle pauses of 1 to 3 s.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
-- Left click: focus the session, then hide. Focus = run `tmux select-window -t SESSION:@WINDOW`,
-  `tmux select-pane -t %PANE`, `tmux switch-client -t SESSION` (ignore failures), then activate the
-  first running app among `com.googlecode.iterm2`, `com.apple.Terminal`, `com.mitchellh.ghostty`. Right click: hide only.
+- Left click: focus the session, then hide. Right click: hide only. Focus is `SessionFocuser.focus`,
+  described under "Focusing a session".
 - The daemon polls `~/.agent-pet/sessions/` every 300 ms (mtime of the dir, then file contents on
   change) and reconciles windows to records. Liveness check every 5 s.
 - The same poll signs `~/.claude/sessions/` the same way. On change the daemon re-resolves every
@@ -225,6 +244,41 @@ sprites/<pack-name>/
   `#` and `O` pixels above the head), then eyes open wide, then a shake. dive = look down, squash
   flat, then a small `#`/`O` dust puff where the body was.
 
+## Focusing a session
+
+A left click on a pet, and the `focus` command, run the same `SessionFocuser.focus`.
+
+1. `tmux select-window -t SESSION:@WINDOW`, then `tmux select-pane -t %PANE`.
+2. `tmux list-clients -F '#{client_tty}\t#{session_name}\t#{client_activity}'`, parsed into one record
+   per row. The chosen client is the first one already attached to the target session, or else the one
+   with the greatest `client_activity`.
+3. `tmux switch-client -c <client_tty> -t SESSION`, skipped when no client was found, when the chosen
+   client is already on the target session, or when `--no-client-switch` was passed. Steps 1 and 2 run
+   either way.
+4. When a client was chosen, `--no-client-switch` was not passed and iTerm2 is running,
+   `/usr/bin/osascript` runs a script that walks the
+   windows, tabs and sessions of application `iTerm2`, and for the session whose `tty` is the chosen
+   client tty selects the tab and the session, sets that window's `index` to 1, activates iTerm2 and
+   returns a success marker. Any other result, including a missing tty and a terminal that is not
+   iTerm2, falls through to step 5.
+5. Activate the first running app among `com.googlecode.iterm2`, `com.apple.Terminal`,
+   `com.mitchellh.ghostty`.
+
+macOS asks once for Automation permission the first time step 4 runs, so agent-pet may control
+iTerm2. Denying it costs only the exact tab: step 5 still brings the terminal forward, and the tmux
+selection in steps 1 to 3 already happened.
+
+Every tmux and osascript failure is ignored.
+
+### Finding the tmux binary
+
+The daemon runs under launchd with a minimal `PATH`, so `/usr/bin/env tmux` failed for every call the
+daemon made while hooks and the CLI, which run from real shells, worked. `TmuxCommandRunner` instead
+resolves the binary once into a `static let` and runs it by absolute path: `$TMUX_EXECUTABLE` when it
+is set and executable, then `/opt/homebrew/bin/tmux`, `/usr/local/bin/tmux`, `/usr/bin/tmux`, then the
+first `tmux` on `PATH`. When none of those exists every tmux call is a silent no-op, as before.
+`$TMUX_EXECUTABLE` also lets a test point the tool at a stub binary.
+
 ## Prompt bar color sync
 
 Claude Code has a per-session prompt bar color, set by
@@ -245,8 +299,9 @@ because there is no API for `/color` the CLI types it into the session's tmux pa
 ## Skill `/pet`
 
 `skill/pet/SKILL.md` frontmatter registers session-scoped hooks so enrollment is inherently per-session: `Stop`,
-`Notification`, `UserPromptSubmit`, `PreToolUse`, `SessionEnd`, each running `"$HOME/.local/bin/agent-pet" hook` as an
-async command hook. The absolute path is deliberate: hook shells do not reliably have `~/.local/bin` on `PATH`.
+`Notification`, `UserPromptSubmit`, `PreToolUse`, `SessionEnd`, `SubagentStart`, `SubagentStop`, each running
+`"$HOME/.local/bin/agent-pet" hook` as an async command hook. Hooks are registered when `/pet` is invoked, so a
+session enrolled before `SubagentStart` and `SubagentStop` existed needs `/pet` again to pick them up. The absolute path is deliberate: hook shells do not reliably have `~/.local/bin` on `PATH`.
 Invoking `/pet` is the whole opt-in; the body tells Claude to run `agent-pet on` with an optional nickname and accent
 from `$ARGUMENTS`, or `agent-pet off` for `/pet off`, then report the accent in one line.
 

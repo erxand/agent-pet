@@ -11,6 +11,7 @@ enum CommandName: String, CaseIterable {
     case status
     case hook
     case preview
+    case focus
 }
 
 enum CommandFlag: String, CaseIterable {
