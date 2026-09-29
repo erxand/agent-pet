@@ -1,14 +1,14 @@
 # agent-pet design contract
 
 A macOS overlay pet that appears along the bottom of the screen only when an enrolled coding
-agent session has finished its turn and is waiting on Xander. Sessions opt in one at a time, with
+agent session has finished its turn and is waiting on the user. Sessions opt in one at a time, with
 the `/pet` skill in Claude Code or the `/pet` command in pi. Nothing is global: a session that
 never ran `/pet` has no hooks, no state and no pet.
 
 ## Layout
 
 ```
-~/other-code/agent-pet/
+agent-pet/
   DESIGN.md, README.md         this contract, and install + usage
   Package.swift                swift-tools 5.9, one executable target `agent-pet`, macOS 14+
   Sources/agent-pet/
@@ -82,7 +82,7 @@ writes `visible` under the same lock, so it can never decide on a set that anoth
 changing. Ordering comes from the skill: every hook is `async: false`, so Claude Code runs hooks in event order
 and a `SubagentStart` completes before the `Stop` that follows it. The `Stop` hook still has no blocking effect,
 because the command exits 0 and prints nothing. `SubagentStart` also hides, in that same locked write, because a
-subagent starting means the session is not waiting on Xander. `SubagentStop` stays record-only: the main agent is
+subagent starting means the session is not waiting on the user. `SubagentStop` stays record-only: the main agent is
 about to be re-invoked, and its own `Stop` decides.
 
 ## Enrichment from Claude Code's own session files
@@ -165,11 +165,11 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
-on its own therefore does not mean the session is waiting on Xander, so the record carries
+on its own therefore does not mean the session is waiting on the user, so the record carries
 `activeSubagentIds` and a `Stop` with a non-empty set hides instead of showing. A permission prompt
-is the exception, because it really is waiting on Xander whatever the subagents are doing.
+is the exception, because it really is waiting on the user whatever the subagents are doing.
 
-`UserPromptSubmit` clears the set as well as hiding: a new prompt from Xander makes the previous
+`UserPromptSubmit` clears the set as well as hiding: a new prompt from the user makes the previous
 turn's bookkeeping stale, and the clear self-heals a `SubagentStop` that never arrived, so a missed
 event can strand the pet for one turn at most.
 
@@ -320,7 +320,7 @@ first `tmux` on `PATH`. When none of those exists every tmux call is a silent no
 
 Claude Code has a per-session prompt bar color, set by
 `/color [red|blue|green|yellow|purple|orange|pink|cyan|default]` (binary 2.1.278 marks it
-`immediate` and `supportsNonInteractive`). Xander never sets it himself, so the tool owns it, and
+`immediate` and `supportsNonInteractive`). The user never sets it, so the tool owns it, and
 because there is no API for `/color` the CLI types it into the session's tmux pane.
 
 - `on`, when the record's agent is `claude-code` and a tmux target was resolved: after writing

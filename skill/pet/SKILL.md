@@ -47,8 +47,11 @@ If it is empty, or it is anything that does not start with `off`, enroll this se
 2. Check whether the text contains one of these eight accent names: `red`, `blue`, `green`,
    `yellow`, `purple`, `orange`, `pink`, `cyan`. If it does, remove that word from the
    nickname candidate and pass it as `--accent <color>`.
-3. Run `agent-pet on`. Pass `--nickname "<remaining nickname text>"` only if there is any
-   text left after stripping the accent word. Pass `--accent <color>` only if step 2 found one.
+3. Check whether the text contains a token of the form `sprite:<name>`. If it does, remove
+   that token from the nickname candidate and pass it as `--sprite <name>`.
+4. Run `agent-pet on`. Pass `--nickname "<remaining nickname text>"` only if there is any
+   text left after stripping the accent word and the sprite token. Pass `--accent <color>`
+   only if step 2 found one, and `--sprite <name>` only if step 3 found one.
 
 If `$ARGUMENTS` starts with `off`, run `agent-pet off` instead.
 
