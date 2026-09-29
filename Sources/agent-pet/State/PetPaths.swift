@@ -2,6 +2,7 @@ import Foundation
 
 enum PetPaths {
     static let sessionRecordFileExtension = "json"
+    static let sessionLockFileExtension = "lock"
 
     private static let stateDirectoryName = ".agent-pet"
     private static let sessionsDirectoryName = "sessions"
@@ -10,6 +11,7 @@ enum PetPaths {
     private static let claudeSessionsDirectoryName = "sessions"
     private static let daemonProcessIdentifierFileName = "daemon.pid"
     private static let daemonLogFileName = "daemon.log"
+    private static let hookLogFileName = "hooks.log"
 
     static var homeDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -39,6 +41,10 @@ enum PetPaths {
 
     static var daemonLogFile: URL {
         stateDirectory.appendingPathComponent(daemonLogFileName, isDirectory: false)
+    }
+
+    static var hookLogFile: URL {
+        stateDirectory.appendingPathComponent(hookLogFileName, isDirectory: false)
     }
 
     static func createStateDirectoriesIfNeeded() {

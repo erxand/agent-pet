@@ -41,6 +41,15 @@ in place and prints the `rm -rf` command to run if you want the state directory 
   run produced a later crash trace. The daemon truncates the log at startup once it passes 1 MB.
 - No pet after a crash: launchd restarts the daemon on its own, and the next `Stop` hook also
   kickstarts it. `launchctl kickstart gui/$(id -u)/com.agent-pet.daemon` forces the issue.
+- `~/.agent-pet/hooks.log` holds one line per hook event agent-pet handled, such as
+  `2026-09-29T18:14:07Z Stop 07619c1a - visible=true agents=0`: the time, the event, the first
+  eight characters of the session id, the subagent's `agent_id` or `-`, and the record's state
+  after the write. A pet that appears at the wrong moment shows up here as the event that set
+  `visible=true`. The file is truncated once it passes 1 MB.
+- A pet that appears while a background subagent is still running means that session is running
+  the old hooks. Hooks are registered at the moment you invoke `/pet`, and both the subagent
+  hooks and the synchronous ordering they depend on came later, so a session enrolled before
+  that needs `/pet` again.
 - The `/pet` skill's hooks live in the Claude Code process that ran `/pet`. A session you
   resume with `claude --resume` is a new process with no hooks, so run `/pet` again in it.
 
@@ -117,14 +126,16 @@ skipped and only the terminal is activated.
 ## How it decides when to show
 
 The `/pet` skill registers session-scoped hooks that call `agent-pet hook` on every
-relevant event. Each hook run is async and never blocks or fails the turn.
+relevant event. Claude Code runs them in event order, so a subagent that starts is recorded
+before the `Stop` that follows it. Each run takes a few milliseconds, exits 0 and prints
+nothing, so it never blocks or fails the turn.
 
 | event | what agent-pet does |
 |---|---|
 | `Stop`, with no background subagents left | shows the pet with mood `ready`, with the first line of the assistant's last message as the status text |
 | `Stop`, with background subagents still running | keeps the pet hidden, because the session is waiting on its own subagents |
 | `Notification`, when the type is `permission_prompt` or `agent_needs_input` | shows the pet with mood `needsInput`, even while subagents run |
-| `SubagentStart` | records that subagent as running; shows and hides nothing |
+| `SubagentStart` | records that subagent as running and hides the pet, since the session is now waiting on its own subagent |
 | `SubagentStop` | records that subagent as finished; shows and hides nothing |
 | `UserPromptSubmit` | forgets every recorded subagent and hides the pet |
 | `PreToolUse` | hides the pet, since the session is working again |
@@ -136,6 +147,10 @@ re-invokes the main agent. So `Stop` on its own does not mean the session is wai
 and agent-pet holds the pet back until the session has no running subagent left. A permission
 prompt is the exception: it waits on you whatever the subagents are doing.
 
+When a `SubagentStart` or `SubagentStop` event arrives without an `agent_id`, agent-pet tracks it
+under a synthetic id instead: a start adds the next free `unknown-<n>`, and a stop drops the most
+recently added one. A missing field costs you the exact identity of that subagent, not the count.
+
 `UserPromptSubmit` clears the list as well as hiding the pet. A new prompt from you makes the
 last turn's bookkeeping stale, and the clear also repairs a `SubagentStop` that never arrived,
 so a missed event costs you one turn at most.
@@ -143,6 +158,10 @@ so a missed event costs you one turn at most.
 A session you enrolled before this change has only the five older hooks, because the `/pet`
 skill registers its hooks at the moment you invoke it. Run `/pet` again in that session to pick
 up `SubagentStart` and `SubagentStop`.
+
+Two hooks can run at once, so every writer takes an exclusive lock on the session's record
+first, and the `Stop` hook reads the subagent list and writes `visible` inside that one lock.
+No pair of events can interleave into a pet that shows while a subagent runs.
 
 ## Prompt bar color sync
 
@@ -207,9 +226,11 @@ console with a `[agent-pet]` prefix and never interrupt the turn.
   sessions/<session_id>.json   one record per enrolled session: nickname, label, accent,
                                 mood, message, agent, tmuxTarget, pid, sprite, enabled,
                                 visible, activeSubagentIds, updatedAt
+  sessions/<session_id>.lock   the lock file that keeps two writers off one record
   sprites/<pack>/              installed sprite packs, see sprites/README.md
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon stderr
+  hooks.log                    one line per hook event agent-pet handled
 ```
 
 Deleting a session's record, or running `/pet off` in that session, removes its pet.

@@ -28,9 +28,11 @@ never ran `/pet` has no hooks, no state and no pet.
 ```
 ~/.agent-pet/
   sessions/<session_id>.json   one PetSession record per enrolled session
+  sessions/<session_id>.lock   the flock file that serializes writers of that record
   sprites/<pack>/              installed sprite packs
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon stderr
+  hooks.log                    one line per handled hook event
 ```
 
 State lives outside `~/.claude/` because the tool is agent-neutral: Claude Code is one adapter
@@ -58,7 +60,28 @@ file on every write (temp file in the same dir, then rename).
   file removes the pet.
 - `activeSubagentIds` holds the `agent_id` of every background subagent the session has started and not yet finished.
   It defaults to empty when absent, so records written before this field existed still decode. Only the three narrow
-  writers `PetSubagentTracking.recordStart`, `recordStop` and `clear` touch it.
+  writers `PetSubagentTracking.recordStartAndHide`, `recordStop` and `clear` touch it. A `SubagentStart` or
+  `SubagentStop` payload without an `agent_id` is tracked under the synthetic id `unknown-<n>`, where `n` is the
+  lowest number not already in the set: a start adds one, and a stop removes the most recently added `unknown-`
+  id. A missing field therefore degrades to a counter instead of to no tracking at all.
+
+## Concurrency
+
+Claude Code can run two hooks at once, so two `agent-pet hook` processes can hold the same record. Every
+load-modify-save goes through `PetSessionStore.withLockedRecord(sessionId:)`, which opens
+`sessions/<session_id>.lock`, takes `flock(LOCK_EX)`, loads the record, hands it to the caller's transform and
+writes it back only when the transform changed it, then releases the lock on scope exit. The CLI, the hooks, the
+pi extension's CLI calls and the daemon's own hide on a click all take the same lock, so a read can never be
+interleaved with another process's write. Each writer stays its own narrow function; only the locking is shared.
+Setting the record to `nil` inside the transform deletes it, and deleting removes the lock file with it.
+
+The `Stop` decision is part of one locked section: `showUnlessSubagentsActive` reads `activeSubagentIds` and
+writes `visible` under the same lock, so it can never decide on a set that another process is in the middle of
+changing. Ordering comes from the skill: every hook is `async: false`, so Claude Code runs hooks in event order
+and a `SubagentStart` completes before the `Stop` that follows it. The `Stop` hook still has no blocking effect,
+because the command exits 0 and prints nothing. `SubagentStart` also hides, in that same locked write, because a
+subagent starting means the session is not waiting on Xander. `SubagentStop` stays record-only: the main agent is
+about to be re-invoked, and its own `Stop` decides.
 
 ## Enrichment from Claude Code's own session files
 
@@ -124,7 +147,7 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 | `Stop`, record has no active subagent ids | `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present) |
 | `Stop`, record has active subagent ids | `hide`, and do not ensure the daemon |
 | `Notification` with `notification_type` in `permission_prompt`, `agent_needs_input` | `show --mood needsInput`, whatever the subagent set holds |
-| `SubagentStart` | `PetSubagentTracking.recordStart` with the payload's `agent_id`; shows and hides nothing |
+| `SubagentStart` | `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id and hides, in one locked write |
 | `SubagentStop` | `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
 | `UserPromptSubmit` | `PetSubagentTracking.clear`, then `hide` |
 | `PreToolUse` | `hide` |
@@ -143,6 +166,11 @@ event can strand the pet for one turn at most.
 
 The hook path must be fast (<50 ms) and never throw. Unknown JSON, missing fields or a missing
 state dir all exit 0 quietly.
+
+Every handled hook appends one line to `~/.agent-pet/hooks.log`: ISO timestamp, event name, the first 8
+characters of the session id, the `agent_id` or `-`, and the record state after the write as
+`visible=<bool> agents=<count>`. The log is truncated before the append once it passes 1 MiB, the same rule
+`daemon.log` follows, and both share `LogFileTruncation`. The hook never writes to stdout.
 
 ## Daemon lifecycle
 
@@ -300,8 +328,12 @@ because there is no API for `/color` the CLI types it into the session's tmux pa
 
 `skill/pet/SKILL.md` frontmatter registers session-scoped hooks so enrollment is inherently per-session: `Stop`,
 `Notification`, `UserPromptSubmit`, `PreToolUse`, `SessionEnd`, `SubagentStart`, `SubagentStop`, each running
-`"$HOME/.local/bin/agent-pet" hook` as an async command hook. Hooks are registered when `/pet` is invoked, so a
-session enrolled before `SubagentStart` and `SubagentStop` existed needs `/pet` again to pick them up. The absolute path is deliberate: hook shells do not reliably have `~/.local/bin` on `PATH`.
+`"$HOME/.local/bin/agent-pet" hook` as a command hook with `async: false` and the default timeout. Synchronous is
+what puts the hooks in event order, which `Stop` depends on, and it costs nothing: each run is well under 50 ms
+and the command exits 0 with no output, so no hook can block or fail a turn. Hooks are registered when `/pet` is
+invoked, so a session enrolled before `SubagentStart` and `SubagentStop` existed, or before the hooks became
+synchronous, needs `/pet` again to pick the new frontmatter up. The absolute path is deliberate: hook shells do
+not reliably have `~/.local/bin` on `PATH`.
 Invoking `/pet` is the whole opt-in; the body tells Claude to run `agent-pet on` with an optional nickname and accent
 from `$ARGUMENTS`, or `agent-pet off` for `/pet off`, then report the accent in one line.
 

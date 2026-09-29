@@ -82,7 +82,21 @@ cat > "${LAUNCH_AGENT_PLIST_PATH}" <<PLIST
 PLIST
 
 launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
-launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}"
+
+# bootout returns before the service is fully gone, so an immediate bootstrap can fail with
+# "Input/output error" while the old job is still tearing down.
+BOOTSTRAP_ATTEMPTS=10
+for ((BOOTSTRAP_ATTEMPT = 1; BOOTSTRAP_ATTEMPT <= BOOTSTRAP_ATTEMPTS; BOOTSTRAP_ATTEMPT++)); do
+    if launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null; then
+        break
+    fi
+    if (( BOOTSTRAP_ATTEMPT == BOOTSTRAP_ATTEMPTS )); then
+        echo "error: could not bootstrap ${LAUNCH_AGENT_SERVICE_TARGET}" >&2
+        launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}"
+        exit 1
+    fi
+    sleep 0.5
+done
 
 echo "linked ${BINARY_LINK_PATH} -> ${BINARY_SOURCE_PATH}"
 echo "linked ${SKILL_LINK_PATH} -> ${SKILL_SOURCE_DIRECTORY}"

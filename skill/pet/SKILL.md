@@ -6,37 +6,37 @@ hooks:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
   Notification:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
   UserPromptSubmit:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
   PreToolUse:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
   SessionEnd:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
   SubagentStart:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
   SubagentStop:
     - hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
-          async: true
+          async: false
 ---
 
 Parse `$ARGUMENTS`.

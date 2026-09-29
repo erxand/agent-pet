@@ -44,18 +44,15 @@ enum SessionCommands {
         do {
             let overrides = try FlagParsing.identityOverrides(in: flags)
             let requestedMood = try FlagParsing.mood(in: flags)
-            let store = PetSessionStore()
-            guard let existing = store.load(sessionId: sessionId), existing.enabled else {
-                return ExitCode.success
-            }
             if overrides.hasAnyOverride {
-                store.save(overrides.applied(to: existing))
+                PetEnrollment.applyOverrides(sessionId: sessionId, overrides: overrides)
             }
-            PetTurnState.show(
+            let snapshot = PetTurnState.show(
                 sessionId: sessionId,
-                mood: requestedMood ?? existing.mood,
+                mood: requestedMood,
                 message: flags.value(for: .message)
             )
+            guard snapshot.visible else { return ExitCode.success }
             DaemonCommand.ensureRunning()
             return ExitCode.success
         } catch let failure as FlagParseFailure {
@@ -77,7 +74,7 @@ enum SessionCommands {
         guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
             return CommandFeedback.reportMissingSession()
         }
-        PetSessionStore().delete(sessionId: sessionId)
+        PetTurnState.remove(sessionId: sessionId)
         return ExitCode.success
     }
 

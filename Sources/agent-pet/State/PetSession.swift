@@ -11,7 +11,7 @@ enum PetAgent: String, Codable, CaseIterable {
     case pi
 }
 
-struct PetSession: Codable {
+struct PetSession: Codable, Equatable {
     static let previewSessionIdPrefix = "preview-"
     static let previewNickname = "preview"
 

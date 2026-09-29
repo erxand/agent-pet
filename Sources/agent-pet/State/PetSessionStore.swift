@@ -25,6 +25,33 @@ struct PetSessionStore {
         decode(at: recordURL(for: sessionId))
     }
 
+    func withLockedRecord<Outcome>(
+        sessionId: String,
+        transform: (inout PetSession?) -> Outcome
+    ) -> Outcome {
+        guard let lock = PetRecordLock(lockFileURL: lockURL(for: sessionId)) else {
+            return applyTransform(sessionId: sessionId, transform: transform)
+        }
+        lock.acquireExclusively()
+        defer { lock.release() }
+        return applyTransform(sessionId: sessionId, transform: transform)
+    }
+
+    private func applyTransform<Outcome>(
+        sessionId: String,
+        transform: (inout PetSession?) -> Outcome
+    ) -> Outcome {
+        let existing = load(sessionId: sessionId)
+        var updated = existing
+        let outcome = transform(&updated)
+        if let updated {
+            if updated != existing { save(updated) }
+        } else if existing != nil {
+            delete(sessionId: sessionId)
+        }
+        return outcome
+    }
+
     func save(_ session: PetSession) {
         PetPaths.createStateDirectoriesIfNeeded()
         let encoder = JSONEncoder()
@@ -48,6 +75,7 @@ struct PetSessionStore {
 
     func delete(sessionId: String) {
         try? fileManager.removeItem(at: recordURL(for: sessionId))
+        try? fileManager.removeItem(at: lockURL(for: sessionId))
     }
 
     private func decode(at fileURL: URL) -> PetSession? {
@@ -58,6 +86,12 @@ struct PetSessionStore {
     private func recordURL(for sessionId: String) -> URL {
         directory.appendingPathComponent(
             "\(fileStem(for: sessionId)).\(PetPaths.sessionRecordFileExtension)"
+        )
+    }
+
+    private func lockURL(for sessionId: String) -> URL {
+        directory.appendingPathComponent(
+            "\(fileStem(for: sessionId)).\(PetPaths.sessionLockFileExtension)"
         )
     }
 

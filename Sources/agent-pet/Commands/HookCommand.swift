@@ -41,52 +41,77 @@ enum HookCommand {
               let eventName = HookEventName(rawValue: rawEventName) else { return ExitCode.success }
         guard let sessionId = resolveSessionId(payload: payload, flags: flags) else { return ExitCode.success }
 
-        switch eventName {
-        case .stop:
-            handleStop(payload: payload, sessionId: sessionId)
-        case .notification:
-            handleNotification(payload: payload, sessionId: sessionId)
-        case .subagentStart:
-            guard let agentId = payload.agentId else { break }
-            PetSubagentTracking.recordStart(sessionId: sessionId, agentId: agentId)
-        case .subagentStop:
-            guard let agentId = payload.agentId else { break }
-            PetSubagentTracking.recordStop(sessionId: sessionId, agentId: agentId)
-        case .userPromptSubmit:
-            PetSubagentTracking.clear(sessionId: sessionId)
-            PetTurnState.hide(sessionId: sessionId)
-        case .preToolUse:
-            PetTurnState.hide(sessionId: sessionId)
-        case .sessionEnd:
-            PetSessionStore().delete(sessionId: sessionId)
-        }
+        let snapshot = handle(eventName: eventName, payload: payload, sessionId: sessionId)
+        HookEventLog.append(
+            event: eventName,
+            sessionId: sessionId,
+            agentId: payload.agentId,
+            snapshot: snapshot
+        )
         return ExitCode.success
     }
 
-    private static func handleStop(payload: HookPayload, sessionId: String) {
-        guard !PetTurnState.hasActiveSubagents(sessionId: sessionId) else {
-            PetTurnState.hide(sessionId: sessionId)
-            return
+    private static func handle(
+        eventName: HookEventName,
+        payload: HookPayload,
+        sessionId: String
+    ) -> PetRecordSnapshot {
+        switch eventName {
+        case .stop:
+            return handleStop(payload: payload, sessionId: sessionId)
+        case .notification:
+            return handleNotification(payload: payload, sessionId: sessionId)
+        case .subagentStart:
+            return PetSubagentTracking.recordStartAndHide(
+                sessionId: sessionId,
+                identity: subagentIdentity(in: payload)
+            )
+        case .subagentStop:
+            return PetSubagentTracking.recordStop(
+                sessionId: sessionId,
+                identity: subagentIdentity(in: payload)
+            )
+        case .userPromptSubmit:
+            PetSubagentTracking.clear(sessionId: sessionId)
+            return PetTurnState.hide(sessionId: sessionId)
+        case .preToolUse:
+            return PetTurnState.hide(sessionId: sessionId)
+        case .sessionEnd:
+            return PetTurnState.remove(sessionId: sessionId)
         }
-        showAndEnsureDaemon(
+    }
+
+    private static func handleStop(payload: HookPayload, sessionId: String) -> PetRecordSnapshot {
+        let snapshot = PetTurnState.showUnlessSubagentsActive(
             sessionId: sessionId,
             mood: .ready,
             message: firstLineSummary(of: payload.lastAssistantMessage)
         )
+        ensureDaemonWhenVisible(snapshot: snapshot)
+        return snapshot
     }
 
-    private static func handleNotification(payload: HookPayload, sessionId: String) {
+    private static func handleNotification(payload: HookPayload, sessionId: String) -> PetRecordSnapshot {
         guard let rawNotificationType = payload.notificationType,
-              let notificationType = HookNotificationType(rawValue: rawNotificationType) else { return }
+              let notificationType = HookNotificationType(rawValue: rawNotificationType) else {
+            return PetTurnState.snapshot(sessionId: sessionId)
+        }
         switch notificationType {
         case .permissionPrompt, .agentNeedsInput:
-            showAndEnsureDaemon(sessionId: sessionId, mood: .needsInput, message: nil)
+            let snapshot = PetTurnState.show(sessionId: sessionId, mood: .needsInput, message: nil)
+            ensureDaemonWhenVisible(snapshot: snapshot)
+            return snapshot
         }
     }
 
-    private static func showAndEnsureDaemon(sessionId: String, mood: PetMood, message: String?) {
-        guard PetTurnState.show(sessionId: sessionId, mood: mood, message: message) else { return }
+    private static func ensureDaemonWhenVisible(snapshot: PetRecordSnapshot) {
+        guard snapshot.visible else { return }
         DaemonCommand.ensureRunning()
+    }
+
+    private static func subagentIdentity(in payload: HookPayload) -> SubagentIdentity {
+        guard let agentId = payload.agentId, !agentId.isEmpty else { return .unreported }
+        return .reported(agentId)
     }
 
     private static func resolveSessionId(payload: HookPayload, flags: ParsedFlags) -> String? {
