@@ -51,7 +51,7 @@ enum StatusCommand {
             enabled: yesOrNo(session.enabled),
             visible: yesOrNo(session.visible),
             mood: session.mood.rawValue,
-            agents: "\(session.activeSubagentIds.count)",
+            agents: "\(session.activeSubagents.count)",
             alive: yesOrNo(ProcessLiveness.isAlive(session: session, claudeSession: claudeSession))
         )
     }

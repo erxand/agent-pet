@@ -44,7 +44,9 @@ file on every write (temp file in the same dir, then rename).
 {"sessionId":"1dd88945-2a6c-4903-88f8-c8837c6cd8d3","enabled":true,"visible":false,
  "nickname":"evidence set","label":"evidence set pipelines","accent":"cyan","mood":"ready",
  "message":"MR ready for review","agent":"claude-code","tmuxTarget":"par:@1.%1","pid":71481,
- "sprite":"claude","activeSubagentIds":[],"updatedAt":1790014288.12}
+ "sprite":"claude","activeSubagents":[{"id":"a184a0c2d9e1f3b47","startedAt":1790014201.4}],
+ "transcriptPath":"/Users/me/.claude/projects/-Users-me-repo/1dd88945-2a6c-4903-88f8-c8837c6cd8d3.jsonl",
+ "transcriptScanOffset":2702079,"updatedAt":1790014288.12}
 ```
 
 - `agent` is `claude-code` or `pi`, defaulting to `claude-code`. `nickname`, `label`, `accent`
@@ -60,12 +62,18 @@ file on every write (temp file in the same dir, then rename).
   Absent on any other agent: treat as alive. `mood` is one of `ready`, `needsInput`, `blocked`.
 - `visible: true` is the only thing that makes a pet appear, `enabled: false` makes `show` a no-op, and deleting the
   file removes the pet.
-- `activeSubagentIds` holds the `agent_id` of every background subagent the session has started and not yet finished.
-  It defaults to empty when absent, so records written before this field existed still decode. Only the three narrow
-  writers `PetSubagentTracking.recordStartAndHide`, `recordStop` and `clear` touch it. A `SubagentStart` or
-  `SubagentStop` payload without an `agent_id` is tracked under the synthetic id `unknown-<n>`, where `n` is the
-  lowest number not already in the set: a start adds one, and a stop removes the most recently added `unknown-`
-  id. A missing field therefore degrades to a counter instead of to no tracking at all.
+- `activeSubagents` holds one `TrackedSubagent` (`id`, the `agent_id`, and `startedAt`) for every background
+  subagent the session has started and not yet finished. It defaults to empty when absent. A record from before
+  this field still decodes: a legacy `activeSubagentIds` string array becomes entries whose `startedAt` is the
+  record's `updatedAt`. Only `PetSubagentTracking.recordStartAndHide`, `recordStop` and `clear`, plus the
+  `SubagentCleanup` step described under "Subagent completion", touch it. A fresh `SubagentStart` for an id that is
+  already in the set resets its `startedAt`. A `SubagentStart` or `SubagentStop` payload without an `agent_id` is
+  tracked under the synthetic id `unknown-<n>`, where `n` is the lowest number not already in the set: a start adds
+  one, and a stop removes the most recently added `unknown-` id. A missing field therefore degrades to a counter
+  instead of to no tracking at all.
+- `transcriptPath` is the last `transcript_path` a hook payload carried, and `transcriptScanOffset` (default 0) is the
+  byte offset in that file up to which task notifications were already read. Storing a different path resets the
+  offset to 0.
 
 ## Concurrency
 
@@ -77,9 +85,9 @@ pi extension's CLI calls and the daemon's own hide on a click all take the same 
 interleaved with another process's write. Each writer stays its own narrow function; only the locking is shared.
 Setting the record to `nil` inside the transform deletes it, and deleting removes the lock file with it.
 
-The `Stop` decision is part of one locked section: `showUnlessSubagentsActive` reads `activeSubagentIds` and
-writes `visible` under the same lock, so it can never decide on a set that another process is in the middle of
-changing. Ordering comes from the skill: every hook is `async: false`, so Claude Code runs hooks in event order
+The `Stop` decision is part of one locked section: `showUnlessSubagentsActive` runs the transcript scan and the
+expiry, reads `activeSubagents` and writes `visible` under the same lock, so it can never decide on a set that
+another process is in the middle of changing. Ordering comes from the skill: every hook is `async: false`, so Claude Code runs hooks in event order
 and a `SubagentStart` completes before the `Stop` that follows it. The `Stop` hook still has no blocking effect,
 because the command exits 0 and prints nothing. `SubagentStart` also hides, in that same locked write, because a
 subagent starting means the session is not waiting on the user. `SubagentStop` stays record-only: the main agent is
@@ -148,17 +156,18 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`) for N seconds (default 20) so the overlay can be tested without a real session |
 | `focus [--session ID] [--no-client-switch]` | run the same `SessionFocuser.focus` a left click runs, so focusing can be tested from a shell; exit 2 when the record is missing or has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client |
+| `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
 
 ## `hook` dispatch on `hook_event_name`
 
 | event | action |
 |---|---|
-| `Stop`, record has no active subagent ids | `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present) |
-| `Stop`, record has active subagent ids | `hide`, and do not ensure the daemon |
+| any event whose payload has `transcript_path` | first store it as the record's `transcriptPath`, in its own locked write; a missing record is left alone |
+| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present); any left means `hide`, and do not ensure the daemon |
 | `Notification` with `notification_type` in `permission_prompt`, `agent_needs_input` | `show --mood needsInput`, whatever the subagent set holds |
-| `SubagentStart` | `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id and hides, in one locked write |
-| `SubagentStop` | `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
-| `UserPromptSubmit` | `PetSubagentTracking.clear`, then `hide` |
+| `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id and hides, in one locked write |
+| `SubagentStop` | scan and expire, then `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
+| `UserPromptSubmit` | `hide` only. The subagent set is left as it is, because a new prompt does not end a running subagent |
 | `PreToolUse` | `hide` |
 | `SessionEnd` | `remove` |
 | anything else | nothing |
@@ -166,19 +175,48 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
 on its own therefore does not mean the session is waiting on the user, so the record carries
-`activeSubagentIds` and a `Stop` with a non-empty set hides instead of showing. A permission prompt
+`activeSubagents` and a `Stop` with a non-empty set hides instead of showing. A permission prompt
 is the exception, because it really is waiting on the user whatever the subagents are doing.
 
-`UserPromptSubmit` clears the set as well as hiding: a new prompt from the user makes the previous
-turn's bookkeeping stale, and the clear self-heals a `SubagentStop` that never arrived, so a missed
-event can strand the pet for one turn at most.
+### Subagent completion
+
+Field data from `hooks.log` shows that `SubagentStart` fires reliably for background agents but
+`SubagentStop` does not fire for them at all. A background agent finishes by a different path: the
+harness appends a user-role task notification to the parent session's transcript JSONL and re-invokes
+the main agent. The notification carries `<task-id>ID</task-id>`, where `ID` is the `agent_id` that
+`SubagentStart` reported, followed by a `<status>` tag. agent-pet therefore reads completion from the
+transcript.
+
+On `Stop`, `SubagentStart` and `SubagentStop`, inside the locked record section and before the event's
+own write, `SubagentCleanup` does two things:
+
+1. **Transcript scan.** `TranscriptTailReader` opens `transcriptPath`, rescans from 0 when the file is
+   smaller than `transcriptScanOffset`, and reads from the offset to the end of the file. One read is
+   capped at 64 MiB: when more is unread, it reads only the last 64 MiB and the hook logs one
+   `TranscriptReadTruncated` line. `TranscriptCompletionScanner`, a pure function from bytes to ids,
+   finds every `<task-id>ID</task-id>` whose `<status>` tag follows within 2 KB and before the next
+   `<task-id>`, with any text between the tags (literal `\n` sequences from the JSON escaping or real
+   newlines). It anchors on `<task-id>` and `<status>`, never on the `<task-notification>` wrapper,
+   because tool description text also contains that wrapper. Any status value counts as finished.
+   Every matched id leaves the set, and the offset moves to the end of the last complete line read, so
+   a line still being written is read again next time. A missing or unreadable transcript is a no-op.
+2. **Expiry.** Entries whose `startedAt` is more than 3 hours old leave the set, and the hook logs one
+   `SubagentExpired` line per entry. This is the safety net for a completion the scan cannot see.
+
+The same id can complete more than once, because an agent resumed by a message gets a fresh
+`SubagentStart` and a fresh notification. The scan runs before the start is recorded, so an old
+notification never removes the new run. When the set is still wrong, `agent-pet clear-subagents`
+empties it by hand.
 
 The hook path must be fast (<50 ms) and never throw. Unknown JSON, missing fields or a missing
 state dir all exit 0 quietly.
 
 Every handled hook appends one line to `~/.agent-pet/hooks.log`: ISO timestamp, event name, the first 8
 characters of the session id, the `agent_id` or `-`, and the record state after the write as
-`visible=<bool> agents=<count>`. The log is truncated before the append once it passes 1 MiB, the same rule
+`visible=<bool> agents=<count>`. A `PreToolUse` line then adds `tool=<tool_name>`, and a `Stop` line whose
+cleanup removed anything adds `completed=<n> expired=<m>`. The cleanup can also write its own lines before
+the event's line: `SubagentExpired <session> <agent_id> startedAt=<ISO timestamp>` per expired entry, and
+`TranscriptReadTruncated <session> - skippedBytes=<count>` when the 64 MiB cap applied. The log is truncated before the append once it passes 1 MiB, the same rule
 `daemon.log` follows, and both share `LogFileTruncation`. The hook never writes to stdout.
 
 ## Daemon lifecycle
@@ -341,7 +379,9 @@ because there is no API for `/color` the CLI types it into the session's tmux pa
 what puts the hooks in event order, which `Stop` depends on, and it costs nothing: each run is well under 50 ms
 and the command exits 0 with no output, so no hook can block or fail a turn. Hooks are registered when `/pet` is
 invoked, so a session enrolled before `SubagentStart` and `SubagentStop` existed, or before the hooks became
-synchronous, needs `/pet` again to pick the new frontmatter up. The absolute path is deliberate: hook shells do
+synchronous, needs `/pet` again to pick the new frontmatter up. Reading completion from the transcript did not
+change the hook set, so a session that is already enrolled needs no re-enrollment for it: the next hook runs the
+new binary. The absolute path is deliberate: hook shells do
 not reliably have `~/.local/bin` on `PATH`.
 Invoking `/pet` is the whole opt-in; the body tells Claude to run `agent-pet on` with an optional nickname and accent
 from `$ARGUMENTS`, or `agent-pet off` for `/pet off`, then report the accent in one line.

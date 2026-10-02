@@ -32,6 +32,8 @@ enum AgentPetCommandLine {
             return PreviewCommand.run(flags: flags)
         case .focus:
             return FocusCommand.run(flags: flags)
+        case .clearSubagents:
+            return SessionCommands.clearSubagents(flags: flags)
         }
     }
 }

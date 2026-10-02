@@ -6,6 +6,13 @@ enum HookEventLog {
     private static let missingAgentIdPlaceholder = "-"
     private static let visibleFieldPrefix = "visible="
     private static let activeSubagentCountFieldPrefix = "agents="
+    private static let toolNameFieldPrefix = "tool="
+    private static let completedSubagentCountFieldPrefix = "completed="
+    private static let expiredSubagentCountFieldPrefix = "expired="
+    private static let startedAtFieldPrefix = "startedAt="
+    private static let skippedByteCountFieldPrefix = "skippedBytes="
+    private static let subagentExpiredEntryName = "SubagentExpired"
+    private static let transcriptReadTruncatedEntryName = "TranscriptReadTruncated"
     private static let fieldSeparator = " "
     private static let lineTerminator = "\n"
 
@@ -13,18 +20,57 @@ enum HookEventLog {
         event: HookEventName,
         sessionId: String,
         agentId: String?,
-        snapshot: PetRecordSnapshot
+        result: PetHookResult,
+        toolName: String?,
+        reportedCleanup: SubagentCleanupOutcome?
     ) {
-        LogFileTruncation.truncateIfOversized(at: PetPaths.hookLogFile)
-        let fields = [
-            ISO8601DateFormatter().string(from: Date()),
+        var fields = [
             event.rawValue,
-            String(sessionId.prefix(shortSessionIdLength)),
+            shortSessionId(sessionId),
             reportedAgentId(agentId),
-            visibleFieldPrefix + String(snapshot.visible),
-            activeSubagentCountFieldPrefix + String(snapshot.activeSubagentCount)
+            visibleFieldPrefix + String(result.snapshot.visible),
+            activeSubagentCountFieldPrefix + String(result.snapshot.activeSubagentCount)
         ]
-        appendLine(fields.joined(separator: fieldSeparator) + lineTerminator)
+        if let toolName, !toolName.isEmpty {
+            fields.append(toolNameFieldPrefix + toolName)
+        }
+        if let reportedCleanup, reportedCleanup.removedAnything {
+            fields.append(completedSubagentCountFieldPrefix + String(reportedCleanup.completedSubagentIds.count))
+            fields.append(expiredSubagentCountFieldPrefix + String(reportedCleanup.expiredSubagents.count))
+        }
+        appendEntry(fields: fields)
+    }
+
+    static func appendExpiredSubagent(sessionId: String, subagent: TrackedSubagent) {
+        appendEntry(fields: [
+            subagentExpiredEntryName,
+            shortSessionId(sessionId),
+            subagent.id,
+            startedAtFieldPrefix + timestamp(Date(timeIntervalSince1970: subagent.startedAt))
+        ])
+    }
+
+    static func appendTranscriptReadTruncated(sessionId: String, skippedByteCount: Int) {
+        appendEntry(fields: [
+            transcriptReadTruncatedEntryName,
+            shortSessionId(sessionId),
+            missingAgentIdPlaceholder,
+            skippedByteCountFieldPrefix + String(skippedByteCount)
+        ])
+    }
+
+    private static func appendEntry(fields: [String]) {
+        LogFileTruncation.truncateIfOversized(at: PetPaths.hookLogFile)
+        let line = ([timestamp(Date())] + fields).joined(separator: fieldSeparator) + lineTerminator
+        appendLine(line)
+    }
+
+    private static func timestamp(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func shortSessionId(_ sessionId: String) -> String {
+        String(sessionId.prefix(shortSessionIdLength))
     }
 
     private static func reportedAgentId(_ agentId: String?) -> String {

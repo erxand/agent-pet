@@ -78,6 +78,17 @@ enum SessionCommands {
         return ExitCode.success
     }
 
+    static func clearSubagents(flags: ParsedFlags) -> Int32 {
+        guard let sessionId = SessionIdentifierResolver.resolve(flags: flags) else {
+            return CommandFeedback.reportMissingSession()
+        }
+        guard let droppedCount = PetSubagentTracking.clear(sessionId: sessionId) else {
+            return CommandFeedback.reportMissingRecord(sessionId)
+        }
+        print("cleared \(droppedCount) tracked subagents for \(sessionId)")
+        return ExitCode.success
+    }
+
     private static func promptBarColorSyncTarget(session: PetSession, flags: ParsedFlags) -> TmuxTarget? {
         guard !flags.isPresent(.noColorSync) else { return nil }
         switch session.agent {

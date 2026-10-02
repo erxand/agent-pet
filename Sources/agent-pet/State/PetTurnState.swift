@@ -6,7 +6,22 @@ struct PetRecordSnapshot {
 
     init(record: PetSession?) {
         visible = record?.visible ?? false
-        activeSubagentCount = record?.activeSubagentIds.count ?? 0
+        activeSubagentCount = record?.activeSubagents.count ?? 0
+    }
+}
+
+struct PetHookResult {
+    let snapshot: PetRecordSnapshot
+    let cleanup: SubagentCleanupOutcome
+
+    init(record: PetSession?, cleanup: SubagentCleanupOutcome = .nothingRemoved) {
+        snapshot = PetRecordSnapshot(record: record)
+        self.cleanup = cleanup
+    }
+
+    init(snapshot: PetRecordSnapshot) {
+        self.snapshot = snapshot
+        cleanup = .nothingRemoved
     }
 }
 
@@ -29,14 +44,15 @@ enum PetTurnState {
         sessionId: String,
         mood: PetMood,
         message: String?
-    ) -> PetRecordSnapshot {
+    ) -> PetHookResult {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            if record?.activeSubagentIds.isEmpty == false {
+            let cleanup = SubagentCleanup.apply(to: &record, now: Date().timeIntervalSince1970)
+            if record?.activeSubagents.isEmpty == false {
                 markHidden(&record)
             } else {
                 markVisible(&record, mood: mood, message: message)
             }
-            return PetRecordSnapshot(record: record)
+            return PetHookResult(record: record, cleanup: cleanup)
         }
     }
 
@@ -77,50 +93,71 @@ enum PetTurnState {
     }
 }
 
+enum PetTranscriptTracking {
+    static func recordTranscriptPath(sessionId: String, transcriptPath: String) {
+        PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
+            guard var session = record, session.transcriptPath != transcriptPath else { return }
+            session.transcriptPath = transcriptPath
+            session.transcriptScanOffset = PetSession.initialTranscriptScanOffset
+            record = session
+        }
+    }
+}
+
 enum PetSubagentTracking {
     private static let unknownAgentIdPrefix = "unknown-"
 
     @discardableResult
-    static func recordStartAndHide(sessionId: String, identity: SubagentIdentity) -> PetRecordSnapshot {
+    static func recordStartAndHide(sessionId: String, identity: SubagentIdentity) -> PetHookResult {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            guard var session = record else { return PetRecordSnapshot(record: record) }
+            let now = Date().timeIntervalSince1970
+            let cleanup = SubagentCleanup.apply(to: &record, now: now)
+            guard var session = record else { return PetHookResult(record: record, cleanup: cleanup) }
             let agentId = startingAgentId(identity: identity, session: session)
-            if !session.activeSubagentIds.contains(agentId) {
-                session.activeSubagentIds.append(agentId)
+            if let existingIndex = session.activeSubagents.firstIndex(where: { trackedSubagent in
+                trackedSubagent.id == agentId
+            }) {
+                session.activeSubagents[existingIndex].startedAt = now
+            } else {
+                session.activeSubagents.append(TrackedSubagent(id: agentId, startedAt: now))
             }
             session.visible = false
-            session.updatedAt = Date().timeIntervalSince1970
+            session.updatedAt = now
             record = session
-            return PetRecordSnapshot(record: record)
+            return PetHookResult(record: record, cleanup: cleanup)
         }
     }
 
     @discardableResult
-    static func recordStop(sessionId: String, identity: SubagentIdentity) -> PetRecordSnapshot {
+    static func recordStop(sessionId: String, identity: SubagentIdentity) -> PetHookResult {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            guard var session = record,
-                  let agentId = stoppingAgentId(identity: identity, session: session),
-                  session.activeSubagentIds.contains(agentId) else {
-                return PetRecordSnapshot(record: record)
+            let now = Date().timeIntervalSince1970
+            let cleanup = SubagentCleanup.apply(to: &record, now: now)
+            if var session = record,
+               let agentId = stoppingAgentId(identity: identity, session: session),
+               isTracking(agentId, in: session) {
+                session.activeSubagents.removeAll { trackedSubagent in trackedSubagent.id == agentId }
+                session.updatedAt = now
+                record = session
             }
-            session.activeSubagentIds.removeAll { trackedAgentId in trackedAgentId == agentId }
-            session.updatedAt = Date().timeIntervalSince1970
-            record = session
-            return PetRecordSnapshot(record: record)
+            return PetHookResult(record: record, cleanup: cleanup)
         }
     }
 
-    @discardableResult
-    static func clear(sessionId: String) -> PetRecordSnapshot {
-        PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            guard var session = record, !session.activeSubagentIds.isEmpty else {
-                return PetRecordSnapshot(record: record)
-            }
-            session.activeSubagentIds = []
+    static func clear(sessionId: String) -> Int? {
+        PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> Int? in
+            guard var session = record else { return nil }
+            let droppedCount = session.activeSubagents.count
+            guard !session.activeSubagents.isEmpty else { return droppedCount }
+            session.activeSubagents = []
             session.updatedAt = Date().timeIntervalSince1970
             record = session
-            return PetRecordSnapshot(record: record)
+            return droppedCount
         }
+    }
+
+    private static func isTracking(_ agentId: String, in session: PetSession) -> Bool {
+        session.activeSubagents.contains { trackedSubagent in trackedSubagent.id == agentId }
     }
 
     private static func startingAgentId(identity: SubagentIdentity, session: PetSession) -> String {
@@ -137,16 +174,16 @@ enum PetSubagentTracking {
         case .reported(let agentId):
             return agentId
         case .unreported:
-            return session.activeSubagentIds.last { trackedAgentId in
-                trackedAgentId.hasPrefix(unknownAgentIdPrefix)
-            }
+            return session.activeSubagents.last { trackedSubagent in
+                trackedSubagent.id.hasPrefix(unknownAgentIdPrefix)
+            }?.id
         }
     }
 
     private static func nextUnknownAgentId(session: PetSession) -> String {
         var candidateNumber = 1
         var candidateId = unknownAgentIdPrefix + String(candidateNumber)
-        while session.activeSubagentIds.contains(candidateId) {
+        while isTracking(candidateId, in: session) {
             candidateNumber += 1
             candidateId = unknownAgentIdPrefix + String(candidateNumber)
         }

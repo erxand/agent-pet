@@ -12,6 +12,7 @@ enum CommandName: String, CaseIterable {
     case hook
     case preview
     case focus
+    case clearSubagents = "clear-subagents"
 }
 
 enum CommandFlag: String, CaseIterable {

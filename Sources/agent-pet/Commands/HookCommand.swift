@@ -21,6 +21,8 @@ struct HookPayload: Codable {
     let agentId: String?
     let notificationType: String?
     let lastAssistantMessage: String?
+    let transcriptPath: String?
+    let toolName: String?
 
     enum CodingKeys: String, CodingKey {
         case hookEventName = "hook_event_name"
@@ -28,6 +30,8 @@ struct HookPayload: Codable {
         case agentId = "agent_id"
         case notificationType = "notification_type"
         case lastAssistantMessage = "last_assistant_message"
+        case transcriptPath = "transcript_path"
+        case toolName = "tool_name"
     }
 }
 
@@ -41,12 +45,18 @@ enum HookCommand {
               let eventName = HookEventName(rawValue: rawEventName) else { return ExitCode.success }
         guard let sessionId = resolveSessionId(payload: payload, flags: flags) else { return ExitCode.success }
 
-        let snapshot = handle(eventName: eventName, payload: payload, sessionId: sessionId)
+        if let transcriptPath = payload.transcriptPath, !transcriptPath.isEmpty {
+            PetTranscriptTracking.recordTranscriptPath(sessionId: sessionId, transcriptPath: transcriptPath)
+        }
+        let result = handle(eventName: eventName, payload: payload, sessionId: sessionId)
+        logCleanupDetails(result.cleanup, sessionId: sessionId)
         HookEventLog.append(
             event: eventName,
             sessionId: sessionId,
             agentId: payload.agentId,
-            snapshot: snapshot
+            result: result,
+            toolName: reportedToolName(eventName: eventName, payload: payload),
+            reportedCleanup: reportedCleanup(eventName: eventName, result: result)
         )
         return ExitCode.success
     }
@@ -55,12 +65,12 @@ enum HookCommand {
         eventName: HookEventName,
         payload: HookPayload,
         sessionId: String
-    ) -> PetRecordSnapshot {
+    ) -> PetHookResult {
         switch eventName {
         case .stop:
             return handleStop(payload: payload, sessionId: sessionId)
         case .notification:
-            return handleNotification(payload: payload, sessionId: sessionId)
+            return PetHookResult(snapshot: handleNotification(payload: payload, sessionId: sessionId))
         case .subagentStart:
             return PetSubagentTracking.recordStartAndHide(
                 sessionId: sessionId,
@@ -71,24 +81,21 @@ enum HookCommand {
                 sessionId: sessionId,
                 identity: subagentIdentity(in: payload)
             )
-        case .userPromptSubmit:
-            PetSubagentTracking.clear(sessionId: sessionId)
-            return PetTurnState.hide(sessionId: sessionId)
-        case .preToolUse:
-            return PetTurnState.hide(sessionId: sessionId)
+        case .userPromptSubmit, .preToolUse:
+            return PetHookResult(snapshot: PetTurnState.hide(sessionId: sessionId))
         case .sessionEnd:
-            return PetTurnState.remove(sessionId: sessionId)
+            return PetHookResult(snapshot: PetTurnState.remove(sessionId: sessionId))
         }
     }
 
-    private static func handleStop(payload: HookPayload, sessionId: String) -> PetRecordSnapshot {
-        let snapshot = PetTurnState.showUnlessSubagentsActive(
+    private static func handleStop(payload: HookPayload, sessionId: String) -> PetHookResult {
+        let result = PetTurnState.showUnlessSubagentsActive(
             sessionId: sessionId,
             mood: .ready,
             message: firstLineSummary(of: payload.lastAssistantMessage)
         )
-        ensureDaemonWhenVisible(snapshot: snapshot)
-        return snapshot
+        ensureDaemonWhenVisible(snapshot: result.snapshot)
+        return result
     }
 
     private static func handleNotification(payload: HookPayload, sessionId: String) -> PetRecordSnapshot {
@@ -101,6 +108,36 @@ enum HookCommand {
             let snapshot = PetTurnState.show(sessionId: sessionId, mood: .needsInput, message: nil)
             ensureDaemonWhenVisible(snapshot: snapshot)
             return snapshot
+        }
+    }
+
+    private static func logCleanupDetails(_ cleanup: SubagentCleanupOutcome, sessionId: String) {
+        if cleanup.skippedTranscriptByteCount > TranscriptTail.noBytes {
+            HookEventLog.appendTranscriptReadTruncated(
+                sessionId: sessionId,
+                skippedByteCount: cleanup.skippedTranscriptByteCount
+            )
+        }
+        for expiredSubagent in cleanup.expiredSubagents {
+            HookEventLog.appendExpiredSubagent(sessionId: sessionId, subagent: expiredSubagent)
+        }
+    }
+
+    private static func reportedToolName(eventName: HookEventName, payload: HookPayload) -> String? {
+        switch eventName {
+        case .preToolUse:
+            return payload.toolName
+        case .stop, .notification, .userPromptSubmit, .sessionEnd, .subagentStart, .subagentStop:
+            return nil
+        }
+    }
+
+    private static func reportedCleanup(eventName: HookEventName, result: PetHookResult) -> SubagentCleanupOutcome? {
+        switch eventName {
+        case .stop:
+            return result.cleanup
+        case .notification, .userPromptSubmit, .preToolUse, .sessionEnd, .subagentStart, .subagentStop:
+            return nil
         }
     }
 

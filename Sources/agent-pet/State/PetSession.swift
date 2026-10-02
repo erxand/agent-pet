@@ -11,9 +11,15 @@ enum PetAgent: String, Codable, CaseIterable {
     case pi
 }
 
+struct TrackedSubagent: Codable, Equatable {
+    var id: String
+    var startedAt: TimeInterval
+}
+
 struct PetSession: Codable, Equatable {
     static let previewSessionIdPrefix = "preview-"
     static let previewNickname = "preview"
+    static let initialTranscriptScanOffset = 0
 
     var sessionId: String
     var enabled: Bool
@@ -27,7 +33,9 @@ struct PetSession: Codable, Equatable {
     var tmuxTarget: String?
     var pid: Int32?
     var sprite: String?
-    var activeSubagentIds: [String]
+    var activeSubagents: [TrackedSubagent]
+    var transcriptPath: String?
+    var transcriptScanOffset: Int
     var updatedAt: Double
 
     var isPreview: Bool {
@@ -44,6 +52,10 @@ struct PetSession: Codable, Equatable {
 }
 
 extension PetSession {
+    private enum LegacyCodingKeys: String, CodingKey {
+        case activeSubagentIds
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -58,8 +70,18 @@ extension PetSession {
         tmuxTarget = try container.decodeIfPresent(String.self, forKey: .tmuxTarget)
         pid = try container.decodeIfPresent(Int32.self, forKey: .pid)
         sprite = try container.decodeIfPresent(String.self, forKey: .sprite)
-        activeSubagentIds = try container.decodeIfPresent([String].self, forKey: .activeSubagentIds) ?? []
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
+        transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
+            ?? PetSession.initialTranscriptScanOffset
+        activeSubagents = try container.decodeIfPresent([TrackedSubagent].self, forKey: .activeSubagents)
+            ?? PetSession.decodeLegacySubagents(from: decoder, startedAt: updatedAt)
+    }
+
+    private static func decodeLegacySubagents(from decoder: Decoder, startedAt: TimeInterval) throws -> [TrackedSubagent] {
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        let legacyIds = try legacyContainer.decodeIfPresent([String].self, forKey: .activeSubagentIds) ?? []
+        return legacyIds.map { legacyId in TrackedSubagent(id: legacyId, startedAt: startedAt) }
     }
 
     static func newlyEnrolled(sessionId: String) -> PetSession {
@@ -76,7 +98,9 @@ extension PetSession {
             tmuxTarget: nil,
             pid: nil,
             sprite: nil,
-            activeSubagentIds: [],
+            activeSubagents: [],
+            transcriptPath: nil,
+            transcriptScanOffset: initialTranscriptScanOffset,
             updatedAt: Date().timeIntervalSince1970
         )
     }

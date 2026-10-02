@@ -47,7 +47,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Three commands are useful from any shell:
+Four commands are useful from any shell:
 
 - `agent-pet status` prints one row per enrolled session (short id, label, accent, enabled,
   visible, mood, running subagent count, alive) and the daemon's pid.
@@ -56,6 +56,8 @@ Three commands are useful from any shell:
 - `agent-pet focus [--session ID]` runs exactly what a click runs. It exits 2 when the session
   has no record or no tmux pane. Add `--no-client-switch` to select the window and pane and
   leave every attached client where it is.
+- `agent-pet clear-subagents [--session ID]` forgets every subagent the session counts as
+  running and prints how many it dropped. It exits 2 when the session has no record.
 
 ## How it works
 
@@ -74,12 +76,11 @@ Claude Code events:
 
 | event | what agent-pet does |
 |---|---|
-| `Stop`, no background subagents left | show the pet, mood `ready`, with the first line of the last assistant message as its status text |
-| `Stop`, background subagents still running | keep the pet hidden |
+| `Stop` | read finished subagents from the transcript and drop stale ones, then show the pet (mood `ready`, with the first line of the last assistant message as its status text) if no background subagents are left, or keep it hidden if any are still running |
 | `Notification` of type `permission_prompt` or `agent_needs_input` | show the pet, mood `needsInput`, whatever the subagents are doing |
 | `SubagentStart` | record that subagent as running, and hide the pet |
 | `SubagentStop` | record that subagent as finished, and show or hide nothing |
-| `UserPromptSubmit` | forget every recorded subagent, and hide the pet |
+| `UserPromptSubmit` | hide the pet, and nothing else. A new prompt does not end a running subagent |
 | `PreToolUse` | hide the pet |
 | `SessionEnd` | delete the session's record |
 
@@ -87,6 +88,17 @@ Claude Code fires `Stop` when the main agent's turn ends, and it fires it even w
 session has background subagents running, because finishing one of those subagents re-invokes
 the main agent. So `Stop` on its own does not mean the session is waiting on you, which is why
 the record tracks running subagents and a `Stop` with any of them left hides instead of shows.
+
+`SubagentStop` does not fire for background agents in practice. When a background agent
+finishes, Claude Code writes a task notification into the session's transcript file (the
+`transcript_path` every hook receives) and re-invokes the main agent. So on `Stop`,
+`SubagentStart` and `SubagentStop`, agent-pet reads the part of the transcript it has not read
+yet, and every `<task-id>` followed by a `<status>` tag marks that subagent as finished. As a
+safety net, a subagent recorded more than 3 hours ago is dropped as expired. If the pet still
+stays hidden because of a subagent that is long gone, run `agent-pet clear-subagents`.
+
+This changed nothing in the hook set, so a session that already ran `/pet` needs no
+re-enrollment to get it.
 
 pi events:
 
@@ -161,7 +173,13 @@ a shipped pack there only when no pack of that name exists, so your edits surviv
   `2026-09-29T18:14:07Z Stop 07619c1a - visible=true agents=0`: the time, the event, the first
   eight characters of the session id, the subagent's `agent_id` or `-`, and the record's state
   after the write. A pet that appears at the wrong moment shows up here as the event that set
-  `visible=true`.
+  `visible=true`. `PreToolUse` lines also name the tool, as `tool=Bash`. A `Stop` line that
+  dropped subagents ends with `completed=<n> expired=<m>`, and each expired subagent gets its own
+  `SubagentExpired` line.
+- A pet that never appears even though the session is waiting on you, with `agents=` above 0 on
+  every `Stop` line, means agent-pet still counts a subagent as running. Run
+  `agent-pet clear-subagents --session ID` to empty the count. It prints how many it dropped,
+  and the next `Stop` shows the pet. A forgotten subagent also expires on its own after 3 hours.
 - A record left behind by a session that ended without its `SessionEnd` hook shows `ALIVE no`,
   and the daemon sweeps it within about 5 seconds. To drop one now, run
   `agent-pet remove --session ID`.

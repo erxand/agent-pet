@@ -35,6 +35,11 @@ enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportMissingRecord(_ sessionId: String) -> Int32 {
+        writeToStandardError("no record for session \(sessionId).")
+        return ExitCode.usage
+    }
+
     static func reportUsage() -> Int32 {
         writeToStandardError(usageText)
         return ExitCode.usage
@@ -63,6 +68,7 @@ enum CommandFeedback {
       hook             read one hook JSON object from stdin and dispatch
       preview          show a fake pet for a few seconds
       focus            jump to this session's tmux pane and terminal tab
+      clear-subagents  forget every subagent this session is tracking as running
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))
