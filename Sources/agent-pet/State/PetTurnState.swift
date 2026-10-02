@@ -14,14 +14,14 @@ struct PetHookResult {
     let snapshot: PetRecordSnapshot
     let cleanup: SubagentCleanupOutcome
 
-    init(record: PetSession?, cleanup: SubagentCleanupOutcome = .nothingRemoved) {
+    init(record: PetSession?, cleanup: SubagentCleanupOutcome = .nothingFound) {
         snapshot = PetRecordSnapshot(record: record)
         self.cleanup = cleanup
     }
 
     init(snapshot: PetRecordSnapshot) {
         self.snapshot = snapshot
-        cleanup = .nothingRemoved
+        cleanup = .nothingFound
     }
 }
 

@@ -157,6 +157,7 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`) for N seconds (default 20) so the overlay can be tested without a real session |
 | `focus [--session ID] [--no-client-switch]` | run the same `SessionFocuser.focus` a left click runs, so focusing can be tested from a shell; exit 2 when the record is missing or has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client |
 | `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
+| `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 
 ## `hook` dispatch on `hook_event_name`
 
@@ -187,26 +188,50 @@ the main agent. The notification carries `<task-id>ID</task-id>`, where `ID` is 
 `SubagentStart` reported, followed by a `<status>` tag. agent-pet therefore reads completion from the
 transcript.
 
+Two more findings from a transcript-vs-log timeline (2026-10-02) shaped the scan:
+
+- **Interim notifications.** The harness also writes a task notification with `<status>completed</status>` when an
+  agent only pauses while background work of its own is still running. Its `<note>` says the agent "stopped with
+  background work of its own still running" and that "the result below may be interim". That agent can resume on
+  its own (a fresh `SubagentStart`) and notify again later. A final notification's `<note>` instead says the agent
+  "stops with no live background children of its own". Treating the interim one as finished showed the pet while
+  the agent was still working.
+- **Hand-back messages.** Some agents end with no task notification at all. Their only completion signal is a
+  user-role message that opens with `<agent-message from="ID">` and then, a line later, `[Subagent hand-back]`.
+  A plain agent-message without that marker is not a completion.
+
 On `Stop`, `SubagentStart` and `SubagentStop`, inside the locked record section and before the event's
 own write, `SubagentCleanup` does two things:
 
 1. **Transcript scan.** `TranscriptTailReader` opens `transcriptPath`, rescans from 0 when the file is
    smaller than `transcriptScanOffset`, and reads from the offset to the end of the file. One read is
    capped at 64 MiB: when more is unread, it reads only the last 64 MiB and the hook logs one
-   `TranscriptReadTruncated` line. `TranscriptCompletionScanner`, a pure function from bytes to ids,
-   finds every `<task-id>ID</task-id>` whose `<status>` tag follows within 2 KB and before the next
-   `<task-id>`, with any text between the tags (literal `\n` sequences from the JSON escaping or real
-   newlines). It anchors on `<task-id>` and `<status>`, never on the `<task-notification>` wrapper,
-   because tool description text also contains that wrapper. Any status value counts as finished.
-   Every matched id leaves the set, and the offset moves to the end of the last complete line read, so
-   a line still being written is read again next time. A missing or unreadable transcript is a no-op.
+   `TranscriptReadTruncated` line. `TranscriptCompletionScanner` is a pure function from bytes to
+   events in file order, each `.finished(ID)` or `.interim(ID)` with its byte offset. It finds two shapes:
+   - Every `<task-id>ID</task-id>` whose `<status>` tag follows within 2 KB and before the next
+     `<task-id>`, with any text between the tags (literal `\n` sequences from the JSON escaping or real
+     newlines). It anchors on `<task-id>` and `<status>`, never on the `<task-notification>` wrapper,
+     because tool description text also contains that wrapper. Any status value counts. The `<note>`
+     after the `<status>` tag, inside the same window, decides the kind: a note that contains the interim
+     marker `stopped with background work of its own still running` makes `.interim(ID)`; the final
+     marker `stops with no live background children of its own`, any other note, or no note at all makes
+     `.finished(ID)`.
+   - Every `agent-message from=` followed by `\"ID\"` (the JSON-escaped form) or `"ID"` (the raw form),
+     where the marker `[Subagent hand-back]` follows within 400 bytes and before the next
+     `agent-message from=`. That makes `.finished(ID)`.
+
+   The three markers are named constants on the scanner. Only a `.finished` id leaves the set. An
+   `.interim` id stays tracked, and the cleanup reports how many tracked ids the scan saw as interim
+   without a `.finished` for them. The offset moves to the end of the last complete line read, so a line
+   still being written is read again next time. A missing or unreadable transcript is a no-op.
 2. **Expiry.** Entries whose `startedAt` is more than 3 hours old leave the set, and the hook logs one
    `SubagentExpired` line per entry. This is the safety net for a completion the scan cannot see.
 
 The same id can complete more than once, because an agent resumed by a message gets a fresh
 `SubagentStart` and a fresh notification. The scan runs before the start is recorded, so an old
 notification never removes the new run. When the set is still wrong, `agent-pet clear-subagents`
-empties it by hand.
+empties it by hand, and `agent-pet scan-transcript --path FILE` shows exactly which events the scanner
+reads from a transcript, without touching any record.
 
 The hook path must be fast (<50 ms) and never throw. Unknown JSON, missing fields or a missing
 state dir all exit 0 quietly.
@@ -214,7 +239,7 @@ state dir all exit 0 quietly.
 Every handled hook appends one line to `~/.agent-pet/hooks.log`: ISO timestamp, event name, the first 8
 characters of the session id, the `agent_id` or `-`, and the record state after the write as
 `visible=<bool> agents=<count>`. A `PreToolUse` line then adds `tool=<tool_name>`, and a `Stop` line whose
-cleanup removed anything adds `completed=<n> expired=<m>`. The cleanup can also write its own lines before
+cleanup found any completed, interim or expired subagent adds `completed=<n> interim=<k> expired=<m>`. The cleanup can also write its own lines before
 the event's line: `SubagentExpired <session> <agent_id> startedAt=<ISO timestamp>` per expired entry, and
 `TranscriptReadTruncated <session> - skippedBytes=<count>` when the 64 MiB cap applied. The log is truncated before the append once it passes 1 MiB, the same rule
 `daemon.log` follows, and both share `LogFileTruncation`. The hook never writes to stdout.

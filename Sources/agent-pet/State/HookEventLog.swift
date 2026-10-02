@@ -8,6 +8,7 @@ enum HookEventLog {
     private static let activeSubagentCountFieldPrefix = "agents="
     private static let toolNameFieldPrefix = "tool="
     private static let completedSubagentCountFieldPrefix = "completed="
+    private static let interimSubagentCountFieldPrefix = "interim="
     private static let expiredSubagentCountFieldPrefix = "expired="
     private static let startedAtFieldPrefix = "startedAt="
     private static let skippedByteCountFieldPrefix = "skippedBytes="
@@ -34,8 +35,9 @@ enum HookEventLog {
         if let toolName, !toolName.isEmpty {
             fields.append(toolNameFieldPrefix + toolName)
         }
-        if let reportedCleanup, reportedCleanup.removedAnything {
+        if let reportedCleanup, reportedCleanup.foundAnything {
             fields.append(completedSubagentCountFieldPrefix + String(reportedCleanup.completedSubagentIds.count))
+            fields.append(interimSubagentCountFieldPrefix + String(reportedCleanup.interimSubagentIds.count))
             fields.append(expiredSubagentCountFieldPrefix + String(reportedCleanup.expiredSubagents.count))
         }
         appendEntry(fields: fields)

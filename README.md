@@ -47,7 +47,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Four commands are useful from any shell:
+Five commands are useful from any shell:
 
 - `agent-pet status` prints one row per enrolled session (short id, label, accent, enabled,
   visible, mood, running subagent count, alive) and the daemon's pid.
@@ -58,6 +58,10 @@ Four commands are useful from any shell:
   leave every attached client where it is.
 - `agent-pet clear-subagents [--session ID]` forgets every subagent the session counts as
   running and prints how many it dropped. It exits 2 when the session has no record.
+- `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
+  transcript file from byte OFFSET (default 0) and prints one line per subagent completion
+  that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
+  agent id. It changes no record.
 
 ## How it works
 
@@ -93,9 +97,23 @@ the record tracks running subagents and a `Stop` with any of them left hides ins
 finishes, Claude Code writes a task notification into the session's transcript file (the
 `transcript_path` every hook receives) and re-invokes the main agent. So on `Stop`,
 `SubagentStart` and `SubagentStop`, agent-pet reads the part of the transcript it has not read
-yet, and every `<task-id>` followed by a `<status>` tag marks that subagent as finished. As a
-safety net, a subagent recorded more than 3 hours ago is dropped as expired. If the pet still
-stays hidden because of a subagent that is long gone, run `agent-pet clear-subagents`.
+yet, and every `<task-id>` followed by a `<status>` tag marks that subagent as finished.
+
+Two exceptions came out of a real session:
+
+- Claude Code also writes a task notification when an agent only pauses while its own
+  background work is still running. Its `<note>` says the agent "stopped with background work
+  of its own still running", and the agent can resume on its own later. agent-pet reads that
+  note and counts the notification as interim: the subagent stays tracked, so the pet stays
+  hidden.
+- Some agents end with no task notification at all. Their only trace is a hand-back message,
+  `<agent-message from="ID">` followed by `[Subagent hand-back]`. agent-pet treats that as
+  finished too. A plain agent message without the hand-back marker is not a completion.
+
+As a safety net, a subagent recorded more than 3 hours ago is dropped as expired. If the pet
+still stays hidden because of a subagent that is long gone, run `agent-pet clear-subagents`.
+To see what agent-pet reads from a transcript, run
+`agent-pet scan-transcript --path <transcript_path>`.
 
 This changed nothing in the hook set, so a session that already ran `/pet` needs no
 re-enrollment to get it.
@@ -174,8 +192,9 @@ a shipped pack there only when no pack of that name exists, so your edits surviv
   eight characters of the session id, the subagent's `agent_id` or `-`, and the record's state
   after the write. A pet that appears at the wrong moment shows up here as the event that set
   `visible=true`. `PreToolUse` lines also name the tool, as `tool=Bash`. A `Stop` line that
-  dropped subagents ends with `completed=<n> expired=<m>`, and each expired subagent gets its own
-  `SubagentExpired` line.
+  found finished, interim or expired subagents ends with `completed=<n> interim=<k> expired=<m>`,
+  and each expired subagent gets its own `SubagentExpired` line. `interim` counts tracked
+  subagents that only paused, which stay tracked.
 - A pet that never appears even though the session is waiting on you, with `agents=` above 0 on
   every `Stop` line, means agent-pet still counts a subagent as running. Run
   `agent-pet clear-subagents --session ID` to empty the count. It prints how many it dropped,

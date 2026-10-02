@@ -30,6 +30,21 @@ enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportInvalidByteOffset(_ rawValue: String) -> Int32 {
+        writeToStandardError("\(CommandFlag.from.rawValue) must be a byte offset of 0 or more, got \(rawValue).")
+        return ExitCode.usage
+    }
+
+    static func reportMissingTranscriptPath() -> Int32 {
+        writeToStandardError("no transcript. Pass \(CommandFlag.path.rawValue) FILE.")
+        return ExitCode.usage
+    }
+
+    static func reportUnreadableTranscript(_ path: String) -> Int32 {
+        writeToStandardError("cannot read transcript \(path).")
+        return ExitCode.usage
+    }
+
     static func reportMissingTmuxTarget(_ sessionId: String) -> Int32 {
         writeToStandardError("no tmux target for session \(sessionId).")
         return ExitCode.usage
@@ -69,6 +84,7 @@ enum CommandFeedback {
       preview          show a fake pet for a few seconds
       focus            jump to this session's tmux pane and terminal tab
       clear-subagents  forget every subagent this session is tracking as running
+      scan-transcript  diagnostic: print every subagent completion found in a transcript file
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

@@ -34,6 +34,8 @@ enum AgentPetCommandLine {
             return FocusCommand.run(flags: flags)
         case .clearSubagents:
             return SessionCommands.clearSubagents(flags: flags)
+        case .scanTranscript:
+            return ScanTranscriptCommand.run(flags: flags)
         }
     }
 }

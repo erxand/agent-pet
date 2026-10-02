@@ -13,6 +13,7 @@ enum CommandName: String, CaseIterable {
     case preview
     case focus
     case clearSubagents = "clear-subagents"
+    case scanTranscript = "scan-transcript"
 }
 
 enum CommandFlag: String, CaseIterable {
@@ -27,6 +28,8 @@ enum CommandFlag: String, CaseIterable {
     case tmux = "--tmux"
     case pid = "--pid"
     case sprite = "--sprite"
+    case path = "--path"
+    case from = "--from"
 }
 
 struct ParsedFlags {

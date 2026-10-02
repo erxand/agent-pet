@@ -5,6 +5,7 @@ enum FlagParseFailure: Error {
     case unknownMood(String)
     case unknownAgent(String)
     case unknownProcessIdentifier(String)
+    case invalidByteOffset(String)
 
     func report() -> Int32 {
         switch self {
@@ -12,11 +13,22 @@ enum FlagParseFailure: Error {
         case .unknownMood(let rawValue): return CommandFeedback.reportUnknownMood(rawValue)
         case .unknownAgent(let rawValue): return CommandFeedback.reportUnknownAgent(rawValue)
         case .unknownProcessIdentifier(let rawValue): return CommandFeedback.reportUnknownProcessIdentifier(rawValue)
+        case .invalidByteOffset(let rawValue): return CommandFeedback.reportInvalidByteOffset(rawValue)
         }
     }
 }
 
 enum FlagParsing {
+    static let startOfFileByteOffset = 0
+
+    static func byteOffset(in flags: ParsedFlags) throws -> Int {
+        guard let rawValue = flags.value(for: .from) else { return startOfFileByteOffset }
+        guard let byteOffset = Int(rawValue), byteOffset >= startOfFileByteOffset else {
+            throw FlagParseFailure.invalidByteOffset(rawValue)
+        }
+        return byteOffset
+    }
+
     static func accent(in flags: ParsedFlags) throws -> AccentColor? {
         guard let rawValue = flags.value(for: .accent) else { return nil }
         guard let accent = AccentColor(rawValue: rawValue) else {
