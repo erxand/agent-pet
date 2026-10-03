@@ -47,7 +47,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Seven commands are useful from any shell:
+Seven commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
   enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
@@ -69,6 +69,28 @@ Seven commands are useful from any shell:
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+
+## Demo
+
+`agent-pet demo` plays a one minute tour on your desktop: pets climb out when a turn finishes, a pet
+waits under a `!` bubble, five sessions share the screen in their own lanes, one ticket with three agents
+shares one pet, two clashing names get their session suffix, a reserved sprite appears, a click shows an
+"Achievement get!" toast, and every pet dives away. A short caption explains each scene.
+
+The demo runs in its own process with an in-memory cast. It writes no session record, never starts or
+talks to the daemon, never focuses a session and never types into a pane, so it is safe to run next to
+real pets. It uses your installed packs, or the repo's `sprites/` when it runs from a checkout.
+
+| form | effect |
+|---|---|
+| `agent-pet demo` | play every scene, about 66 seconds |
+| `agent-pet demo --scene NAME` | play one scene, see `--list` for the names |
+| `agent-pet demo --list` | print every scene with its length and caption |
+| `agent-pet demo --speed 2` | play faster (or slower, below 1) |
+| `agent-pet demo --dry-run` | print the timeline in the terminal instead of drawing it |
+| `agent-pet demo --snapshot DIR` | write the title card, a caption, a toast and a sample scene as PNGs to DIR |
+
+Click the caption to skip to the next scene. Ctrl-C, or SIGTERM, closes every demo window and exits.
 
 ## Configuration
 
