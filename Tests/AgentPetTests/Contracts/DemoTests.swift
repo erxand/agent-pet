@@ -3,6 +3,14 @@ import Foundation
 import Testing
 @testable import AgentPetCore
 
+final class RecordingDemoFocus: DemoFocus {
+    private(set) var takeCount = 0
+    private(set) var returnCount = 0
+
+    func takeFocus() { takeCount += 1 }
+    func returnFocus() { returnCount += 1 }
+}
+
 final class RecordingDemoStage: DemoStage {
     private(set) var presentedPets: [[PetDisplayItem]] = []
     private(set) var titles: [DemoTitleCard?] = []
@@ -124,24 +132,85 @@ struct DemoTimelineTests {
         #expect(DemoScript.scenes.allSatisfy { scene in scene.labelPlacement == .pill })
     }
 
-    @Test func aClickDivesThePetAndTheCaptionSaysWhatRealUseDoes() throws {
-        let expected = "In real use, the terminal tab for deploy comes to the front."
+    @Test func theScriptedClickDivesThePetAndTheCaptionOnlyExplainsRealUse() throws {
+        let expected = "Click a pet to go to its session. Its terminal tab comes to the front."
+        let scene = try #require(DemoScript.scene(named: .click))
+        #expect(scene.caption == expected)
+        #expect(!expected.lowercased().contains("you can click"))
         let stage = RecordingDemoStage()
         let click = try runner(for: .click, stage: stage)
         advance(click, by: 2)
-        let pet = try #require(click.displayedPets.first)
-        click.handleClick(petKey: pet.petKey)
+        #expect(click.displayedPets.map { item in item.label } == ["deploy"])
+        advance(click, by: 1)
         #expect(click.displayedPets.isEmpty)
-        #expect(stage.captions.last == DemoCaption(text: expected, sceneNumber: 1, sceneCount: 1, accent: .cyan))
-        let captionCount = stage.captions.count
-        advance(click, by: 3)
-        #expect(stage.captions.count == captionCount)
+        #expect(stage.captions.compactMap { caption in caption?.text } == [expected])
+    }
 
-        let unattendedStage = RecordingDemoStage()
-        let unattended = try runner(for: .click, stage: unattendedStage)
-        advance(unattended, by: 4.5)
-        #expect(unattended.displayedPets.isEmpty)
-        #expect(unattendedStage.captions.last??.text == expected)
+    @Test func interactiveScenesHoldUntilSpaceAndOnlyTheTitleMovesByItself() throws {
+        let stage = RecordingDemoStage()
+        let runner = DemoRunner(scenes: DemoScript.scenes, stage: stage, waitsForUser: true)
+        let title = try #require(DemoScript.scene(named: .title))
+        #expect(title.holdOffsetInSeconds == nil)
+        #expect(title.durationInSeconds >= 5.5 && title.durationInSeconds <= 6.5)
+        advance(runner, by: title.durationInSeconds + 0.1)
+        #expect(runner.currentScene?.name == .states)
+        for scene in DemoScript.scenes.dropFirst() {
+            let hold = try #require(scene.holdOffsetInSeconds, "scene \(scene.name.rawValue) has no hold")
+            #expect(hold > 0 && hold < scene.durationInSeconds)
+            #expect(runner.currentScene?.name == scene.name)
+            advance(runner, by: scene.durationInSeconds * 3)
+            #expect(runner.currentScene?.name == scene.name, "scene \(scene.name.rawValue) moved on by itself")
+            #expect(runner.isWaitingForUser)
+            #expect(runner.sceneProgress == 1)
+            runner.skipToNextScene()
+            #expect(!runner.isWaitingForUser)
+        }
+        #expect(runner.isFinished)
+        #expect(stage.presentedPets.last?.isEmpty == true)
+    }
+
+    @Test func aHeldSceneKeepsItsPetsOnScreen() throws {
+        let stage = RecordingDemoStage()
+        let scene = try #require(DemoScript.scene(named: .states))
+        let runner = DemoRunner(scenes: [scene], stage: stage, waitsForUser: true)
+        advance(runner, by: 20)
+        #expect(runner.displayedPets.count == 3)
+    }
+
+    @Test func spaceSkipsTheTitleEarlyAndEscQuitsAndGivesFocusBack() throws {
+        let stage = RecordingDemoStage()
+        let focus = RecordingDemoFocus()
+        let runner = DemoRunner(scenes: DemoScript.scenes, stage: stage, waitsForUser: true)
+        var lines: [String] = []
+        var exitCode: Int32?
+        let playback = DemoPlayback(
+            runner: runner,
+            stage: stage,
+            speed: 1,
+            reportStop: { line in lines.append(line) },
+            focus: focus,
+            onFinish: { code in exitCode = code }
+        )
+        runner.start()
+        #expect(runner.currentScene?.name == .title)
+        #expect(playback.handle(key: .space))
+        #expect(runner.currentScene?.name == .states)
+        #expect(focus.returnCount == 0)
+        #expect(playback.handle(key: .escape))
+        #expect(exitCode == 0)
+        #expect(stage.tearDownCount == 1)
+        #expect(focus.returnCount == 1)
+        #expect(lines == ["demo stopped by esc. All demo windows are closed."])
+        #expect(!playback.handle(key: .space))
+        #expect(!playback.handle(key: .escape))
+        #expect(focus.returnCount == 1)
+    }
+
+    @Test func onlySpaceAndEscAreDemoKeys() {
+        #expect(DemoKey(keyCode: 49) == .space)
+        #expect(DemoKey(keyCode: 53) == .escape)
+        #expect(DemoKey(keyCode: 36) == nil)
+        #expect(DemoKey(keyCode: 0) == nil)
     }
 
     @Test func aSceneCaptionCarriesTheAccentOfItsPet() throws {
@@ -220,7 +289,7 @@ struct DemoPixelFontTests {
     }
 
     @Test func everyWordTheDemoShowsCanBeDrawn() {
-        var texts: [String] = [DemoScript.clickCaption(petLabel: "deploy")]
+        var texts: [String] = []
         for scene in DemoScript.scenes {
             if let caption = scene.caption { texts.append(caption) }
             texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
@@ -267,6 +336,8 @@ struct DemoCommandTests {
             #expect(line.hasPrefix(name.rawValue))
         }
         #expect(lines.last?.hasPrefix("total") == true)
+        #expect(lines.first?.contains("auto ") == true)
+        #expect(lines.dropFirst().dropLast().allSatisfy { line in line.contains("space") })
 
         let one = try sandbox.run(["demo", "--scene", "lanes", "--list"])
         #expect(one.standardOutput.split(separator: "\n").first?.hasPrefix("lanes") == true)
@@ -322,7 +393,7 @@ struct DemoCommandTests {
             environment: ["HOME": freshHome.path, "CFFIXED_USER_HOME": freshHome.path]
         )
         #expect(run.exitStatus == 0)
-        #expect(run.standardOutput.contains("caption: In real use, the terminal tab for deploy comes to the front."))
+        #expect(run.standardOutput.contains("caption: Click a pet to go to its session. Its terminal tab comes to the front."))
         #expect(try FileManager.default.contentsOfDirectory(atPath: freshHome.path).isEmpty)
     }
 
@@ -389,7 +460,7 @@ struct DemoPaletteTests {
 @Suite("demo words")
 struct DemoWordsTests {
     @Test func noShownTextUsesDashesOrExclamationMarksOrGameWords() {
-        var texts = [DemoScript.clickCaption(petLabel: "deploy")]
+        var texts: [String] = []
         for scene in DemoScript.scenes {
             if let caption = scene.caption { texts.append(caption) }
             texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })

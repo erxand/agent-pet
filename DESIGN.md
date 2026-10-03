@@ -602,7 +602,7 @@ sprites/<pack-name>/
 
 ## Demo
 
-`agent-pet demo` is a self-running tour of about 30 seconds for people who have never seen a pet. It
+`agent-pet demo` is a short tour for people who have never seen a pet. It
 shows only the core flow, then one card that points at Configuration. The `states` scene holds every
 `PetMood` side by side for 9.5 s, and the hidden working state as an empty dashed spot. Each slot has a
 `DemoStateLabelView` above it in the panel style. The other scenes show lanes, a click and a dive. It does not show groups, nametags or reserved
@@ -614,17 +614,32 @@ anyone who never runs it, and it never touches real state:
   to `~/.agent-pet`, the daemon is never ensured, no Focuser runs and no ColorSync types into a pane. A
   dry run in a fresh home leaves it empty.
 - `DemoScript.scenes` is data: each `DemoScene` has a name, a one line caption, a duration, a label
-  placement, steps, and optional state slots (a label and an actor, or no actor for the working state) at offsets into the scene (show an actor with a
-  mood, hide actors, click an actor, show or hide the title card).
+  placement, steps at offsets into the scene (show an actor with a mood, hide actors, click an actor,
+  show or hide the title card), an optional hold offset, and optional state slots (a label and an actor,
+  or no actor for the working state). Only the title has no hold offset.
 - `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
   real `PetDisplayPlanner` with `SharedKeyGrouping`, so the lanes and moods in the demo are the shipped
   rules, not a copy. Entering a scene resets the cast, so `--scene` and
-  skipping always start clean. A click, real or scripted, hides every member of the pet, so it dives, and
-  replaces the caption with `DemoScript.clickCaption`, which says what real use does (the session's
-  terminal tab comes to the front). The demo never focuses anything.
+  skipping always start clean. A scripted click hides every member of the pet, so it dives. The scene
+  caption says what a click does in real use. The demo pets have no session, so the stage gives
+  `PetView` no interaction handler and a click by hand does nothing.
+- Interactive mode is the default (`waitsForUser`). The clock of a scene stops at its hold offset, after
+  its animation, and the runner waits until `skipToNextScene()`. The steps after the hold offset are the
+  timed exit and run only with `--auto`. The title has no hold offset, so it moves on by itself after
+  6 s. `--auto`, `--dry-run`, `--snapshot` and the tests use the timed mode, where a scene ends at its
+  duration.
 - `DemoPlayback` drives the runner from a 30 Hz timer, scaled by `--speed`, and owns SIGINT and SIGTERM
   through dispatch signal sources: the stage tears down every window, a line is printed, and the exit code is
-  128 plus the signal. At the end it waits for the stage to settle (pets dived, panels faded) for at most
+  128 plus the signal. `handle(key:)` takes a `DemoKey`: space calls `skipToNextScene()`, esc stops the
+  demo with exit code 0. A `DemoFocus` takes the focus at start and gets it back at every end (the
+  last scene, esc, SIGINT or SIGTERM).
+- Keys: `DemoAppFocus` remembers the frontmost app, activates the demo once, and makes `DemoKeyWindow`
+  key. That window is a 1 by 1 clear borderless window that can become key and ignores the mouse, so
+  the title card, which has no caption, also gets the keys. A local key-down monitor sends space and esc
+  without command, control or option to the playback, and swallows them. Other keys pass. A local
+  monitor sees keys only while the demo is the active app, so a demo that lost the focus waits and
+  never activates again. At the end, the focus goes back to the remembered app only when the demo is
+  still the active app. At the end it waits for the stage to settle (pets dived, panels faded) for at most
   2.5 s, then tears down.
 - The AppKit stage reuses `PetView`, `PetWindow`, `PetAnimator` and `PetSpriteFrames`, so the pets are drawn
   exactly as the daemon draws them. It eases a pet's lane home when the lane count changes. Every panel

@@ -14,6 +14,7 @@ package final class DemoPlayback {
     private let speed: Double
     private let reportStop: (String) -> Void
     private let onFinish: (Int32) -> Void
+    private let focus: DemoFocus?
 
     private var timer: Timer?
     private var signalSources: [DispatchSourceSignal] = []
@@ -26,17 +27,20 @@ package final class DemoPlayback {
         stage: DemoStage,
         speed: Double,
         reportStop: @escaping (String) -> Void,
+        focus: DemoFocus? = nil,
         onFinish: @escaping (Int32) -> Void
     ) {
         self.runner = runner
         self.stage = stage
         self.speed = speed
         self.reportStop = reportStop
+        self.focus = focus
         self.onFinish = onFinish
     }
 
     package func start() {
         installSignalSources()
+        focus?.takeFocus()
         lastTickDate = Date()
         runner.start()
         let timer = Timer(timeInterval: DemoPlayback.tickIntervalInSeconds, repeats: true) { [weak self] _ in
@@ -51,6 +55,19 @@ package final class DemoPlayback {
         runner.stop()
         reportStop("demo stopped by \(DemoPlayback.signalName(signalNumber)). All demo windows are closed.")
         complete(exitCode: DemoPlayback.interruptedExitCodeBase + signalNumber)
+    }
+
+    package func handle(key: DemoKey) -> Bool {
+        guard !hasFinished else { return false }
+        switch key {
+        case .space:
+            runner.skipToNextScene()
+        case .escape:
+            runner.stop()
+            reportStop("demo stopped by esc. All demo windows are closed.")
+            complete(exitCode: ExitCode.success)
+        }
+        return true
     }
 
     private func tick() {
@@ -75,6 +92,7 @@ package final class DemoPlayback {
             source.cancel()
         }
         signalSources = []
+        focus?.returnFocus()
         onFinish(exitCode)
     }
 

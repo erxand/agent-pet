@@ -122,7 +122,7 @@ package enum CommandFeedback {
       scan-transcript  diagnostic: print every subagent completion found in a transcript file
       render           print a sprite pack frame to the terminal in truecolor half blocks
       packs            list installed sprite packs with accent, reserved, and live pet count
-      demo             play a one minute tour on the desktop. It changes no session.
+      demo             play a short tour on the desktop. It changes no session.
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

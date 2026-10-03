@@ -9,6 +9,7 @@ package struct DemoRequest {
     package let scenes: [DemoScene]
     package let speed: Double
     package let mode: DemoMode
+    package let waitsForUser: Bool
 }
 
 enum DemoCommand {
@@ -41,9 +42,9 @@ enum DemoCommand {
         }
         if let snapshotPath = flags.value(for: .snapshot) {
             let directory = URL(fileURLWithPath: (snapshotPath as NSString).expandingTildeInPath, isDirectory: true)
-            return runDemo(DemoRequest(scenes: scenes, speed: speed, mode: .snapshot(directory)))
+            return runDemo(DemoRequest(scenes: scenes, speed: speed, mode: .snapshot(directory), waitsForUser: false))
         }
-        return runDemo(DemoRequest(scenes: scenes, speed: speed, mode: .play))
+        return runDemo(DemoRequest(scenes: scenes, speed: speed, mode: .play, waitsForUser: !flags.isPresent(.auto)))
     }
 
     static func reportOverlayUnavailable(_ request: DemoRequest) -> Int32 {
@@ -72,9 +73,10 @@ enum DemoCommand {
         for scene in scenes {
             let paddedName = scene.name.rawValue.padding(toLength: listNameColumnWidth, withPad: " ", startingAt: 0)
             let duration = String(format: "%4.1f s", scene.durationInSeconds)
-            print("\(paddedName)\(duration)  \(summary(of: scene))")
+            let advance = scene.holdOffsetInSeconds == nil ? "auto " : "space"
+            print("\(paddedName)\(duration)  \(advance)  \(summary(of: scene))")
         }
-        print(String(format: "total %.1f s", scenes.reduce(0) { total, scene in total + scene.durationInSeconds }))
+        print(String(format: "total %.1f s with --auto. Without it, a scene marked space waits for the space bar.", scenes.reduce(0) { total, scene in total + scene.durationInSeconds }))
     }
 
     private static func summary(of scene: DemoScene) -> String {
