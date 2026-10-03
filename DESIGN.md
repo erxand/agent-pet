@@ -3,20 +3,26 @@
 A macOS overlay pet that appears along the bottom of the screen only when an enrolled coding
 agent session has finished its turn and is waiting on the user. Sessions opt in one at a time, with
 the `/pet` skill in Claude Code or the `/pet` command in pi. Nothing is global: a session that
-never ran `/pet` has no hooks, no state and no pet.
+never enrolled has no state and no pet, even when the hooks are installed for every session (see
+"`hook` dispatch"). With no config file, everything below is the default behavior; a config file
+only swaps in the alternatives listed under "Contracts".
 
 ## Layout
 
 ```
 agent-pet/
   DESIGN.md, README.md         this contract, and install + usage
-  Package.swift                swift-tools 5.9, one executable target `agent-pet`, macOS 14+
-  Sources/agent-pet/
-    main.swift                 argv dispatch to the commands below
-    Commands/                  one file per subcommand, plus flag parsing and feedback
-    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run + color sync
-    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
+  Package.swift                swift-tools 5.9, macOS 14+: library `AgentPetCore`, executable `agent-pet`, tests `AgentPetTests`
+  Sources/AgentPetCore/
+    Commands/                  one file per subcommand, plus flag parsing and feedback; AgentPetCommandLine is the entry point
+    Contracts/                 AgentPetConfiguration, ConfigurationFile, the contract protocols and their implementations, PetDisplayPlanner
+    Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
+    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver
+  Sources/agent-pet/
+    main.swift                 hands argv and the overlay to AgentPetCommandLine
+    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
+  Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
   sprites/<pack>/              shipped sprite packs, see "Sprite packs"
@@ -30,6 +36,7 @@ agent-pet/
   sessions/<session_id>.json   one PetSession record per enrolled session
   sessions/<session_id>.lock   the flock file that serializes writers of that record
   sprites/<pack>/              installed sprite packs
+  config.json                  optional, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon stderr
   hooks.log                    one line per handled hook event
@@ -44,7 +51,7 @@ file on every write (temp file in the same dir, then rename).
 {"sessionId":"1dd88945-2a6c-4903-88f8-c8837c6cd8d3","enabled":true,"visible":false,
  "nickname":"evidence set","label":"evidence set pipelines","accent":"cyan","mood":"ready",
  "message":"MR ready for review","agent":"claude-code","tmuxTarget":"par:@1.%1","pid":71481,
- "sprite":"claude","activeSubagents":[{"id":"a184a0c2d9e1f3b47","startedAt":1790014201.4}],
+ "sprite":"claude","focusTarget":"pane:42","activeSubagents":[{"id":"a184a0c2d9e1f3b47","startedAt":1790014201.4}],
  "transcriptPath":"/Users/me/.claude/projects/-Users-me-repo/1dd88945-2a6c-4903-88f8-c8837c6cd8d3.jsonl",
  "transcriptScanOffset":2702079,"updatedAt":1790014288.12}
 ```
@@ -73,6 +80,11 @@ file on every write (temp file in the same dir, then rename).
   tracked under the synthetic id `unknown-<n>`, where `n` is the lowest number not already in the set: a start adds
   one, and a stop removes the most recently added `unknown-` id. A missing field therefore degrades to a counter
   instead of to no tracking at all.
+- `focusTarget` is optional and opaque: `--focus-target` stores it and the command focuser hands it on as
+  `AGENT_PET_FOCUS_TARGET`. agent-pet never interprets it.
+- `handledHookEvents` is optional and present only after a `SubagentStart` or `SubagentStop` without an
+  `agent_id`: one `{fingerprint, handledAt}` per such payload in the last 30 s, at most 16, so the same event
+  delivered twice is applied once. See "`hook` dispatch".
 - `transcriptPath` is the last `transcript_path` a hook payload carried, and `transcriptScanOffset` (default 0) is the
   byte offset in that file up to which task notifications were already read. Storing a different path resets the
   offset to 0.
@@ -100,7 +112,9 @@ about to be re-invoked, and its own `Stop` decides.
 Claude Code writes `~/.claude/sessions/<pid>.json` for every live session, carrying `pid`,
 `sessionId`, `cwd`, `name`, `nameSource`, `status`, `tmux` and `messagingSocketPath`.
 `ClaudeSessionDirectory` matches PetSession.sessionId to one of these by `sessionId` to fill in a
-missing label or tmux target. Never trust `status`, it goes stale.
+missing label or tmux target. Never trust `status`, it goes stale. Which directories are read is the
+SessionSource contract: by default only `~/.claude/sessions/`, and `sessionDirectories` in the config
+adds others, such as the `sessions/` directory of a second Claude config root.
 
 `ProcessLiveness.isAlive(session:claudeSession:)` is the one liveness rule, and the daemon sweep and
 the `status` table both call it, so they cannot disagree. A `preview-` record is always alive. A
@@ -170,26 +184,33 @@ eye `#1A1A1A`, highlight `#F5D0BF`, scarf `#2EE6D6`, scarfShade `#20A196`.
 ## CLI, one binary `agent-pet`
 
 All session-taking commands default `--session` to `$CLAUDE_CODE_SESSION_ID` and fail with exit 2
-and a one-line stderr message if neither is set. The identity flags `--nickname`, `--label`,
-`--accent`, `--agent`, `--tmux`, `--pid` and `--sprite` work on `on`, `show` and `preview` alike.
+and a one-line stderr message if neither is set. `--session` works from any shell; the tmux target is
+still resolved from the caller's `$TMUX_PANE` unless `--tmux` is passed. The identity flags
+`--nickname`, `--label`, `--accent`, `--agent`, `--tmux`, `--pid`, `--sprite` and `--focus-target`
+work on `on`, `show` and `preview` alike.
 
 | command | effect |
 |---|---|
 | `daemon` | run the overlay in the foreground (accessory app, no dock icon) |
 | `ensure-daemon` | kickstart the launchd agent when its plist exists, otherwise start `daemon` detached if `daemon.pid` is missing or dead; idempotent, see "Daemon lifecycle" |
-| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color |
+| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID]` | visible false |
 | `remove [--session ID]` | delete the record |
-| `status` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid |
+| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session; `group` is the session id until grouping exists |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
-| `focus [--session ID] [--no-client-switch]` | run the same `SessionFocuser.focus` a left click runs, so focusing can be tested from a shell; exit 2 when the record is missing or has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client |
+| `focus [--session ID] [--no-client-switch]` | run the configured Focuser the way a left click does, so focusing can be tested from a shell; exit 2 when the record is missing, or, with the `tmux-iterm` focuser, when it has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client. The CLI waits for a command focuser to finish |
 | `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 
 ## `hook` dispatch on `hook_event_name`
+
+Before anything else, a session with no record ends the hook: exit 0, no lock taken, no lock file, no
+`hooks.log` line, no state directory created. That is what makes it safe to install these hooks for every
+session in `settings.json`, beside or instead of the `/pet` skill hooks. A disabled record still counts as
+enrolled and goes through the table below.
 
 | event | action |
 |---|---|
@@ -202,6 +223,14 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 | `PreToolUse` | `hide` |
 | `SessionEnd` | `remove` |
 | anything else | nothing |
+
+A session that has both global hooks and `/pet` skill hooks sees every event twice. Every action above is
+idempotent for a repeated payload: show and hide land on the same state, a second `Stop` scans an already
+scanned transcript, and a `SubagentStart` or `SubagentStop` with an `agent_id` touches the same entry. The one
+exception was a subagent event without an `agent_id`, which counts with a synthetic `unknown-<n>` id. Such an
+event is fingerprinted (FNV-1a over the payload re-serialized with sorted keys) under the record lock, and a
+fingerprint already in `handledHookEvents` from the last 30 s changes nothing. Two different subagents
+without ids still count twice, because their payloads differ.
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
@@ -315,13 +344,18 @@ crash left every later hook updating records that nothing drew.
   leftward travel), random idle pauses of 1 to 3 s.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
-- Left click: focus the session, then hide. Right click: hide only. Focus is `SessionFocuser.focus`,
+- Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
   described under "Focusing a session".
+- What is on screen comes from `PetDisplayPlanner`: enabled, visible, live records, oldest `updatedAt`
+  first, passed through the Grouping contract (one pet per session by default), each with its resolved
+  label and the FocusRequest a click hands the Focuser.
 - The daemon polls `~/.agent-pet/sessions/` every 300 ms (mtime of the dir, then file contents on
   change) and reconciles windows to records. Liveness check every 5 s.
-- The same poll signs `~/.claude/sessions/` the same way. On change the daemon re-resolves every
+- The same poll signs every SessionSource directory the same way. On change the daemon re-resolves every
   visible pet's label and pushes it into the existing `PetView`, so a `/rename` shows up within one
   poll interval without recreating the window or restarting the animation.
+- The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
+  and reconciles every record again, so no restart is needed after editing it.
 
 ### Emerge and dive
 
@@ -395,7 +429,11 @@ sprites/<pack-name>/
 
 ## Focusing a session
 
-A left click on a pet, and the `focus` command, run the same `SessionFocuser.focus`.
+A left click on a pet, and the `focus` command, build a `FocusRequest` (session id, pid, focus target,
+group, agent, tmux target, and whether a client switch is allowed) and hand it to the configured Focuser.
+The click takes the tmux target from the record or else from the Claude session file; the `focus`
+command reads the record only. The default focuser is `tmux-iterm`, `TmuxItermFocuser`, which takes its
+tmux and terminal calls through two small protocols so tests can record them:
 
 1. `tmux select-window -t SESSION:@WINDOW`, then `tmux select-pane -t %PANE`.
 2. `tmux list-clients -F '#{client_tty}\t#{session_name}\t#{client_activity}'`, parsed into one record
@@ -419,6 +457,17 @@ selection in steps 1 to 3 already happened.
 
 Every tmux and osascript failure is ignored.
 
+### Command focuser
+
+With `"focuser": {"kind": "command", "command": [ARGV]}` a click runs ARGV instead, with no tmux and no
+AppleScript. The child inherits the daemon's environment plus `AGENT_PET_SESSION_ID`, `AGENT_PET_PID` (the
+record's pid, else the Claude session file's, else empty), `AGENT_PET_FOCUS_TARGET` (empty when unset),
+`AGENT_PET_GROUP` (the session id until grouping exists) and `AGENT_PET_AGENT`. Stdin, stdout and stderr are
+`/dev/null`. After 5 seconds it is terminated. The exit status is ignored except for one stderr line
+(`daemon.log` for a click) when it is not 0, when it timed out, or when it could not start. The daemon
+supervises the child on a background thread, so a slow command never stalls the animation; the `focus`
+command waits for it.
+
 ### Finding the tmux binary
 
 The daemon runs under launchd with a minimal `PATH`, so `/usr/bin/env tmux` failed for every call the
@@ -429,6 +478,9 @@ first `tmux` on `PATH`. When none of those exists every tmux call is a silent no
 `$TMUX_EXECUTABLE` also lets a test point the tool at a stub binary.
 
 ## Prompt bar color sync
+
+This is the ColorSync contract's default, `tmux-color`. `"colorSync": "none"` in the config turns every
+part of it off, for `on` and `off` alike.
 
 Claude Code has a per-session prompt bar color, set by
 `/color [red|blue|green|yellow|purple|orange|pink|cyan|default]` (binary 2.1.278 marks it
@@ -480,6 +532,54 @@ it makes no CLI calls at all. It enrolls with `--agent pi`, `--label` from the p
 auto-compaction or queued follow-up is left, and the pet stays hidden while tools and subagents run.
 `ui_prompt_start` and `ui_prompt_end` bracket blocking prompts, pi's closest thing to a permission prompt. Every call
 is fire and forget with a two second timeout, and failures log one `[agent-pet]` line without interrupting the turn.
+
+## Contracts
+
+Each contract is a protocol in `AgentPetCore` with today's behavior as the default implementation.
+`AgentPetContracts` builds the set from an `AgentPetConfiguration`, so a missing config file always gives
+the defaults.
+
+| contract | default | alternative | config key |
+|---|---|---|---|
+| Focuser | `tmux-iterm`, `TmuxItermFocuser` | `command`, `CommandFocuser` | `focuser` |
+| SessionSource | `~/.claude/sessions` | any list of directories | `sessionDirectories` |
+| ColorSync | `tmux-color`, `TmuxPromptBarColorSync` | `none`, `DisabledColorSync` | `colorSync` |
+| SpriteStrategy | least used at random, `LeastUsedSpriteStrategy` | none yet | none yet |
+| PetGrouping | one pet per session, `OnePetPerSessionGrouping` | none yet | none yet |
+
+Accent stays as before: the pack accent, or `--accent`. The label pill is drawn by `PetView`.
+
+## Configuration
+
+`~/.agent-pet/config.json`, or the file `AGENT_PET_CONFIG` names. It is read by every command that
+needs a contract and by the daemon, which reloads it on change. A missing file, unreadable JSON, a
+missing key, an unknown key and a bad value all mean the default for that key, never an error:
+
+```json
+{
+  "focuser": { "kind": "command", "command": ["/abs/path/focus-script"] },
+  "sessionDirectories": ["~/.claude/sessions", "~/.claude-*/sessions"],
+  "colorSync": "none"
+}
+```
+
+- `focuser.kind` is `tmux-iterm` or `command`. `command` needs a non-empty `command` array whose first
+  entry is an absolute path, because launchd gives the daemon a minimal `PATH`.
+- `sessionDirectories` is a list of directories holding Claude Code session files. A leading `~`
+  expands to the home directory and `*`, `?` and `[...]` match within one path component. Later
+  directories never override a session id an earlier one already had. An empty list means the default.
+- `colorSync` is `tmux-color` or `none`.
+
+## Tests
+
+`swift test` runs `AgentPetTests`. The characterization tests run the built `agent-pet` binary in a
+temporary home (`HOME` and `CFFIXED_USER_HOME`, since `NSHomeDirectory` ignores `HOME`), with
+`TMUX_EXECUTABLE` pointing at a stub that records its arguments and a `daemon.pid` naming the test process,
+so no test reads or writes `~/.agent-pet` or `~/.claude`, calls `launchctl` or starts a daemon. The three
+tests that run a real `focus` with a client switch skip themselves while iTerm2, Terminal or Ghostty is
+running, so they can never move a real terminal. The contract tests drive the protocols in process with
+recording fakes. They were written against the code before the split into `AgentPetCore` and passed there
+first.
 
 ## Code rules for every file
 

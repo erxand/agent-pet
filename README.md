@@ -50,12 +50,13 @@ Right-click to hide it without focusing.
 Five commands are useful from any shell:
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
-  enabled, visible, mood, running subagent count, alive) and the daemon's pid.
+  enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
+  the same as JSON, plus each session's agent, pid and focus target.
 - `agent-pet preview` shows a fake pet for 20 seconds, so you can check the overlay without
   enrolling a real session. It picks a sprite the same way `on` does; add `--sprite <name>` to
   see a specific one.
 - `agent-pet focus [--session ID]` runs exactly what a click runs. It exits 2 when the session
-  has no record or no tmux pane. Add `--no-client-switch` to select the window and pane and
+  has no record, or has no tmux pane while the default focuser is in use. Add `--no-client-switch` to select the window and pane and
   leave every attached client where it is.
 - `agent-pet clear-subagents [--session ID]` forgets every subagent the session counts as
   running and prints how many it dropped. It exits 2 when the session has no record.
@@ -63,6 +64,44 @@ Five commands are useful from any shell:
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+
+## Configuration
+
+With no config file, agent-pet behaves exactly as described above. To change how it focuses a
+session, where it looks for Claude Code sessions, or whether it touches the prompt bar, write
+`~/.agent-pet/config.json` (or point `AGENT_PET_CONFIG` at another file). Every key is optional,
+and a missing key, an unknown key or a value agent-pet does not understand means the default:
+
+```json
+{
+  "focuser": { "kind": "command", "command": ["/Users/me/bin/focus-my-session"] },
+  "sessionDirectories": ["~/.claude/sessions", "~/.claude-*/sessions"],
+  "colorSync": "none"
+}
+```
+
+| key | default | what it does |
+|---|---|---|
+| `focuser` | `{"kind": "tmux-iterm"}` | what a click runs. `tmux-iterm` is the tmux and iTerm2 focus described below. `command` runs your own program instead |
+| `sessionDirectories` | `["~/.claude/sessions"]` | where Claude Code session files are read for labels and liveness. `~` and `*` expand, so `~/.claude-*/sessions` covers every extra Claude config root |
+| `colorSync` | `"tmux-color"` | `none` stops agent-pet from typing `/color` into the session's pane |
+
+The daemon rereads the file when it changes, so there is nothing to restart.
+
+A `command` focuser gets the session in its environment: `AGENT_PET_SESSION_ID`, `AGENT_PET_PID`,
+`AGENT_PET_FOCUS_TARGET`, `AGENT_PET_GROUP` and `AGENT_PET_AGENT`. Its first entry must be an
+absolute path. It runs with no input, and agent-pet stops it after 5 seconds. `AGENT_PET_FOCUS_TARGET`
+is whatever you stored with `agent-pet on --focus-target TEXT`, which agent-pet keeps but never reads,
+so a terminal other than iTerm2 can stash its own pane id there.
+
+`agent-pet on --session ID` works from any shell, so a launcher can enroll a session it is about to
+start. Running `on` again for a session that is already enrolled updates it in place: it keeps the
+sprite, the accent, the focus target and the subagents it is tracking.
+
+The hooks are also safe to install for every session in Claude Code's `settings.json`, instead of or
+beside the `/pet` skill. For a session that never enrolled, `agent-pet hook` exits in a few
+milliseconds and writes nothing, and when both sets of hooks fire for the same event, the event
+counts once.
 
 ## How it works
 
@@ -254,6 +293,7 @@ and stops the daemon if it is still running. It leaves `~/.agent-pet` in place a
   sessions/<session_id>.json   one record per enrolled session
   sessions/<session_id>.lock   the lock that keeps two writers off one record
   sprites/<pack>/              installed sprite packs
+  config.json                  optional settings, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon output
   hooks.log                    one line per handled hook event
@@ -261,6 +301,12 @@ and stops the daemon if it is still running. It leaves `~/.agent-pet` in place a
 
 Delete a session's record, or run `/pet off` in that session, to remove its pet.
 
+## Development
+
+`swift build` and `swift test`. The tests run the binary in a temporary home with a stub tmux, so
+they never touch your `~/.agent-pet`, your Claude Code sessions or the running daemon.
+
 ## Design notes
 
-DESIGN.md is the contract: state shape, concurrency, daemon lifecycle, overlay and sprites.
+DESIGN.md is the contract: state shape, concurrency, daemon lifecycle, overlay, sprites, contracts
+and configuration.
