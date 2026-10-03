@@ -36,10 +36,11 @@ struct DemoTimelineTests {
         }
     }
 
-    @Test func everySceneIsScriptedOnceInOrderAndTheTourRunsAboutAMinute() {
+    @Test func everySceneIsScriptedOnceInOrderAndTheTourIsShort() {
         #expect(DemoScript.scenes.map { scene in scene.name } == DemoSceneName.allCases)
-        #expect(DemoScript.totalDurationInSeconds >= 55)
-        #expect(DemoScript.totalDurationInSeconds <= 75)
+        #expect(DemoScript.scenes.map { scene in scene.name } == [.title, .climbOut, .needsInput, .lanes, .click, .dive, .finale])
+        #expect(DemoScript.totalDurationInSeconds >= 25)
+        #expect(DemoScript.totalDurationInSeconds <= 30)
     }
 
     @Test func stepsStayInsideTheirSceneInOrderAndNameRealActors() {
@@ -85,40 +86,21 @@ struct DemoTimelineTests {
 
         let laneStage = RecordingDemoStage()
         let lanes = try runner(for: .lanes, stage: laneStage)
-        advance(lanes, by: 4)
+        advance(lanes, by: 2.5)
         let lanePets = lanes.displayedPets
-        #expect(lanePets.count == 5)
-        #expect(Set(lanePets.compactMap { item in item.session.sprite }).count == 5)
+        #expect(lanePets.count == 3)
+        #expect(Set(lanePets.compactMap { item in item.session.sprite }).count == 3)
 
-        let reservedStage = RecordingDemoStage()
-        let reserved = try runner(for: .reserved, stage: reservedStage)
-        advance(reserved, by: 4)
-        #expect(reserved.displayedPets.last?.session.sprite == SpritePackLoader.defaultPackName)
+        let diveStage = RecordingDemoStage()
+        let dive = try runner(for: .dive, stage: diveStage)
+        advance(dive, by: 1.2)
+        #expect(dive.displayedPets.map { item in item.label } == ["lint", "ui"])
+        advance(dive, by: 1)
+        #expect(dive.displayedPets.map { item in item.label } == ["ui"])
     }
 
-    @Test func theGroupScenePutsThreeAgentsInOnePetAndNamesTheWaitingOne() throws {
-        let stage = RecordingDemoStage()
-        let group = try runner(for: .group, stage: stage)
-        advance(group, by: 2)
-        let first = try #require(group.displayedPets.first)
-        #expect(group.displayedPets.count == 1)
-        #expect(first.memberSessionIds.count == 3)
-        #expect(first.label == "NIST-1025")
-        #expect(first.bubbleCaption == "review")
-        #expect(first.mood == .ready)
-
-        advance(group, by: 3)
-        let second = try #require(group.displayedPets.first)
-        #expect(group.displayedPets.count == 1)
-        #expect(second.bubbleCaption == "qa")
-        #expect(second.mood == .needsInput)
-    }
-
-    @Test func clashingNamesGetTheirSessionSuffix() throws {
-        let stage = RecordingDemoStage()
-        let nametags = try runner(for: .nametags, stage: stage)
-        advance(nametags, by: 3)
-        #expect(nametags.displayedPets.map { item in item.label } == ["server 7f3a", "server c21e"])
+    @Test func everySceneUsesThePillLabelsANewUserSees() {
+        #expect(DemoScript.scenes.allSatisfy { scene in scene.labelPlacement == .pill })
     }
 
     @Test func aClickDivesThePetAndTheCaptionSaysWhatRealUseDoes() throws {
@@ -131,35 +113,25 @@ struct DemoTimelineTests {
         #expect(click.displayedPets.isEmpty)
         #expect(stage.captions.last == DemoCaption(text: expected, sceneNumber: 1, sceneCount: 1, accent: .cyan))
         let captionCount = stage.captions.count
-        advance(click, by: 4)
+        advance(click, by: 3)
         #expect(stage.captions.count == captionCount)
 
         let unattendedStage = RecordingDemoStage()
         let unattended = try runner(for: .click, stage: unattendedStage)
-        advance(unattended, by: 6)
+        advance(unattended, by: 4.5)
         #expect(unattended.displayedPets.isEmpty)
         #expect(unattendedStage.captions.last??.text == expected)
     }
 
     @Test func aSceneCaptionCarriesTheAccentOfItsPet() throws {
         let stage = RecordingDemoStage()
-        let group = try runner(for: .group, stage: stage)
-        group.start()
+        let needsInput = try runner(for: .needsInput, stage: stage)
+        needsInput.start()
         #expect(stage.captions.last??.accent == .green)
         let titleStage = RecordingDemoStage()
         let title = try runner(for: .title, stage: titleStage)
         title.start()
         #expect(titleStage.captions.last == .some(nil))
-    }
-
-    @Test func aClickOnAGroupPetHidesEveryMember() throws {
-        let stage = RecordingDemoStage()
-        let group = try runner(for: .group, stage: stage)
-        advance(group, by: 5)
-        let pet = try #require(group.displayedPets.first)
-        group.handleClick(petKey: pet.petKey)
-        #expect(group.displayedPets.isEmpty)
-        #expect(stage.captions.last??.text == "In real use, the terminal tab for NIST-1025 comes to the front.")
     }
 
     @Test func skippingMovesToTheNextSceneAndClearsThePets() {
@@ -169,13 +141,13 @@ struct DemoTimelineTests {
         while runner.currentScene?.name != .lanes {
             runner.skipToNextScene()
         }
-        advance(runner, by: 4)
+        advance(runner, by: 2.5)
         #expect(!runner.displayedPets.isEmpty)
         runner.skipToNextScene()
-        #expect(runner.currentScene?.name == .group)
+        #expect(runner.currentScene?.name == .click)
         #expect(runner.displayedPets.isEmpty)
         #expect(stage.presentedPets.last?.isEmpty == true)
-        #expect(stage.captions.last??.text == DemoScript.scene(named: .group)?.caption)
+        #expect(stage.captions.last??.text == DemoScript.scene(named: .click)?.caption)
     }
 
     @Test func theTourEndsWithNothingOnScreen() {
@@ -195,7 +167,7 @@ struct DemoTimelineTests {
     @Test func stopTearsDownOnceAndFreezesTheTimeline() throws {
         let stage = RecordingDemoStage()
         let lanes = try runner(for: .lanes, stage: stage)
-        advance(lanes, by: 4)
+        advance(lanes, by: 2.5)
         lanes.stop()
         lanes.stop()
         let presentedCount = stage.presentedPets.count
@@ -227,7 +199,7 @@ struct DemoPixelFontTests {
     }
 
     @Test func everyWordTheDemoShowsCanBeDrawn() {
-        var texts: [String] = [DemoScript.clickCaption(petLabel: "NIST-1025")]
+        var texts: [String] = [DemoScript.clickCaption(petLabel: "deploy")]
         for scene in DemoScript.scenes {
             if let caption = scene.caption { texts.append(caption) }
             for step in scene.steps {
@@ -274,8 +246,12 @@ struct DemoCommandTests {
         }
         #expect(lines.last?.hasPrefix("total") == true)
 
-        let one = try sandbox.run(["demo", "--scene", "group", "--list"])
-        #expect(one.standardOutput.split(separator: "\n").first?.hasPrefix("group") == true)
+        let one = try sandbox.run(["demo", "--scene", "lanes", "--list"])
+        #expect(one.standardOutput.split(separator: "\n").first?.hasPrefix("lanes") == true)
+
+        for removed in ["group", "nametags", "reserved"] {
+            #expect(try sandbox.run(["demo", "--scene", removed, "--list"]).exitStatus == 2)
+        }
     }
 
     @Test func badFlagsAreUsageErrors() throws {
@@ -303,8 +279,8 @@ struct DemoCommandTests {
         let run = try sandbox.run(["demo", "--dry-run", "--speed", "1000"])
 
         #expect(run.exitStatus == 0)
-        #expect(run.standardOutput.contains("scene 10/10 finale"))
-        #expect(run.standardOutput.contains("pets: NIST-1025 (golem needsInput bubble qa 3 members)"))
+        #expect(run.standardOutput.contains("scene 7/7 finale"))
+        #expect(run.standardOutput.contains("pets: tests (hatchling ready), docs (mossling needsInput), api (nimbus ready)"))
         #expect(run.standardOutput.contains("teardown"))
         #expect(try Data(contentsOf: sandbox.recordURL("real-session")) == recordBefore)
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.stateDirectory.path).sorted() == listingBefore)
@@ -351,7 +327,7 @@ struct DemoCommandTests {
         #expect(process.terminationStatus == 128 + signalNumber)
         #expect(output.contains("teardown: all demo windows are closed"))
         #expect(output.contains("demo stopped by \(signalName)"))
-        #expect(!output.contains("scene 2/10"))
+        #expect(!output.contains("scene 2/7"))
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.sessionsDirectory.path).isEmpty)
     }
 }

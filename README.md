@@ -71,18 +71,18 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
 
 ## Demo
 
-`agent-pet demo` plays a tour of about one minute on your desktop. A caption at the bottom of the
+`agent-pet demo` plays a short tour of about 30 seconds on your desktop. A caption at the bottom of the
 screen tells you what each scene shows:
 
 - A pet climbs out of the ground when its agent finishes a turn.
 - A pet stands still under a `!` bubble when its agent needs your OK.
-- Five sessions show five pets, each in its own lane.
-- Three agents on one ticket share one pet, and its bubble shows which agent waits.
-- Two tabs with one name get the end of their session ID on the nametag.
-- A random pick never uses a reserved sprite.
+- Three sessions show three pets, each in its own lane.
 - A click makes a pet dive. In real use, the click also brings that session's terminal tab to the front.
   The demo does not do this. The caption tells you what would happen.
-- All pets dive into the ground when you return to your desk.
+- When you return to a session, its pet dives into the ground.
+
+The last card tells you that you can configure much more: labels, sprites, colors, groups and how a click
+focuses. See [Configuration](#configuration).
 
 The demo runs in its own process with a cast that exists only in memory. It writes no session record.
 It does not start the daemon or send it data. It does not focus a session or type into a pane. Thus you
@@ -91,7 +91,7 @@ can run it next to real pets. It uses your installed packs. When it runs from a 
 
 | form | effect |
 |---|---|
-| `agent-pet demo` | play all scenes, about 66 seconds |
+| `agent-pet demo` | play all scenes, about 30 seconds |
 | `agent-pet demo --scene NAME` | play one scene. `--list` shows the names |
 | `agent-pet demo --list` | print each scene with its length and caption |
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |

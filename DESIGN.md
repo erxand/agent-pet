@@ -487,7 +487,10 @@ sprites/<pack-name>/
 
 ## Demo
 
-`agent-pet demo` is a self-running tour for people who have never seen a pet. It changes nothing for
+`agent-pet demo` is a self-running tour of about 30 seconds for people who have never seen a pet. It
+shows only the core flow (a pet climbs out, asks for input, has its own lane, dives on a click or when
+you return), then one card that points at Configuration. It does not show groups, nametags or reserved
+sprites, and it uses the pill labels a new user sees. It changes nothing for
 anyone who never runs it, and it never touches real state:
 
 - The cast is a list of `PetSession` values built in memory (`DemoScript.cast`, session ids prefixed
@@ -495,11 +498,11 @@ anyone who never runs it, and it never touches real state:
   to `~/.agent-pet`, the daemon is never ensured, no Focuser runs and no ColorSync types into a pane. A
   dry run in a fresh home leaves it empty.
 - `DemoScript.scenes` is data: each `DemoScene` has a name, a one line caption, a duration, a label
-  placement, whether labels are disambiguated, and steps at offsets into the scene (show an actor with a
+  placement, and steps at offsets into the scene (show an actor with a
   mood, hide actors, click an actor, show or hide the title card).
 - `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
-  real `PetDisplayPlanner` with `SharedKeyGrouping`, so groups, bubble captions, lanes and the session id
-  suffix in the demo are the shipped rules, not a copy. Entering a scene resets the cast, so `--scene` and
+  real `PetDisplayPlanner` with `SharedKeyGrouping`, so the lanes and moods in the demo are the shipped
+  rules, not a copy. Entering a scene resets the cast, so `--scene` and
   skipping always start clean. A click, real or scripted, hides every member of the pet, so it dives, and
   replaces the caption with `DemoScript.clickCaption`, which says what real use does (the session's
   terminal tab comes to the front). The demo never focuses anything.

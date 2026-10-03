@@ -17,6 +17,7 @@ package final class DemoRunner {
     private let stage: DemoStage
     private var castBySessionId: [String: PetSession]
     private let cast: [DemoActor]
+    private let planner = PetDisplayPlanner(grouping: SharedKeyGrouping())
 
     private(set) var currentSceneIndex = 0
     private(set) var sceneElapsedSeconds: Double = 0
@@ -44,8 +45,8 @@ package final class DemoRunner {
     }
 
     package var displayedPets: [PetDisplayItem] {
-        guard let currentScene else { return [] }
-        return planner(for: currentScene).displayItems(records: Array(castBySessionId.values), claudeSessions: [:])
+        guard currentScene != nil else { return [] }
+        return planner.displayItems(records: Array(castBySessionId.values), claudeSessions: [:])
     }
 
     package func start() {
@@ -195,21 +196,14 @@ package final class DemoRunner {
         stage.present(pets: displayedPets, labelPlacement: scene.labelPlacement)
     }
 
-    private func planner(for scene: DemoScene) -> PetDisplayPlanner {
-        PetDisplayPlanner(grouping: SharedKeyGrouping(), disambiguatesLabels: scene.disambiguatesLabels)
-    }
-
     private static func records(for cast: [DemoActor]) -> [String: PetSession] {
         let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
         var recordsBySessionId: [String: PetSession] = [:]
-        for (castIndex, actor) in cast.enumerated() {
+        for actor in cast {
             var record = PetSession.newlyEnrolled(sessionId: actor.sessionId)
             record.nickname = actor.nickname
             record.sprite = actor.sprite
             record.accent = actor.accent
-            record.group = actor.group
-            record.owner = actor.isOwner ? true : nil
-            record.enrolledAt = actor.group == nil ? nil : Double(castIndex)
             record.pid = ownProcessIdentifier
             record.updatedAt = recordTimeBase
             recordsBySessionId[actor.sessionId] = record
