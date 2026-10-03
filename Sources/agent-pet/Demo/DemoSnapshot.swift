@@ -32,8 +32,7 @@ enum DemoSnapshot {
     private static let margin: CGFloat = 24
     private static let captionProgress = 0.4
     private static let snapshotScreenWidth: CGFloat = 1440
-    private static let groupMomentInSeconds: Double = 5
-    private static let nametagMomentInSeconds: Double = 3
+    private static let lanesMomentInSeconds: Double = 2.5
     private static let petGap: CGFloat = 48
     private static let clickMomentInSeconds: Double = 2
 
@@ -145,19 +144,18 @@ enum DemoSnapshot {
     }
 
     private static func stageComposite(spriteSheets: DemoSpriteSheets) -> NSView {
-        let groupScene = DemoScript.scene(named: .group)
+        let lanesScene = DemoScript.scene(named: .lanes)
         let caption = DemoCaptionView(
             caption: DemoCaption(
-                text: groupScene?.caption ?? "",
-                sceneNumber: (DemoScript.scenes.firstIndex { scene in scene.name == .group } ?? 0) + 1,
+                text: lanesScene?.caption ?? "",
+                sceneNumber: (DemoScript.scenes.firstIndex { scene in scene.name == .lanes } ?? 0) + 1,
                 sceneCount: DemoScript.scenes.count,
-                accent: groupScene.flatMap { scene in sceneAccent(scene) }
+                accent: lanesScene.flatMap { scene in sceneAccent(scene) }
             ),
             maximumWidth: snapshotScreenWidth
         )
         caption.progress = captionProgress
-        let pets = petViews(from: petsAt(sceneNamed: .group, seconds: groupMomentInSeconds), spriteSheets: spriteSheets)
-            + petViews(from: petsAt(sceneNamed: .nametags, seconds: nametagMomentInSeconds), spriteSheets: spriteSheets)
+        let pets = petViews(from: petsAt(sceneNamed: .lanes, seconds: lanesMomentInSeconds), spriteSheets: spriteSheets)
         return composite(caption: caption, pets: pets)
     }
 

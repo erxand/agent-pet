@@ -5,9 +5,6 @@ package enum DemoSceneName: String, CaseIterable {
     case climbOut = "climb-out"
     case needsInput = "needs-input"
     case lanes
-    case group
-    case nametags
-    case reserved
     case click
     case dive
     case finale
@@ -18,23 +15,12 @@ package struct DemoActor: Equatable {
     package let nickname: String
     package let sprite: String
     package let accent: AccentColor
-    package let group: String?
-    package let isOwner: Bool
 
-    package init(
-        sessionId: String,
-        nickname: String,
-        sprite: String,
-        accent: AccentColor,
-        group: String? = nil,
-        isOwner: Bool = false
-    ) {
+    package init(sessionId: String, nickname: String, sprite: String, accent: AccentColor) {
         self.sessionId = sessionId
         self.nickname = nickname
         self.sprite = sprite
         self.accent = accent
-        self.group = group
-        self.isOwner = isOwner
     }
 }
 
@@ -82,6 +68,5 @@ package struct DemoScene: Equatable {
     package let caption: String?
     package let durationInSeconds: Double
     package let labelPlacement: LabelPlacement
-    package let disambiguatesLabels: Bool
     package let steps: [DemoStep]
 }
