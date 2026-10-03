@@ -1,10 +1,6 @@
 import Foundation
 
 package enum DemoScript {
-    package static func clickCaption(petLabel: String) -> String {
-        "In real use, the terminal tab for \(petLabel) comes to the front."
-    }
-
     private enum PackName {
         static let claude = SpritePackLoader.defaultPackName
         static let golem = "golem"
@@ -42,7 +38,7 @@ package enum DemoScript {
         DemoScene(
             name: .title,
             caption: nil,
-            durationInSeconds: 3,
+            durationInSeconds: 6,
             labelPlacement: .pill,
             steps: [
                 DemoStep(offsetInSeconds: 0, action: .showTitle(DemoTitleCard(
@@ -50,7 +46,7 @@ package enum DemoScript {
                     subtitle: "A small pet for each agent that waits for you.",
                     accent: .orange
                 ))),
-                DemoStep(offsetInSeconds: 2.4, action: .hideTitle)
+                DemoStep(offsetInSeconds: 5.4, action: .hideTitle)
             ]
         ),
         DemoScene(
@@ -64,6 +60,7 @@ package enum DemoScript {
                 DemoStep(offsetInSeconds: 1.0, action: .show(actorId: ActorId.search, mood: .blocked, message: nil)),
                 DemoStep(offsetInSeconds: 8.4, action: .hide(actorIds: [ActorId.refactor, ActorId.migrate, ActorId.search]))
             ],
+            holdOffsetInSeconds: 2.5,
             stateSlots: [
                 DemoStateSlot(label: "Ready: turn done", actorId: ActorId.refactor),
                 DemoStateSlot(label: "Needs your input", actorId: ActorId.migrate),
@@ -81,29 +78,32 @@ package enum DemoScript {
                 DemoStep(offsetInSeconds: 0.8, action: .show(actorId: ActorId.docs, mood: .needsInput, message: nil)),
                 DemoStep(offsetInSeconds: 1.2, action: .show(actorId: ActorId.api, mood: .ready, message: nil)),
                 DemoStep(offsetInSeconds: 3.9, action: .hide(actorIds: [ActorId.tests, ActorId.docs, ActorId.api]))
-            ]
+            ],
+            holdOffsetInSeconds: 2.5
         ),
         DemoScene(
             name: .click,
-            caption: "Click a pet to go to its session. You can click this one.",
-            durationInSeconds: 5.5,
+            caption: "Click a pet to go to its session. Its terminal tab comes to the front.",
+            durationInSeconds: 5,
             labelPlacement: .pill,
             steps: [
                 DemoStep(offsetInSeconds: 0.6, action: .show(actorId: ActorId.deploy, mood: .ready, message: "Deployed")),
-                DemoStep(offsetInSeconds: 3.2, action: .click(actorId: ActorId.deploy))
-            ]
+                DemoStep(offsetInSeconds: 2.6, action: .click(actorId: ActorId.deploy))
+            ],
+            holdOffsetInSeconds: 4
         ),
         DemoScene(
             name: .dive,
             caption: "When you return to a session, its pet dives into the ground.",
-            durationInSeconds: 3.5,
+            durationInSeconds: 4,
             labelPlacement: .pill,
             steps: [
                 DemoStep(offsetInSeconds: 0.4, action: .show(actorId: ActorId.lint, mood: .ready, message: nil)),
                 DemoStep(offsetInSeconds: 0.7, action: .show(actorId: ActorId.ui, mood: .ready, message: nil)),
                 DemoStep(offsetInSeconds: 1.8, action: .hide(actorIds: [ActorId.lint])),
-                DemoStep(offsetInSeconds: 2.7, action: .hide(actorIds: [ActorId.ui]))
-            ]
+                DemoStep(offsetInSeconds: 3.0, action: .hide(actorIds: [ActorId.ui]))
+            ],
+            holdOffsetInSeconds: 2.9
         ),
         DemoScene(
             name: .finale,
@@ -117,7 +117,8 @@ package enum DemoScript {
                     accent: .orange
                 ))),
                 DemoStep(offsetInSeconds: 3.5, action: .hideTitle)
-            ]
+            ],
+            holdOffsetInSeconds: 1
         )
     ]
 

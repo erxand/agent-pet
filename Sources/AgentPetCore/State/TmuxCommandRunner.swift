@@ -16,6 +16,7 @@ enum CommandSwitch: String, CaseIterable {
     case owner = "--owner"
     case list = "--list"
     case dryRun = "--dry-run"
+    case auto = "--auto"
 }
 
 package protocol TmuxCommandRunning {

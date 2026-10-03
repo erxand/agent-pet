@@ -23,6 +23,27 @@ package struct DemoActor: Equatable {
     }
 }
 
+package enum DemoKey: Equatable {
+    case space
+    case escape
+
+    private static let spaceKeyCode: UInt16 = 49
+    private static let escapeKeyCode: UInt16 = 53
+
+    package init?(keyCode: UInt16) {
+        switch keyCode {
+        case DemoKey.spaceKeyCode: self = .space
+        case DemoKey.escapeKeyCode: self = .escape
+        default: return nil
+        }
+    }
+}
+
+package protocol DemoFocus: AnyObject {
+    func takeFocus()
+    func returnFocus()
+}
+
 package struct DemoStateSlot: Equatable {
     package let label: String
     package let actorId: String?
@@ -92,5 +113,6 @@ package struct DemoScene: Equatable {
     package let durationInSeconds: Double
     package let labelPlacement: LabelPlacement
     package let steps: [DemoStep]
+    package var holdOffsetInSeconds: Double?
     package var stateSlots: [DemoStateSlot] = []
 }

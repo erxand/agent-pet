@@ -18,6 +18,7 @@ package final class DemoRunner {
     private let stage: DemoStage
     private var castBySessionId: [String: PetSession]
     private let cast: [DemoActor]
+    private let waitsForUser: Bool
     private let planner = PetDisplayPlanner(grouping: SharedKeyGrouping())
 
     private(set) var currentSceneIndex = 0
@@ -25,14 +26,16 @@ package final class DemoRunner {
     private(set) var totalElapsedSeconds: Double = 0
     private var sceneStartTotalSeconds: Double = 0
     private(set) var isFinished = false
+    package private(set) var isWaitingForUser = false
     private(set) var isTornDown = false
     private var appliedStepCount = 0
     private var hasStarted = false
 
-    package init(scenes: [DemoScene], cast: [DemoActor] = DemoScript.cast, stage: DemoStage) {
+    package init(scenes: [DemoScene], cast: [DemoActor] = DemoScript.cast, stage: DemoStage, waitsForUser: Bool = false) {
         self.scenes = scenes
         self.cast = cast
         self.stage = stage
+        self.waitsForUser = waitsForUser
         castBySessionId = DemoRunner.records(for: cast)
     }
 
@@ -64,44 +67,34 @@ package final class DemoRunner {
         start()
         guard !isFinished, !isTornDown else { return }
         var remainingSeconds = max(0, elapsedSeconds)
-        while !isFinished, let scene = currentScene {
-            let secondsLeftInScene = scene.durationInSeconds - sceneElapsedSeconds
+        while !isFinished, !isWaitingForUser, let scene = currentScene {
+            let sceneLimit = limitInSeconds(of: scene)
+            let secondsLeftInScene = sceneLimit - sceneElapsedSeconds
             let stepSeconds = min(remainingSeconds, secondsLeftInScene)
             sceneElapsedSeconds += stepSeconds
             totalElapsedSeconds += stepSeconds
             remainingSeconds -= stepSeconds
             applyDueSteps(of: scene)
-            guard sceneElapsedSeconds >= scene.durationInSeconds else { break }
+            guard sceneElapsedSeconds >= sceneLimit else { break }
+            if holdOffsetInSeconds(of: scene) != nil {
+                isWaitingForUser = true
+                break
+            }
             moveToScene(at: currentSceneIndex + 1)
             guard remainingSeconds > 0 else { break }
         }
     }
 
     package var sceneProgress: Double {
-        guard let scene = currentScene, scene.durationInSeconds > 0 else { return 1 }
-        return min(1, sceneElapsedSeconds / scene.durationInSeconds)
+        guard let scene = currentScene, limitInSeconds(of: scene) > 0 else { return 1 }
+        return min(1, sceneElapsedSeconds / limitInSeconds(of: scene))
     }
 
     package func skipToNextScene() {
         start()
         guard !isFinished, !isTornDown, let scene = currentScene else { return }
-        totalElapsedSeconds += scene.durationInSeconds - sceneElapsedSeconds
+        totalElapsedSeconds += limitInSeconds(of: scene) - sceneElapsedSeconds
         moveToScene(at: currentSceneIndex + 1)
-    }
-
-    package func handleClick(petKey: String) {
-        guard !isFinished, !isTornDown, let currentScene else { return }
-        guard let item = displayedPets.first(where: { item in item.petKey == petKey }) else { return }
-        for memberSessionId in item.memberSessionIds {
-            castBySessionId[memberSessionId]?.visible = false
-        }
-        presentPets(for: currentScene)
-        stage.present(caption: DemoCaption(
-            text: DemoScript.clickCaption(petLabel: item.label),
-            sceneNumber: currentSceneIndex + 1,
-            sceneCount: scenes.count,
-            accent: item.session.resolvedAccent
-        ))
     }
 
     package func stop() {
@@ -124,6 +117,7 @@ package final class DemoRunner {
         sceneElapsedSeconds = 0
         sceneStartTotalSeconds = totalElapsedSeconds
         appliedStepCount = 0
+        isWaitingForUser = false
         castBySessionId = DemoRunner.records(for: cast)
         let scene = scenes[index]
         stage.present(scene: scene, number: index + 1, of: scenes.count)
@@ -139,6 +133,7 @@ package final class DemoRunner {
     private func finish() {
         guard !isFinished else { return }
         isFinished = true
+        isWaitingForUser = false
         castBySessionId = DemoRunner.records(for: cast)
         stage.present(title: nil)
         stage.present(states: [])
@@ -181,9 +176,19 @@ package final class DemoRunner {
             guard let item = displayedPets.first(where: { item in item.memberSessionIds.contains(actorId) }) else {
                 return false
             }
-            handleClick(petKey: item.petKey)
-            return false
+            for memberSessionId in item.memberSessionIds {
+                castBySessionId[memberSessionId]?.visible = false
+            }
+            return true
         }
+    }
+
+    private func holdOffsetInSeconds(of scene: DemoScene) -> Double? {
+        waitsForUser ? scene.holdOffsetInSeconds : nil
+    }
+
+    private func limitInSeconds(of scene: DemoScene) -> Double {
+        holdOffsetInSeconds(of: scene) ?? scene.durationInSeconds
     }
 
     private func stateMarks(for scene: DemoScene) -> [DemoStateMark] {

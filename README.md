@@ -71,21 +71,28 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
 
 ## Demo
 
-`agent-pet demo` plays a short tour of about 30 seconds on your desktop. A caption at the bottom of the
-screen tells you what each scene shows:
+`agent-pet demo` plays a short tour on your desktop. The title card stays for about 6 seconds. Each
+next scene plays, then waits until you press the space bar. A caption at the bottom of the screen tells
+you what each scene shows:
 
 - All the states of a pet, side by side, each with a label. A pet climbs out of the ground and walks
   when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your input.
   It sits under a `?` bubble when it is blocked. A working agent has no pet.
 - Three sessions show three pets, each in its own lane.
-- A click makes a pet dive. In real use, the click also brings that session's terminal tab to the front.
-  The demo does not do this. The caption tells you what would happen.
+- A click on a pet brings the terminal tab of its session to the front. The demo shows this with a
+  scripted click, and the pet dives. The demo pets have no session, so a click on one does nothing.
 - When you return to a session, its pet dives into the ground.
 
-The last card tells you that you can configure much more: labels, sprites, colors, groups and how a click
-focuses. See [Configuration](#configuration).
+The last card tells you that you can configure much more: labels, sprites, colors, how a click focuses,
+and more. See [Configuration](#configuration).
 
 No hook sets the `blocked` mood. To see it, run `agent-pet preview --mood blocked`.
+
+Press space for the next scene. Space also skips the title card. Press esc to quit. The demo takes
+the keyboard focus when it starts, so these keys do not go to another app. When the demo ends, it gives
+the focus back to the app that had it before. If you click another app during the tour, the demo waits
+and does not take the focus back. Ctrl-C in the terminal or SIGTERM also closes all demo windows and
+stops the demo.
 
 The demo runs in its own process with a cast that exists only in memory. It writes no session record.
 It does not start the daemon or send it data. It does not focus a session or type into a pane. Thus you
@@ -94,14 +101,13 @@ can run it next to real pets. It uses your installed packs. When it runs from a 
 
 | form | effect |
 |---|---|
-| `agent-pet demo` | play all scenes, about 30 seconds |
+| `agent-pet demo` | play all scenes. Each scene after the title waits for the space bar |
+| `agent-pet demo --auto` | play all scenes on a timer, about 34 seconds, with no keys needed |
 | `agent-pet demo --scene NAME` | play one scene. `--list` shows the names |
-| `agent-pet demo --list` | print each scene with its length and caption |
+| `agent-pet demo --list` | print each scene with its length, `auto` or `space`, and its caption |
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
-| `agent-pet demo --dry-run` | print the timeline in the terminal, and draw nothing |
+| `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
 | `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene, the lanes scene and the states scene to DIR |
-
-To go to the next scene, click the caption. Ctrl-C or SIGTERM closes all demo windows and stops the demo.
 
 ## Configuration
 

@@ -223,7 +223,7 @@ enum DemoSnapshot {
         let pet = stage.pets.first
         let caption = DemoCaptionView(
             caption: DemoCaption(
-                text: DemoScript.clickCaption(petLabel: pet?.label ?? ""),
+                text: DemoScript.scene(named: .click)?.caption ?? "",
                 sceneNumber: sceneNumber,
                 sceneCount: DemoScript.scenes.count,
                 accent: pet?.session.resolvedAccent

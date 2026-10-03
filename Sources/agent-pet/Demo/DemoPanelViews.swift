@@ -2,19 +2,7 @@ import AgentPetCore
 import AppKit
 
 class DemoPanelView: NSView {
-    var onClick: (() -> Void)?
-
     var preferredSize: CGSize { bounds.size }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        onClick?()
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        onClick?()
-    }
 }
 
 enum DemoPanelFrame {
@@ -39,7 +27,7 @@ enum DemoPanelFrame {
 }
 
 final class DemoCaptionView: DemoPanelView {
-    static let hintText = "click: next scene   ctrl-c: quit"
+    static let hintText = "space: next   esc: quit"
 
     private static let unit = DemoPanelFrame.unit
     private static let lineGap: CGFloat = 6 * unit
