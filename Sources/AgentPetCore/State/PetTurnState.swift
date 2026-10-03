@@ -1,8 +1,8 @@
 import Foundation
 
-struct PetRecordSnapshot {
-    let visible: Bool
-    let activeSubagentCount: Int
+package struct PetRecordSnapshot {
+    package let visible: Bool
+    package let activeSubagentCount: Int
 
     init(record: PetSession?) {
         visible = record?.visible ?? false
@@ -30,7 +30,7 @@ enum SubagentIdentity {
     case unreported
 }
 
-enum PetTurnState {
+package enum PetTurnState {
     @discardableResult
     static func show(sessionId: String, mood: PetMood?, message: String?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -57,7 +57,7 @@ enum PetTurnState {
     }
 
     @discardableResult
-    static func hide(sessionId: String) -> PetRecordSnapshot {
+    package static func hide(sessionId: String) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
             markHidden(&record)
             return PetRecordSnapshot(record: record)

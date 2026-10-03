@@ -1,52 +1,52 @@
 import Foundation
 
-enum PetMood: String, Codable, CaseIterable {
+package enum PetMood: String, Codable, CaseIterable {
     case ready
     case needsInput
     case blocked
 }
 
-enum PetAgent: String, Codable, CaseIterable {
+package enum PetAgent: String, Codable, CaseIterable {
     case claudeCode = "claude-code"
     case pi
 }
 
-struct TrackedSubagent: Codable, Equatable {
-    var id: String
-    var startedAt: TimeInterval
+package struct TrackedSubagent: Codable, Equatable {
+    package var id: String
+    package var startedAt: TimeInterval
 }
 
-struct PetSession: Codable, Equatable {
-    static let previewSessionIdPrefix = "preview-"
-    static let previewNickname = "preview"
-    static let initialTranscriptScanOffset = 0
+package struct PetSession: Codable, Equatable {
+    package static let previewSessionIdPrefix = "preview-"
+    package static let previewNickname = "preview"
+    package static let initialTranscriptScanOffset = 0
 
-    var sessionId: String
-    var enabled: Bool
-    var visible: Bool
-    var nickname: String?
-    var label: String?
-    var accent: AccentColor?
-    var mood: PetMood
-    var message: String?
-    var agent: PetAgent
-    var tmuxTarget: String?
-    var pid: Int32?
-    var sprite: String?
-    var activeSubagents: [TrackedSubagent]
-    var transcriptPath: String?
-    var transcriptScanOffset: Int
-    var updatedAt: Double
+    package var sessionId: String
+    package var enabled: Bool
+    package var visible: Bool
+    package var nickname: String?
+    package var label: String?
+    package var accent: AccentColor?
+    package var mood: PetMood
+    package var message: String?
+    package var agent: PetAgent
+    package var tmuxTarget: String?
+    package var pid: Int32?
+    package var sprite: String?
+    package var activeSubagents: [TrackedSubagent]
+    package var transcriptPath: String?
+    package var transcriptScanOffset: Int
+    package var updatedAt: Double
 
-    var isPreview: Bool {
+    package var isPreview: Bool {
         sessionId.hasPrefix(PetSession.previewSessionIdPrefix)
     }
 
-    var resolvedAccent: AccentColor {
+    package var resolvedAccent: AccentColor {
         accent ?? AccentColor.derived(fromSessionId: sessionId)
     }
 
-    var parsedTmuxTarget: TmuxTarget? {
+    package var parsedTmuxTarget: TmuxTarget? {
         tmuxTarget.flatMap { rawTarget in TmuxTarget(rawValue: rawTarget) }
     }
 }
@@ -56,7 +56,7 @@ extension PetSession {
         case activeSubagentIds
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessionId = try container.decode(String.self, forKey: .sessionId)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
@@ -84,7 +84,7 @@ extension PetSession {
         return legacyIds.map { legacyId in TrackedSubagent(id: legacyId, startedAt: startedAt) }
     }
 
-    static func newlyEnrolled(sessionId: String) -> PetSession {
+    package static func newlyEnrolled(sessionId: String) -> PetSession {
         PetSession(
             sessionId: sessionId,
             enabled: true,

@@ -1,22 +1,22 @@
 import Foundation
 
-struct TmuxTarget {
+package struct TmuxTarget {
     private static let sessionSeparator: Character = ":"
     private static let paneSeparator: Character = "."
 
-    let sessionName: String
-    let windowIdentifier: String
-    let paneIdentifier: String
+    package let sessionName: String
+    package let windowIdentifier: String
+    package let paneIdentifier: String
 
-    var windowTarget: String {
+    package var windowTarget: String {
         "\(sessionName)\(TmuxTarget.sessionSeparator)\(windowIdentifier)"
     }
 
-    var rawValue: String {
+    package var rawValue: String {
         "\(windowTarget)\(TmuxTarget.paneSeparator)\(paneIdentifier)"
     }
 
-    init?(rawValue: String) {
+    package init?(rawValue: String) {
         guard let sessionSeparatorIndex = rawValue.firstIndex(of: TmuxTarget.sessionSeparator) else { return nil }
         let sessionName = String(rawValue[rawValue.startIndex..<sessionSeparatorIndex])
         let remainder = String(rawValue[rawValue.index(after: sessionSeparatorIndex)...])

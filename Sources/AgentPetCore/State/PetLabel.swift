@@ -1,9 +1,9 @@
 import Foundation
 
-enum PetLabel {
+package enum PetLabel {
     private static let fallback = "session"
 
-    static func resolve(session: PetSession, claudeSession: ClaudeSessionRecord?) -> String {
+    package static func resolve(session: PetSession, claudeSession: ClaudeSessionRecord?) -> String {
         for candidate in [session.nickname, session.label, claudeSession?.name] {
             if let candidate, !candidate.isEmpty { return candidate }
         }

@@ -1,6 +1,6 @@
 import Foundation
 
-struct PetSessionStore {
+package struct PetSessionStore {
     private static let temporaryFileExtension = "tmp"
     private static let pathSeparator = "/"
     private static let pathSeparatorReplacement = "_"
@@ -8,11 +8,11 @@ struct PetSessionStore {
     private let directory: URL
     private let fileManager = FileManager.default
 
-    init(directory: URL = PetPaths.sessionsDirectory) {
+    package init(directory: URL = PetPaths.sessionsDirectory) {
         self.directory = directory
     }
 
-    func list() -> [PetSession] {
+    package func list() -> [PetSession] {
         guard let entries = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return []
         }
@@ -21,11 +21,11 @@ struct PetSessionStore {
             .compactMap { entryURL in decode(at: entryURL) }
     }
 
-    func load(sessionId: String) -> PetSession? {
+    package func load(sessionId: String) -> PetSession? {
         decode(at: recordURL(for: sessionId))
     }
 
-    func withLockedRecord<Outcome>(
+    package func withLockedRecord<Outcome>(
         sessionId: String,
         transform: (inout PetSession?) -> Outcome
     ) -> Outcome {
@@ -52,7 +52,7 @@ struct PetSessionStore {
         return outcome
     }
 
-    func save(_ session: PetSession) {
+    package func save(_ session: PetSession) {
         PetPaths.createStateDirectoriesIfNeeded()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -73,7 +73,7 @@ struct PetSessionStore {
         }
     }
 
-    func delete(sessionId: String) {
+    package func delete(sessionId: String) {
         try? fileManager.removeItem(at: recordURL(for: sessionId))
         try? fileManager.removeItem(at: lockURL(for: sessionId))
     }

@@ -1,7 +1,7 @@
 import Foundation
 
 enum DaemonCommand {
-    static func runInForeground() -> Int32 {
+    static func runInForeground(runOverlay: () -> Void) -> Int32 {
         PetPaths.createStateDirectoriesIfNeeded()
         let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
         if let recordedProcessIdentifier = DaemonProcessIdentifierFile.read(),
@@ -15,7 +15,7 @@ enum DaemonCommand {
             parentProcessIdentifier: getppid()
         )
         DaemonProcessIdentifierFile.write(processIdentifier: ownProcessIdentifier)
-        OverlayApplication.run()
+        runOverlay()
         return ExitCode.success
     }
 

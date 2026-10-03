@@ -1,6 +1,6 @@
 import AppKit
 
-enum PixelInk: Character, CaseIterable {
+package enum PixelInk: Character, CaseIterable {
     case clear = "."
     case outline = "#"
     case body = "o"
@@ -11,15 +11,15 @@ enum PixelInk: Character, CaseIterable {
     case scarfShade = "a"
 }
 
-struct PixelFrame {
-    static let fallbackSideLength = 16
+package struct PixelFrame {
+    package static let fallbackSideLength = 16
 
-    let rows: [String]
-    let sideLength: Int
+    package let rows: [String]
+    package let sideLength: Int
 
     private let characterGrid: [[Character]]
 
-    init(_ rows: [String]) {
+    package init(_ rows: [String]) {
         precondition(!rows.isEmpty, "frame must have at least one row")
         let derivedSideLength = rows.count
         precondition(
@@ -31,22 +31,22 @@ struct PixelFrame {
         self.characterGrid = rows.map { row in Array(row) }
     }
 
-    func character(column: Int, row: Int) -> Character {
+    package func character(column: Int, row: Int) -> Character {
         characterGrid[row][column]
     }
 }
 
-struct SpriteSheet {
-    let idle: [PixelFrame]
-    let walk: [PixelFrame]
-    let wave: [PixelFrame]
-    let sit: [PixelFrame]
-    let emerge: [PixelFrame]
-    let dive: [PixelFrame]
-    let frameSize: Int
-    let colorsByCharacter: [Character: NSColor]
+package struct SpriteSheet {
+    package let idle: [PixelFrame]
+    package let walk: [PixelFrame]
+    package let wave: [PixelFrame]
+    package let sit: [PixelFrame]
+    package let emerge: [PixelFrame]
+    package let dive: [PixelFrame]
+    package let frameSize: Int
+    package let colorsByCharacter: [Character: NSColor]
 
-    init(
+    package init(
         idle: [PixelFrame],
         walk: [PixelFrame],
         wave: [PixelFrame],
@@ -72,7 +72,7 @@ struct SpriteSheet {
         )
     }
 
-    var palette: SpritePalette {
+    package var palette: SpritePalette {
         SpritePalette(colorsByCharacter: colorsByCharacter)
     }
 
@@ -89,7 +89,7 @@ struct SpriteSheet {
     }
 }
 
-enum AccentColor: String, CaseIterable, Codable {
+package enum AccentColor: String, CaseIterable, Codable {
     case red
     case blue
     case green
@@ -99,7 +99,7 @@ enum AccentColor: String, CaseIterable, Codable {
     case pink
     case cyan
 
-    var color: NSColor {
+    package var color: NSColor {
         switch self {
         case .red: return NSColor(hex: 0xFF5252)
         case .blue: return NSColor(hex: 0x4C8DFF)
@@ -112,7 +112,7 @@ enum AccentColor: String, CaseIterable, Codable {
         }
     }
 
-    static func derived(fromSessionId sessionId: String) -> AccentColor {
+    package static func derived(fromSessionId sessionId: String) -> AccentColor {
         let hash = fnv1a(sessionId)
         return allCases[Int(hash % UInt64(allCases.count))]
     }
@@ -127,16 +127,16 @@ enum AccentColor: String, CaseIterable, Codable {
     }
 }
 
-struct SpritePalette {
-    static let body = NSColor(hex: 0xD97757)
-    static let bodyShade = NSColor(hex: 0xB85C3E)
-    static let outline = NSColor(hex: 0x3B2418)
-    static let eye = NSColor(hex: 0x1A1A1A)
-    static let highlight = NSColor(hex: 0xF5D0BF)
-    static let scarf = NSColor(hex: 0x2EE6D6)
-    static let scarfShade = NSColor(hex: 0x20A196)
+package struct SpritePalette {
+    package static let body = NSColor(hex: 0xD97757)
+    package static let bodyShade = NSColor(hex: 0xB85C3E)
+    package static let outline = NSColor(hex: 0x3B2418)
+    package static let eye = NSColor(hex: 0x1A1A1A)
+    package static let highlight = NSColor(hex: 0xF5D0BF)
+    package static let scarf = NSColor(hex: 0x2EE6D6)
+    package static let scarfShade = NSColor(hex: 0x20A196)
 
-    static let defaultColorsByCharacter: [Character: NSColor] = [
+    package static let defaultColorsByCharacter: [Character: NSColor] = [
         PixelInk.outline.rawValue: SpritePalette.outline,
         PixelInk.body.rawValue: SpritePalette.body,
         PixelInk.bodyShade.rawValue: SpritePalette.bodyShade,
@@ -146,20 +146,20 @@ struct SpritePalette {
         PixelInk.scarfShade.rawValue: SpritePalette.scarfShade
     ]
 
-    let colorsByCharacter: [Character: NSColor]
+    package let colorsByCharacter: [Character: NSColor]
 
-    init(colorsByCharacter: [Character: NSColor] = SpritePalette.defaultColorsByCharacter) {
+    package init(colorsByCharacter: [Character: NSColor] = SpritePalette.defaultColorsByCharacter) {
         self.colorsByCharacter = colorsByCharacter
     }
 
-    func color(for character: Character) -> NSColor? {
+    package func color(for character: Character) -> NSColor? {
         if character == PixelInk.clear.rawValue { return nil }
         return colorsByCharacter[character]
     }
 }
 
 extension NSColor {
-    convenience init(hex: UInt32) {
+    package convenience init(hex: UInt32) {
         let red = CGFloat((hex >> 16) & 0xFF) / 255
         let green = CGFloat((hex >> 8) & 0xFF) / 255
         let blue = CGFloat(hex & 0xFF) / 255

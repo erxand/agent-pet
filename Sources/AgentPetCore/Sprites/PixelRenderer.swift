@@ -1,13 +1,13 @@
 import AppKit
 
-enum PixelRenderer {
+package enum PixelRenderer {
     private static let bitsPerSample = 8
     private static let samplesPerPixel = 4
     private static let bitsPerPixel = 32
     private static let bytesPerPixel = 4
     private static let maximumComponentValue: CGFloat = 255
 
-    static func image(for frame: PixelFrame, palette: SpritePalette, scale: Int, facingLeft: Bool) -> NSImage {
+    package static func image(for frame: PixelFrame, palette: SpritePalette, scale: Int, facingLeft: Bool) -> NSImage {
         let effectiveScale = max(1, scale)
         let frameSideLength = frame.sideLength
         let pixelSideLength = frameSideLength * effectiveScale

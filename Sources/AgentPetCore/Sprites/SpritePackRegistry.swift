@@ -1,6 +1,6 @@
 import Foundation
 
-final class SpritePackRegistry {
+package final class SpritePackRegistry {
     private let loader: SpritePackLoader
     private let fallbackSheet: SpriteSheet
     private let reportFailure: (String) -> Void
@@ -8,7 +8,7 @@ final class SpritePackRegistry {
     private var sheetsByPackName: [String: SpriteSheet] = [:]
     private var directoryModificationByPackName: [String: Date] = [:]
 
-    init(
+    package init(
         loader: SpritePackLoader = SpritePackLoader(),
         fallbackSheet: SpriteSheet = SpriteSheet.claude8Bit,
         reportFailure: @escaping (String) -> Void = SpritePackRegistry.writeToStandardError
@@ -18,12 +18,12 @@ final class SpritePackRegistry {
         self.reportFailure = reportFailure
     }
 
-    func sheet(forPackNamed packName: String?) -> SpriteSheet {
+    package func sheet(forPackNamed packName: String?) -> SpriteSheet {
         let resolvedName = packName ?? SpritePackLoader.defaultPackName
         return sheetsByPackName[resolvedName] ?? fallbackSheet
     }
 
-    func reloadChangedPacks() -> Bool {
+    package func reloadChangedPacks() -> Bool {
         var anythingChanged = false
         var seenPackNames: Set<String> = []
         for packName in loader.availablePackNames() {
@@ -62,7 +62,7 @@ final class SpritePackRegistry {
         }
     }
 
-    static func writeToStandardError(_ line: String) {
+    package static func writeToStandardError(_ line: String) {
         FileHandle.standardError.write(Data((line + "\n").utf8))
     }
 }

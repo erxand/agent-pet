@@ -1,7 +1,7 @@
 import Foundation
 
-enum AgentPetCommandLine {
-    static func run(arguments: [String]) -> Int32 {
+public enum AgentPetCommandLine {
+    public static func run(arguments: [String], runOverlay: () -> Void) -> Int32 {
         guard let commandToken = arguments.first,
               let command = CommandName(rawValue: commandToken) else {
             return CommandFeedback.reportUsage()
@@ -10,7 +10,7 @@ enum AgentPetCommandLine {
 
         switch command {
         case .daemon:
-            return DaemonCommand.runInForeground()
+            return DaemonCommand.runInForeground(runOverlay: runOverlay)
         case .ensureDaemon:
             DaemonCommand.ensureRunning()
             return ExitCode.success

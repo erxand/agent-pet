@@ -1,19 +1,19 @@
 import AppKit
 
-enum TerminalBundleIdentifier: String, CaseIterable {
+package enum TerminalBundleIdentifier: String, CaseIterable {
     case iterm2 = "com.googlecode.iterm2"
     case appleTerminal = "com.apple.Terminal"
     case ghostty = "com.mitchellh.ghostty"
 }
 
-struct TmuxClient {
-    let terminalDevicePath: String
-    let sessionName: String
-    let activity: Double
+package struct TmuxClient {
+    package let terminalDevicePath: String
+    package let sessionName: String
+    package let activity: Double
 }
 
-enum TmuxClientListing {
-    static let format = "#{client_tty}\t#{session_name}\t#{client_activity}"
+package enum TmuxClientListing {
+    package static let format = "#{client_tty}\t#{session_name}\t#{client_activity}"
 
     private static let fieldSeparator: Character = "\t"
     private static let rowSeparator: Character = "\n"
@@ -22,7 +22,7 @@ enum TmuxClientListing {
     private static let activityFieldIndex = 2
     private static let fieldCount = 3
 
-    static func parse(_ output: String) -> [TmuxClient] {
+    package static func parse(_ output: String) -> [TmuxClient] {
         output.split(separator: rowSeparator).compactMap { row in
             let fields = row.split(separator: fieldSeparator, omittingEmptySubsequences: false)
             guard fields.count == fieldCount else { return nil }
@@ -38,15 +38,15 @@ enum TmuxClientListing {
         }
     }
 
-    static func preferredClient(in clients: [TmuxClient], attachedTo sessionName: String) -> TmuxClient? {
+    package static func preferredClient(in clients: [TmuxClient], attachedTo sessionName: String) -> TmuxClient? {
         let alreadyAttached = clients.first { client in client.sessionName == sessionName }
         if let alreadyAttached { return alreadyAttached }
         return clients.max { leftClient, rightClient in leftClient.activity < rightClient.activity }
     }
 }
 
-enum SessionFocuser {
-    static let clientSwitchEnabledByDefault = true
+package enum SessionFocuser {
+    package static let clientSwitchEnabledByDefault = true
 
     private static let osascriptExecutablePath = "/usr/bin/osascript"
     private static let osascriptExpressionFlag = "-e"
@@ -55,7 +55,7 @@ enum SessionFocuser {
     private static let doubleQuote = "\""
     private static let escapedDoubleQuote = "\\\""
 
-    static func focus(tmuxTarget: TmuxTarget?, allowsClientSwitch: Bool = clientSwitchEnabledByDefault) {
+    package static func focus(tmuxTarget: TmuxTarget?, allowsClientSwitch: Bool = clientSwitchEnabledByDefault) {
         let chosenClient = tmuxTarget.flatMap { target in
             selectTmuxPane(target, allowsClientSwitch: allowsClientSwitch)
         }

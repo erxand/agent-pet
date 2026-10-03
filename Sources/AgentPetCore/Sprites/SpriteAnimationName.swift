@@ -1,4 +1,4 @@
-enum SpriteAnimationName: String, CaseIterable, Hashable {
+package enum SpriteAnimationName: String, CaseIterable, Hashable {
     case idle
     case walk
     case wave
@@ -8,18 +8,18 @@ enum SpriteAnimationName: String, CaseIterable, Hashable {
 
     private static let textFileExtension = "txt"
 
-    var packFileName: String {
+    package var packFileName: String {
         "\(rawValue).\(SpriteAnimationName.textFileExtension)"
     }
 
-    var isOptionalInPack: Bool {
+    package var isOptionalInPack: Bool {
         switch self {
         case .idle, .walk, .wave, .sit: return false
         case .emerge, .dive: return true
         }
     }
 
-    func frames(in sheet: SpriteSheet) -> [PixelFrame] {
+    package func frames(in sheet: SpriteSheet) -> [PixelFrame] {
         switch self {
         case .idle: return sheet.idle
         case .walk: return sheet.walk

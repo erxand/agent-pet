@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 
-struct SpritePackLoader {
-    static let defaultPackName = "claude"
+package struct SpritePackLoader {
+    package static let defaultPackName = "claude"
 
     private static let manifestFileName = "pack.json"
     private static let hexPrefix = "#"
@@ -11,13 +11,13 @@ struct SpritePackLoader {
     private static let lineSeparator: Character = "\n"
     private static let carriageReturn = "\r"
 
-    struct LoadedSpritePack {
+    package struct LoadedSpritePack {
         let sheet: SpriteSheet
         let declaredAccent: AccentColor?
         let unknownAccentName: String?
     }
 
-    enum LoadOutcome {
+    package enum LoadOutcome {
         case loaded(LoadedSpritePack)
         case failed(reason: String)
     }
@@ -25,11 +25,11 @@ struct SpritePackLoader {
     private let packsDirectory: URL
     private let fileManager = FileManager.default
 
-    init(packsDirectory: URL = PetPaths.spritesDirectory) {
+    package init(packsDirectory: URL = PetPaths.spritesDirectory) {
         self.packsDirectory = packsDirectory
     }
 
-    func availablePackNames() -> [String] {
+    package func availablePackNames() -> [String] {
         guard let entries = try? fileManager.contentsOfDirectory(
             at: packsDirectory,
             includingPropertiesForKeys: [.isDirectoryKey]
@@ -40,12 +40,12 @@ struct SpritePackLoader {
             .sorted()
     }
 
-    func directoryModification(forPackNamed packName: String) -> Date? {
+    package func directoryModification(forPackNamed packName: String) -> Date? {
         let attributes = try? fileManager.attributesOfItem(atPath: directory(forPackNamed: packName).path)
         return attributes?[.modificationDate] as? Date
     }
 
-    func load(packNamed packName: String) -> LoadOutcome {
+    package func load(packNamed packName: String) -> LoadOutcome {
         let packDirectory = directory(forPackNamed: packName)
         guard let manifestData = try? Data(contentsOf: packDirectory.appendingPathComponent(SpritePackLoader.manifestFileName)) else {
             return .failed(reason: "missing \(SpritePackLoader.manifestFileName)")

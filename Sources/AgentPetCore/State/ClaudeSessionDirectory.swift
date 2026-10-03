@@ -1,22 +1,22 @@
 import Foundation
 
-struct ClaudeSessionRecord: Codable {
-    let pid: Int32
-    let sessionId: String
-    let cwd: String?
-    let name: String?
-    let tmux: String?
+package struct ClaudeSessionRecord: Codable {
+    package let pid: Int32
+    package let sessionId: String
+    package let cwd: String?
+    package let name: String?
+    package let tmux: String?
 }
 
-struct ClaudeSessionDirectory {
+package struct ClaudeSessionDirectory {
     private let directory: URL
     private let fileManager = FileManager.default
 
-    init(directory: URL = PetPaths.claudeSessionsDirectory) {
+    package init(directory: URL = PetPaths.claudeSessionsDirectory) {
         self.directory = directory
     }
 
-    func recordsBySessionId() -> [String: ClaudeSessionRecord] {
+    package func recordsBySessionId() -> [String: ClaudeSessionRecord] {
         guard let entries = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return [:]
         }
@@ -29,7 +29,7 @@ struct ClaudeSessionDirectory {
         return recordsBySessionId
     }
 
-    func record(forSessionId sessionId: String) -> ClaudeSessionRecord? {
+    package func record(forSessionId sessionId: String) -> ClaudeSessionRecord? {
         recordsBySessionId()[sessionId]
     }
 }

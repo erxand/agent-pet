@@ -7,13 +7,18 @@ let package = Package(
         .macOS(.v14)
     ],
     targets: [
+        .target(
+            name: "AgentPetCore",
+            path: "Sources/AgentPetCore"
+        ),
         .executableTarget(
             name: "agent-pet",
+            dependencies: ["AgentPetCore"],
             path: "Sources/agent-pet"
         ),
         .testTarget(
             name: "AgentPetTests",
-            dependencies: ["agent-pet"],
+            dependencies: ["AgentPetCore", "agent-pet"],
             path: "Tests/AgentPetTests"
         )
     ]

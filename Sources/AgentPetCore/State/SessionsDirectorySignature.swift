@@ -1,6 +1,6 @@
 import Foundation
 
-struct SessionsDirectorySignature: Equatable {
+package struct SessionsDirectorySignature: Equatable {
     private struct FileMarker: Equatable {
         let fileName: String
         let modificationTimeInterval: Double
@@ -10,7 +10,7 @@ struct SessionsDirectorySignature: Equatable {
     private let directoryModification: Date?
     private let fileMarkers: [FileMarker]
 
-    static func current(directory: URL) -> SessionsDirectorySignature {
+    package static func current(directory: URL) -> SessionsDirectorySignature {
         let fileManager = FileManager.default
         let directoryAttributes = try? fileManager.attributesOfItem(atPath: directory.path)
         let directoryModification = directoryAttributes?[.modificationDate] as? Date

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import agent_pet
+@testable import AgentPetCore
 
 struct SeededGenerator: RandomNumberGenerator {
     private var state: UInt64

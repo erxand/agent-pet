@@ -1,3 +1,4 @@
+import AgentPetCore
 import AppKit
 
 final class OverlayApplicationDelegate: NSObject, NSApplicationDelegate {

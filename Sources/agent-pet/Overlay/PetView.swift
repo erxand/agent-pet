@@ -1,3 +1,4 @@
+import AgentPetCore
 import AppKit
 
 struct PetAppearance {

@@ -1,8 +1,8 @@
 import Foundation
 
-enum PetPaths {
-    static let sessionRecordFileExtension = "json"
-    static let sessionLockFileExtension = "lock"
+package enum PetPaths {
+    package static let sessionRecordFileExtension = "json"
+    package static let sessionLockFileExtension = "lock"
 
     private static let stateDirectoryName = ".agent-pet"
     private static let sessionsDirectoryName = "sessions"
@@ -13,41 +13,41 @@ enum PetPaths {
     private static let daemonLogFileName = "daemon.log"
     private static let hookLogFileName = "hooks.log"
 
-    static var homeDirectory: URL {
+    package static var homeDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     }
 
-    static var stateDirectory: URL {
+    package static var stateDirectory: URL {
         homeDirectory.appendingPathComponent(stateDirectoryName, isDirectory: true)
     }
 
-    static var sessionsDirectory: URL {
+    package static var sessionsDirectory: URL {
         stateDirectory.appendingPathComponent(sessionsDirectoryName, isDirectory: true)
     }
 
-    static var spritesDirectory: URL {
+    package static var spritesDirectory: URL {
         stateDirectory.appendingPathComponent(spritesDirectoryName, isDirectory: true)
     }
 
-    static var claudeSessionsDirectory: URL {
+    package static var claudeSessionsDirectory: URL {
         homeDirectory
             .appendingPathComponent(claudeDirectoryName, isDirectory: true)
             .appendingPathComponent(claudeSessionsDirectoryName, isDirectory: true)
     }
 
-    static var daemonProcessIdentifierFile: URL {
+    package static var daemonProcessIdentifierFile: URL {
         stateDirectory.appendingPathComponent(daemonProcessIdentifierFileName, isDirectory: false)
     }
 
-    static var daemonLogFile: URL {
+    package static var daemonLogFile: URL {
         stateDirectory.appendingPathComponent(daemonLogFileName, isDirectory: false)
     }
 
-    static var hookLogFile: URL {
+    package static var hookLogFile: URL {
         stateDirectory.appendingPathComponent(hookLogFileName, isDirectory: false)
     }
 
-    static func createStateDirectoriesIfNeeded() {
+    package static func createStateDirectoriesIfNeeded() {
         let fileManager = FileManager.default
         for directory in [stateDirectory, sessionsDirectory, spritesDirectory] {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)

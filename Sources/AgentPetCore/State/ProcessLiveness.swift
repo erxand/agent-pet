@@ -1,15 +1,15 @@
 import Foundation
 
-enum ProcessLiveness {
+package enum ProcessLiveness {
     private static let missingClaudeSessionGraceInSeconds: TimeInterval = 30
 
-    static func isAlive(processIdentifier: Int32) -> Bool {
+    package static func isAlive(processIdentifier: Int32) -> Bool {
         guard processIdentifier > 0 else { return false }
         if kill(processIdentifier, 0) == 0 { return true }
         return errno == EPERM
     }
 
-    static func isAlive(session: PetSession, claudeSession: ClaudeSessionRecord?) -> Bool {
+    package static func isAlive(session: PetSession, claudeSession: ClaudeSessionRecord?) -> Bool {
         if session.isPreview { return true }
         if let recordedProcessIdentifier = session.pid {
             return isAlive(processIdentifier: recordedProcessIdentifier)
