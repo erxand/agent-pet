@@ -1,13 +1,13 @@
 import Foundation
 
 enum PetEnrollment {
-    static func enroll(sessionId: String, overrides: PetIdentityOverrides) -> PetSession {
+    static func enroll(sessionId: String, overrides: PetIdentityOverrides, spriteStrategy: SpriteStrategy) -> PetSession {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession in
             var enrolled = overrides.applied(to: record ?? PetSession.newlyEnrolled(sessionId: sessionId))
             enrolled.enabled = true
             enrolled.visible = false
             if enrolled.sprite == nil {
-                enrolled.sprite = SpritePackAssignment.current(excludingSessionId: sessionId).pickLeastUsedPackName()
+                enrolled.sprite = spriteStrategy.spriteName(forNewSessionId: sessionId)
             }
             if enrolled.accent == nil, let spriteName = enrolled.sprite {
                 enrolled.accent = SpritePackAccent.accent(forPackNamed: spriteName)

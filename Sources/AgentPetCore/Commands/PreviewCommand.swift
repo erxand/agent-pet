@@ -29,7 +29,7 @@ enum PreviewCommand {
         var record = overrides.applied(to: PetSession.newlyEnrolled(sessionId: sessionId))
         record.nickname = record.nickname ?? PetSession.previewNickname
         if record.sprite == nil {
-            record.sprite = SpritePackAssignment.current(excludingSessionId: sessionId).pickLeastUsedPackName()
+            record.sprite = AgentPetContracts.loaded().spriteStrategy.spriteName(forNewSessionId: sessionId)
         }
         if record.accent == nil, let spriteName = record.sprite {
             record.accent = SpritePackAccent.accent(forPackNamed: spriteName)

@@ -33,6 +33,7 @@ package struct PetSession: Codable, Equatable {
     package var tmuxTarget: String?
     package var pid: Int32?
     package var sprite: String?
+    package var focusTarget: String?
     package var activeSubagents: [TrackedSubagent]
     package var transcriptPath: String?
     package var transcriptScanOffset: Int
@@ -70,6 +71,7 @@ extension PetSession {
         tmuxTarget = try container.decodeIfPresent(String.self, forKey: .tmuxTarget)
         pid = try container.decodeIfPresent(Int32.self, forKey: .pid)
         sprite = try container.decodeIfPresent(String.self, forKey: .sprite)
+        focusTarget = try container.decodeIfPresent(String.self, forKey: .focusTarget)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
@@ -98,6 +100,7 @@ extension PetSession {
             tmuxTarget: nil,
             pid: nil,
             sprite: nil,
+            focusTarget: nil,
             activeSubagents: [],
             transcriptPath: nil,
             transcriptScanOffset: initialTranscriptScanOffset,

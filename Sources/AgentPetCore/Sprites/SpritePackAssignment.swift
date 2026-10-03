@@ -9,8 +9,12 @@ struct SpritePackAssignment {
         self.packNamesInUse = packNamesInUse
     }
 
-    static func current(excludingSessionId sessionId: String) -> SpritePackAssignment {
-        let claudeSessions = ClaudeSessionDirectory().recordsBySessionId()
+    static func current(
+        excludingSessionId sessionId: String,
+        sessionSource: SessionSource,
+        loader: SpritePackLoader
+    ) -> SpritePackAssignment {
+        let claudeSessions = sessionSource.recordsBySessionId()
         let packNamesInUse = PetSessionStore().list()
             .filter { session in
                 session.sessionId != sessionId
@@ -19,7 +23,7 @@ struct SpritePackAssignment {
             }
             .compactMap { session in session.sprite }
         return SpritePackAssignment(
-            availablePackNames: SpritePackLoader().availablePackNames(),
+            availablePackNames: loader.availablePackNames(),
             packNamesInUse: packNamesInUse
         )
     }

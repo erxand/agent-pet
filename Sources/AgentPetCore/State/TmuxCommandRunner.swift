@@ -1,6 +1,6 @@
 import Foundation
 
-enum TmuxSubcommand: String {
+package enum TmuxSubcommand: String {
     case selectWindow = "select-window"
     case selectPane = "select-pane"
     case switchClient = "switch-client"
@@ -12,6 +12,23 @@ enum TmuxSubcommand: String {
 enum CommandSwitch: String, CaseIterable {
     case noColorSync = "--no-color-sync"
     case noClientSwitch = "--no-client-switch"
+}
+
+package protocol TmuxCommandRunning {
+    func run(subcommand: TmuxSubcommand, arguments: [String])
+    func capture(subcommand: TmuxSubcommand, arguments: [String]) -> String?
+}
+
+package struct SystemTmux: TmuxCommandRunning {
+    package init() {}
+
+    package func run(subcommand: TmuxSubcommand, arguments: [String]) {
+        TmuxCommandRunner.run(subcommand: subcommand, arguments: arguments)
+    }
+
+    package func capture(subcommand: TmuxSubcommand, arguments: [String]) -> String? {
+        TmuxCommandRunner.capture(subcommand: subcommand, arguments: arguments)
+    }
 }
 
 enum TmuxCommandRunner {
@@ -111,34 +128,5 @@ enum TmuxTargetResolver {
         )
         guard let resolved, TmuxTarget(rawValue: resolved) != nil else { return nil }
         return resolved
-    }
-}
-
-enum PromptBarColorSync {
-    private static let colorCommandName = "/color"
-    private static let defaultColorName = "default"
-
-    static func applyAccent(_ accent: AccentColor, target: TmuxTarget) {
-        typeLine("\(colorCommandName) \(accent.rawValue)", target: target)
-    }
-
-    static func applyDefaultColor(target: TmuxTarget) {
-        typeLine("\(colorCommandName) \(defaultColorName)", target: target)
-    }
-
-    private static func typeLine(_ lineText: String, target: TmuxTarget) {
-        TmuxCommandRunner.run(
-            subcommand: .sendKeys,
-            arguments: [
-                TmuxCommandRunner.targetFlag,
-                target.rawValue,
-                TmuxCommandRunner.literalFlag,
-                lineText
-            ]
-        )
-        TmuxCommandRunner.run(
-            subcommand: .sendKeys,
-            arguments: [TmuxCommandRunner.targetFlag, target.rawValue, TmuxCommandRunner.enterKeyName]
-        )
     }
 }

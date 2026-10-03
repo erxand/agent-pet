@@ -6,16 +6,18 @@ enum SessionCommands {
             return CommandFeedback.reportMissingSession()
         }
         do {
+            let contracts = AgentPetContracts.loaded()
             let enrolled = PetEnrollment.enroll(
                 sessionId: sessionId,
-                overrides: try FlagParsing.identityOverrides(in: flags)
+                overrides: try FlagParsing.identityOverrides(in: flags),
+                spriteStrategy: contracts.spriteStrategy
             )
             DaemonCommand.ensureRunning()
             let label = PetLabel.resolve(session: enrolled, claudeSession: nil)
             let spriteName = enrolled.sprite ?? SpritePackLoader.defaultPackName
             print("pet on for \(label), sprite \(spriteName), accent \(enrolled.resolvedAccent.rawValue)")
-            if let target = promptBarColorSyncTarget(session: enrolled, flags: flags) {
-                PromptBarColorSync.applyAccent(enrolled.resolvedAccent, target: target)
+            if !flags.isPresent(.noColorSync) {
+                contracts.colorSync.applyAccent(enrolled.resolvedAccent, to: enrolled)
             }
             return ExitCode.success
         } catch let failure as FlagParseFailure {
@@ -32,8 +34,8 @@ enum SessionCommands {
         guard let disabled = PetEnrollment.disable(sessionId: sessionId) else {
             return ExitCode.success
         }
-        if let target = promptBarColorSyncTarget(session: disabled, flags: flags) {
-            PromptBarColorSync.applyDefaultColor(target: target)
+        if !flags.isPresent(.noColorSync) {
+            AgentPetContracts.loaded().colorSync.resetColor(of: disabled)
         }
         return ExitCode.success
     }
@@ -88,15 +90,5 @@ enum SessionCommands {
         }
         print("cleared \(droppedCount) tracked subagents for \(sessionId)")
         return ExitCode.success
-    }
-
-    private static func promptBarColorSyncTarget(session: PetSession, flags: ParsedFlags) -> TmuxTarget? {
-        guard !flags.isPresent(.noColorSync) else { return nil }
-        switch session.agent {
-        case .claudeCode:
-            return session.parsedTmuxTarget
-        case .pi:
-            return nil
-        }
     }
 }

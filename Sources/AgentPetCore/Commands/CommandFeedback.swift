@@ -1,6 +1,6 @@
 import Foundation
 
-enum CommandFeedback {
+package enum CommandFeedback {
     private static let toolName = "agent-pet"
 
     static func reportMissingSession() -> Int32 {
@@ -60,7 +60,7 @@ enum CommandFeedback {
         return ExitCode.usage
     }
 
-    static func writeToStandardError(_ line: String) {
+    package static func writeToStandardError(_ line: String) {
         FileHandle.standardError.write(Data("\(toolName): \(line)\n".utf8))
     }
 

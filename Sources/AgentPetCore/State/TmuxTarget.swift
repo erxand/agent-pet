@@ -1,6 +1,6 @@
 import Foundation
 
-package struct TmuxTarget {
+package struct TmuxTarget: Equatable {
     private static let sessionSeparator: Character = ":"
     private static let paneSeparator: Character = "."
 

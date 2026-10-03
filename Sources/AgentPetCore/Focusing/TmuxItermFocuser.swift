@@ -45,21 +45,81 @@ package enum TmuxClientListing {
     }
 }
 
-package enum SessionFocuser {
-    package static let clientSwitchEnabledByDefault = true
+package protocol TerminalControlling {
+    func isRunning(_ terminal: TerminalBundleIdentifier) -> Bool
+    func runItermScript(_ script: String) -> String?
+    func activate(_ terminal: TerminalBundleIdentifier) -> Bool
+}
 
+package struct SystemTerminalControl: TerminalControlling {
     private static let osascriptExecutablePath = "/usr/bin/osascript"
     private static let osascriptExpressionFlag = "-e"
+
+    package init() {}
+
+    package func isRunning(_ terminal: TerminalBundleIdentifier) -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: terminal.rawValue).isEmpty
+    }
+
+    package func runItermScript(_ script: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: SystemTerminalControl.osascriptExecutablePath)
+        process.arguments = [SystemTerminalControl.osascriptExpressionFlag, script]
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == ExitCode.success else { return nil }
+        return String(decoding: outputData, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    package func activate(_ terminal: TerminalBundleIdentifier) -> Bool {
+        guard let applicationURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: terminal.rawValue
+        ) else { return false }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration)
+        return true
+    }
+}
+
+package struct TmuxItermFocuser: Focuser {
+    package static let clientSwitchEnabledByDefault = true
+
     private static let itermApplicationName = "iTerm2"
     private static let itermFocusSuccessMarker = "focused"
     private static let doubleQuote = "\""
     private static let escapedDoubleQuote = "\\\""
 
-    package static func focus(tmuxTarget: TmuxTarget?, allowsClientSwitch: Bool = clientSwitchEnabledByDefault) {
-        let chosenClient = tmuxTarget.flatMap { target in
-            selectTmuxPane(target, allowsClientSwitch: allowsClientSwitch)
+    private let tmux: TmuxCommandRunning
+    private let terminals: TerminalControlling
+
+    package init(
+        tmux: TmuxCommandRunning = SystemTmux(),
+        terminals: TerminalControlling = SystemTerminalControl()
+    ) {
+        self.tmux = tmux
+        self.terminals = terminals
+    }
+
+    package func unavailability(for request: FocusRequest) -> FocusUnavailability? {
+        request.tmuxTarget == nil ? .missingTmuxTarget : nil
+    }
+
+    package func focus(_ request: FocusRequest) {
+        let chosenClient = request.tmuxTarget.flatMap { target in
+            selectTmuxPane(target, allowsClientSwitch: request.allowsClientSwitch)
         }
-        if allowsClientSwitch,
+        if request.allowsClientSwitch,
            let chosenClient,
            focusItermSession(terminalDevicePath: chosenClient.terminalDevicePath) {
             return
@@ -67,18 +127,18 @@ package enum SessionFocuser {
         activateFirstRunningTerminal()
     }
 
-    private static func selectTmuxPane(_ target: TmuxTarget, allowsClientSwitch: Bool) -> TmuxClient? {
-        TmuxCommandRunner.run(
+    private func selectTmuxPane(_ target: TmuxTarget, allowsClientSwitch: Bool) -> TmuxClient? {
+        tmux.run(
             subcommand: .selectWindow,
             arguments: [TmuxCommandRunner.targetFlag, target.windowTarget]
         )
-        TmuxCommandRunner.run(
+        tmux.run(
             subcommand: .selectPane,
             arguments: [TmuxCommandRunner.targetFlag, target.paneIdentifier]
         )
         guard let chosenClient = chooseClient(forSessionNamed: target.sessionName) else { return nil }
         guard allowsClientSwitch, chosenClient.sessionName != target.sessionName else { return chosenClient }
-        TmuxCommandRunner.run(
+        tmux.run(
             subcommand: .switchClient,
             arguments: [
                 TmuxCommandRunner.clientFlag,
@@ -90,8 +150,8 @@ package enum SessionFocuser {
         return chosenClient
     }
 
-    private static func chooseClient(forSessionNamed sessionName: String) -> TmuxClient? {
-        let listing = TmuxCommandRunner.capture(
+    private func chooseClient(forSessionNamed sessionName: String) -> TmuxClient? {
+        let listing = tmux.capture(
             subcommand: .listClients,
             arguments: [TmuxCommandRunner.formatFlag, TmuxClientListing.format]
         )
@@ -99,29 +159,13 @@ package enum SessionFocuser {
         return TmuxClientListing.preferredClient(in: TmuxClientListing.parse(listing), attachedTo: sessionName)
     }
 
-    private static func focusItermSession(terminalDevicePath: String) -> Bool {
-        guard isRunning(bundleIdentifier: .iterm2) else { return false }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: osascriptExecutablePath)
-        process.arguments = [osascriptExpressionFlag, itermFocusScript(terminalDevicePath: terminalDevicePath)]
-        process.standardInput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        do {
-            try process.run()
-        } catch {
-            return false
-        }
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == ExitCode.success else { return false }
-        let output = String(decoding: outputData, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return output == itermFocusSuccessMarker
+    private func focusItermSession(terminalDevicePath: String) -> Bool {
+        guard terminals.isRunning(.iterm2) else { return false }
+        let output = terminals.runItermScript(TmuxItermFocuser.itermFocusScript(terminalDevicePath: terminalDevicePath))
+        return output == TmuxItermFocuser.itermFocusSuccessMarker
     }
 
-    private static func itermFocusScript(terminalDevicePath: String) -> String {
+    package static func itermFocusScript(terminalDevicePath: String) -> String {
         let escapedDevicePath = terminalDevicePath.replacingOccurrences(
             of: doubleQuote,
             with: escapedDoubleQuote
@@ -145,19 +189,10 @@ package enum SessionFocuser {
         """
     }
 
-    private static func isRunning(bundleIdentifier: TerminalBundleIdentifier) -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier.rawValue).isEmpty
-    }
-
-    private static func activateFirstRunningTerminal() {
-        for bundleIdentifier in TerminalBundleIdentifier.allCases {
-            guard isRunning(bundleIdentifier: bundleIdentifier) else { continue }
-            guard let applicationURL = NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: bundleIdentifier.rawValue
-            ) else { continue }
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = true
-            NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration)
+    private func activateFirstRunningTerminal() {
+        for terminal in TerminalBundleIdentifier.allCases {
+            guard terminals.isRunning(terminal) else { continue }
+            guard terminals.activate(terminal) else { continue }
             return
         }
     }

@@ -20,7 +20,7 @@ enum StatusCommand {
         let sessions = PetSessionStore().list().sorted { leftSession, rightSession in
             leftSession.updatedAt < rightSession.updatedAt
         }
-        let claudeSessions = ClaudeSessionDirectory().recordsBySessionId()
+        let claudeSessions = AgentPetContracts.loaded().sessionSource.recordsBySessionId()
 
         print(headerRow())
         for session in sessions {
