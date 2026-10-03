@@ -83,14 +83,27 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .click,
-            caption: "Click a pet to go to its session. Its terminal tab comes to the front.",
-            durationInSeconds: 5,
+            caption: "In real use, a click brings the pet's terminal tab to the front.",
+            durationInSeconds: 6.5,
             labelPlacement: .pill,
             steps: [
                 DemoStep(offsetInSeconds: 0.6, action: .show(actorId: ActorId.deploy, mood: .ready, message: "Deployed")),
-                DemoStep(offsetInSeconds: 2.6, action: .click(actorId: ActorId.deploy))
+                DemoStep(offsetInSeconds: 1.4, action: .pointCursor(actorId: ActorId.deploy)),
+                DemoStep(offsetInSeconds: 3.2, action: .click(actorId: ActorId.deploy)),
+                DemoStep(offsetInSeconds: 3.7, action: .showTerminal(DemoTerminalCard(
+                    title: "deploy",
+                    lines: [
+                        "~/api $ claude",
+                        "> Deploy the api to staging.",
+                        "Deployed. The health check passed.",
+                        ">"
+                    ],
+                    accent: .cyan
+                ))),
+                DemoStep(offsetInSeconds: 4.3, action: .hideCursor),
+                DemoStep(offsetInSeconds: 6, action: .hideTerminal)
             ],
-            holdOffsetInSeconds: 4
+            holdOffsetInSeconds: 5
         ),
         DemoScene(
             name: .dive,

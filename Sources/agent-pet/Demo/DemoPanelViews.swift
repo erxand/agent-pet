@@ -254,3 +254,145 @@ final class DemoEmptySpotView: DemoPanelView {
         }
     }
 }
+
+final class DemoCursorView: DemoPanelView {
+    static let pixelSide: CGFloat = 4
+    private static let outline: Character = "O"
+    private static let body: Character = "X"
+    private static let rows = [
+        "O...........",
+        "OO..........",
+        "OXO.........",
+        "OXXO........",
+        "OXXXO.......",
+        "OXXXXO......",
+        "OXXXXXO.....",
+        "OXXXXXXO....",
+        "OXXXXXXXO...",
+        "OXXXXXXXXO..",
+        "OXXXXXOOOOO.",
+        "OXXOXXO.....",
+        "OXO.OXXO....",
+        "OO..OXXO....",
+        "O....OXXO...",
+        ".....OXXO...",
+        "......OO...."
+    ]
+
+    init() {
+        let width = CGFloat(DemoCursorView.rows.first?.count ?? 0) * DemoCursorView.pixelSide
+        let height = CGFloat(DemoCursorView.rows.count) * DemoCursorView.pixelSide
+        super.init(frame: CGRect(x: 0, y: 0, width: width, height: height))
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let side = DemoCursorView.pixelSide
+        for (rowIndex, row) in DemoCursorView.rows.enumerated() {
+            let rowBottom = bounds.maxY - CGFloat(rowIndex + 1) * side
+            for (columnIndex, character) in row.enumerated() {
+                switch character {
+                case DemoCursorView.outline: DemoPalette.frame.setFill()
+                case DemoCursorView.body: DemoPalette.text.setFill()
+                default: continue
+                }
+                CGRect(x: CGFloat(columnIndex) * side, y: rowBottom, width: side, height: side).fill()
+            }
+        }
+    }
+}
+
+final class DemoTerminalView: DemoPanelView {
+    private static let unit = DemoPanelFrame.unit
+    private static let titleBarPadding: CGFloat = 5 * unit
+    private static let dotSide: CGFloat = 4 * unit
+    private static let dotGap: CGFloat = 3 * unit
+    private static let underlineHeight: CGFloat = 1 * unit
+    private static let lineGap: CGFloat = 4 * unit
+    private static let blockCursorGap: CGFloat = 2 * unit
+    private static let minimumWidth: CGFloat = 240 * unit
+    private static let dotAccents: [AccentColor] = [.red, .yellow, .green]
+
+    let card: DemoTerminalCard
+    private let titleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.smallPixelSide)
+    private let promptStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private let lineStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
+
+    init(card: DemoTerminalCard) {
+        self.card = card
+        super.init(frame: .zero)
+        setFrameSize(computedSize())
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override var preferredSize: CGSize { computedSize() }
+
+    private var titleBarHeight: CGFloat {
+        DemoPixelPainter.size(of: card.title, style: titleStyle).height + DemoTerminalView.titleBarPadding * 2
+    }
+
+    private var lineHeight: CGFloat {
+        DemoPixelPainter.size(of: "A", style: lineStyle).height
+    }
+
+    private func computedSize() -> CGSize {
+        let widest = card.lines.map { line in DemoPixelPainter.size(of: line, style: lineStyle).width }.max() ?? 0
+        let contentWidth = max(widest + DemoTerminalView.blockCursorGap + blockCursorWidth, DemoTerminalView.minimumWidth)
+        let linesHeight = CGFloat(card.lines.count) * lineHeight + CGFloat(max(0, card.lines.count - 1)) * DemoTerminalView.lineGap
+        return CGSize(
+            width: ceil(contentWidth + DemoPanelFrame.padding * 2),
+            height: ceil(titleBarHeight + DemoTerminalView.underlineHeight + linesHeight + DemoPanelFrame.padding * 2)
+        )
+    }
+
+    private var blockCursorWidth: CGFloat {
+        CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide * 0.7
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        DemoPanelFrame.draw(in: bounds, accentStripe: nil)
+        let inner = bounds.insetBy(dx: DemoPanelFrame.unit * 2, dy: DemoPanelFrame.unit * 2)
+        let titleBar = CGRect(x: inner.minX, y: inner.maxY - titleBarHeight, width: inner.width, height: titleBarHeight)
+        DemoPalette.rim.setFill()
+        titleBar.fill()
+        DemoPalette.accentColor(card.accent).setFill()
+        CGRect(x: inner.minX, y: titleBar.minY - DemoTerminalView.underlineHeight, width: inner.width, height: DemoTerminalView.underlineHeight).fill()
+
+        var dotLeft = titleBar.minX + DemoTerminalView.titleBarPadding
+        for accent in DemoTerminalView.dotAccents {
+            DemoPalette.accentColor(accent).setFill()
+            CGRect(x: dotLeft, y: (titleBar.midY - DemoTerminalView.dotSide / 2).rounded(), width: DemoTerminalView.dotSide, height: DemoTerminalView.dotSide).fill()
+            dotLeft += DemoTerminalView.dotSide + DemoTerminalView.dotGap
+        }
+        let titleSize = DemoPixelPainter.size(of: card.title, style: titleStyle)
+        DemoPixelPainter.draw(
+            card.title,
+            topLeft: CGPoint(x: ((bounds.width - titleSize.width) / 2).rounded(), y: (titleBar.midY + titleSize.height / 2).rounded()),
+            style: titleStyle
+        )
+
+        var lineTop = titleBar.minY - DemoTerminalView.underlineHeight - DemoPanelFrame.padding
+        for (lineIndex, line) in card.lines.enumerated() {
+            let isPrompt = line.hasPrefix("~") || line.hasPrefix(">")
+            DemoPixelPainter.draw(line, topLeft: CGPoint(x: DemoPanelFrame.padding, y: lineTop), style: isPrompt ? promptStyle : lineStyle)
+            if lineIndex == card.lines.count - 1 {
+                let lineWidth = DemoPixelPainter.size(of: line, style: lineStyle).width
+                let capHeight = CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide
+                DemoPalette.text.setFill()
+                CGRect(
+                    x: DemoPanelFrame.padding + lineWidth + DemoTerminalView.blockCursorGap,
+                    y: lineTop - capHeight,
+                    width: blockCursorWidth.rounded(),
+                    height: capHeight
+                ).fill()
+            }
+            lineTop -= lineHeight + DemoTerminalView.lineGap
+        }
+    }
+}

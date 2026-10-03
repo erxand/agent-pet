@@ -80,6 +80,28 @@ package struct DemoTitleCard: Equatable {
     }
 }
 
+package struct DemoCursorCue: Equatable {
+    package let targetSessionId: String
+    package let pressed: Bool
+
+    package init(targetSessionId: String, pressed: Bool) {
+        self.targetSessionId = targetSessionId
+        self.pressed = pressed
+    }
+}
+
+package struct DemoTerminalCard: Equatable {
+    package let title: String
+    package let lines: [String]
+    package let accent: AccentColor
+
+    package init(title: String, lines: [String], accent: AccentColor) {
+        self.title = title
+        self.lines = lines
+        self.accent = accent
+    }
+}
+
 package struct DemoCaption: Equatable {
     package let text: String
     package let sceneNumber: Int
@@ -99,7 +121,11 @@ package enum DemoAction: Equatable {
     case hideTitle
     case show(actorId: String, mood: PetMood, message: String?)
     case hide(actorIds: [String])
+    case pointCursor(actorId: String)
     case click(actorId: String)
+    case hideCursor
+    case showTerminal(DemoTerminalCard)
+    case hideTerminal
 }
 
 package struct DemoStep: Equatable {

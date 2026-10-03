@@ -505,9 +505,15 @@ anyone who never runs it, and it never touches real state:
 - `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
   real `PetDisplayPlanner` with `SharedKeyGrouping`, so the lanes and moods in the demo are the shipped
   rules, not a copy. Entering a scene resets the cast, so `--scene` and
-  skipping always start clean. A scripted click hides every member of the pet, so it dives. The scene
-  caption says what a click does in real use. The demo pets have no session, so the stage gives
-  `PetView` no interaction handler and a click by hand does nothing.
+  skipping always start clean. The click scene shows a click instead of a description:
+  `pointCursor` makes the stage draw `DemoCursorView`, a 12 by 17 pixel arrow at 4 px per pixel in
+  `DemoPalette.text` with a `DemoPalette.frame` outline, in its own clear window. The arrow eases toward
+  the pet's sprite and follows it. `click` presses the arrow down one art pixel for 0.2 s and hides
+  every member of the pet, so it dives. `showTerminal` fades in `DemoTerminalView`, a panel with a title
+  bar (three dots, the session label, an accent underline), a prompt, the agent's last message and a
+  block cursor. These are drawings only: nothing moves the system cursor or posts an event, and a
+  test scans the demo sources for the APIs that could. The demo pets have no session, so their windows
+  ignore the mouse and the stage gives `PetView` no interaction handler.
 - Interactive mode is the default (`waitsForUser`). The clock of a scene stops at its hold offset, after
   its animation, and the runner waits until `skipToNextScene()`. The steps after the hold offset are the
   timed exit and run only with `--auto`. The title has no hold offset, so it moves on by itself after

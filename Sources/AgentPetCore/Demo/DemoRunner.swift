@@ -6,6 +6,8 @@ package protocol DemoStage: AnyObject {
     func present(title: DemoTitleCard?)
     func present(caption: DemoCaption?)
     func present(states: [DemoStateMark])
+    func present(cursor: DemoCursorCue?)
+    func present(terminal: DemoTerminalCard?)
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement)
     func advance(elapsedSeconds: Double, sceneProgress: Double)
     func tearDown()
@@ -122,6 +124,8 @@ package final class DemoRunner {
         let scene = scenes[index]
         stage.present(scene: scene, number: index + 1, of: scenes.count)
         stage.present(title: nil)
+        stage.present(cursor: nil)
+        stage.present(terminal: nil)
         stage.present(states: stateMarks(for: scene))
         stage.present(caption: scene.caption.map { text in
             DemoCaption(text: text, sceneNumber: index + 1, sceneCount: scenes.count, accent: accent(of: scene))
@@ -136,6 +140,8 @@ package final class DemoRunner {
         isWaitingForUser = false
         castBySessionId = DemoRunner.records(for: cast)
         stage.present(title: nil)
+        stage.present(cursor: nil)
+        stage.present(terminal: nil)
         stage.present(states: [])
         stage.present(caption: nil)
         stage.present(pets: [], labelPlacement: scenes.last?.labelPlacement ?? .pill)
@@ -172,7 +178,20 @@ package final class DemoRunner {
                 castBySessionId[actorId]?.visible = false
             }
             return true
+        case .pointCursor(let actorId):
+            stage.present(cursor: DemoCursorCue(targetSessionId: actorId, pressed: false))
+            return false
+        case .hideCursor:
+            stage.present(cursor: nil)
+            return false
+        case .showTerminal(let terminalCard):
+            stage.present(terminal: terminalCard)
+            return false
+        case .hideTerminal:
+            stage.present(terminal: nil)
+            return false
         case .click(let actorId):
+            stage.present(cursor: DemoCursorCue(targetSessionId: actorId, pressed: true))
             guard let item = displayedPets.first(where: { item in item.memberSessionIds.contains(actorId) }) else {
                 return false
             }

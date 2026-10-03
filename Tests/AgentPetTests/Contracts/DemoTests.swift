@@ -16,6 +16,7 @@ final class RecordingDemoStage: DemoStage {
     private(set) var titles: [DemoTitleCard?] = []
     private(set) var captions: [DemoCaption?] = []
     private(set) var states: [[DemoStateMark]] = []
+    private(set) var events: [String] = []
     private(set) var tearDownCount = 0
 
     var isSettled: Bool { true }
@@ -23,7 +24,18 @@ final class RecordingDemoStage: DemoStage {
     func present(title: DemoTitleCard?) { titles.append(title) }
     func present(caption: DemoCaption?) { captions.append(caption) }
     func present(states: [DemoStateMark]) { self.states.append(states) }
-    func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) { presentedPets.append(pets) }
+    func present(cursor: DemoCursorCue?) {
+        guard let cursor else { return }
+        events.append(cursor.pressed ? "press \(cursor.targetSessionId)" : "point \(cursor.targetSessionId)")
+    }
+    func present(terminal: DemoTerminalCard?) {
+        guard let terminal else { return }
+        events.append("terminal \(terminal.title)")
+    }
+    func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {
+        presentedPets.append(pets)
+        events.append("pets " + pets.map { item in item.label }.joined(separator: ","))
+    }
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() { tearDownCount += 1 }
 }
@@ -62,11 +74,11 @@ struct DemoTimelineTests {
             #expect(offsets.allSatisfy { offset in offset >= 0 && offset < scene.durationInSeconds })
             for step in scene.steps {
                 switch step.action {
-                case .show(let actorId, _, _), .click(let actorId):
+                case .show(let actorId, _, _), .click(let actorId), .pointCursor(let actorId):
                     #expect(castIds.contains(actorId))
                 case .hide(let actorIds):
                     #expect(actorIds.allSatisfy { actorId in castIds.contains(actorId) })
-                case .showTitle, .hideTitle:
+                case .showTitle, .hideTitle, .hideCursor, .showTerminal, .hideTerminal:
                     break
                 }
             }
@@ -132,18 +144,42 @@ struct DemoTimelineTests {
         #expect(DemoScript.scenes.allSatisfy { scene in scene.labelPlacement == .pill })
     }
 
-    @Test func theScriptedClickDivesThePetAndTheCaptionOnlyExplainsRealUse() throws {
-        let expected = "Click a pet to go to its session. Its terminal tab comes to the front."
+    @Test func theClickSceneShowsACursorClickThenADiveThenASimulatedTerminal() throws {
+        let expected = "In real use, a click brings the pet's terminal tab to the front."
         let scene = try #require(DemoScript.scene(named: .click))
         #expect(scene.caption == expected)
-        #expect(!expected.lowercased().contains("you can click"))
         let stage = RecordingDemoStage()
         let click = try runner(for: .click, stage: stage)
         advance(click, by: 2)
         #expect(click.displayedPets.map { item in item.label } == ["deploy"])
-        advance(click, by: 1)
+        advance(click, by: 2.5)
         #expect(click.displayedPets.isEmpty)
+        let interesting = stage.events.filter { event in event != "pets " }
+        #expect(interesting == [
+            "pets deploy",
+            "point demo-deploy-6e2b",
+            "press demo-deploy-6e2b",
+            "terminal deploy"
+        ])
+        let pressIndex = try #require(stage.events.firstIndex(of: "press demo-deploy-6e2b"))
+        #expect(stage.events[pressIndex + 1] == "pets ")
         #expect(stage.captions.compactMap { caption in caption?.text } == [expected])
+        let hold = try #require(scene.holdOffsetInSeconds)
+        let terminalStep = try #require(scene.steps.first { step in if case .showTerminal = step.action { return true } else { return false } })
+        #expect(terminalStep.offsetInSeconds < hold)
+    }
+
+    @Test func nothingInTheDemoMovesTheSystemCursor() throws {
+        let demoDirectories = ["Sources/agent-pet/Demo", "Sources/AgentPetCore/Demo"]
+        for directory in demoDirectories {
+            let url = Sandbox.packageRoot.appendingPathComponent(directory, isDirectory: true)
+            for name in try FileManager.default.contentsOfDirectory(atPath: url.path) where name.hasSuffix(".swift") {
+                let source = try String(contentsOf: url.appendingPathComponent(name), encoding: .utf8)
+                for forbidden in ["CGWarpMouseCursorPosition", "CGDisplayMoveCursorToPoint", "NSCursor", "CGEventPost", "CGEvent("] {
+                    #expect(!source.contains(forbidden), "\(name) uses \(forbidden)")
+                }
+            }
+        }
     }
 
     @Test func interactiveScenesHoldUntilSpaceAndOnlyTheTitleMovesByItself() throws {
@@ -297,7 +333,10 @@ struct DemoPixelFontTests {
                 switch step.action {
                 case .showTitle(let card):
                     texts.append(contentsOf: [card.title, card.subtitle])
-                case .show, .hide, .click, .hideTitle:
+                case .showTerminal(let card):
+                    texts.append(card.title)
+                    texts.append(contentsOf: card.lines)
+                case .show, .hide, .click, .hideTitle, .pointCursor, .hideCursor, .hideTerminal:
                     break
                 }
             }
@@ -393,7 +432,9 @@ struct DemoCommandTests {
             environment: ["HOME": freshHome.path, "CFFIXED_USER_HOME": freshHome.path]
         )
         #expect(run.exitStatus == 0)
-        #expect(run.standardOutput.contains("caption: Click a pet to go to its session. Its terminal tab comes to the front."))
+        #expect(run.standardOutput.contains("caption: In real use, a click brings the pet's terminal tab to the front."))
+        #expect(run.standardOutput.contains("cursor: clicks demo-deploy-6e2b"))
+        #expect(run.standardOutput.contains("terminal: deploy, ~/api $ claude"))
         #expect(try FileManager.default.contentsOfDirectory(atPath: freshHome.path).isEmpty)
     }
 
@@ -466,6 +507,7 @@ struct DemoWordsTests {
             texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
             for step in scene.steps {
                 if case .showTitle(let card) = step.action { texts.append(contentsOf: [card.title, card.subtitle]) }
+                if case .showTerminal(let card) = step.action { texts.append(contentsOf: [card.title] + card.lines) }
             }
         }
         for text in texts {
