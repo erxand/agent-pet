@@ -11,6 +11,11 @@ package enum PetAgent: String, Codable, CaseIterable {
     case pi
 }
 
+package struct HandledHookEvent: Codable, Equatable {
+    package var fingerprint: String
+    package var handledAt: TimeInterval
+}
+
 package struct TrackedSubagent: Codable, Equatable {
     package var id: String
     package var startedAt: TimeInterval
@@ -35,6 +40,7 @@ package struct PetSession: Codable, Equatable {
     package var sprite: String?
     package var focusTarget: String?
     package var activeSubagents: [TrackedSubagent]
+    package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
     package var transcriptScanOffset: Int
     package var updatedAt: Double
@@ -76,6 +82,7 @@ extension PetSession {
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
             ?? PetSession.initialTranscriptScanOffset
+        handledHookEvents = try container.decodeIfPresent([HandledHookEvent].self, forKey: .handledHookEvents)
         activeSubagents = try container.decodeIfPresent([TrackedSubagent].self, forKey: .activeSubagents)
             ?? PetSession.decodeLegacySubagents(from: decoder, startedAt: updatedAt)
     }
@@ -102,6 +109,7 @@ extension PetSession {
             sprite: nil,
             focusTarget: nil,
             activeSubagents: [],
+            handledHookEvents: nil,
             transcriptPath: nil,
             transcriptScanOffset: initialTranscriptScanOffset,
             updatedAt: Date().timeIntervalSince1970

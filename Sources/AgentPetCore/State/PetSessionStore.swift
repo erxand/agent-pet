@@ -21,6 +21,10 @@ package struct PetSessionStore {
             .compactMap { entryURL in decode(at: entryURL) }
     }
 
+    package func hasRecord(sessionId: String) -> Bool {
+        fileManager.fileExists(atPath: recordURL(for: sessionId).path)
+    }
+
     package func load(sessionId: String) -> PetSession? {
         decode(at: recordURL(for: sessionId))
     }

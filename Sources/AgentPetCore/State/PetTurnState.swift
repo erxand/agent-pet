@@ -27,7 +27,7 @@ struct PetHookResult {
 
 enum SubagentIdentity {
     case reported(String)
-    case unreported
+    case unreported(fingerprint: String?)
 }
 
 package enum PetTurnState {
@@ -113,6 +113,11 @@ enum PetSubagentTracking {
             let now = Date().timeIntervalSince1970
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             guard var session = record else { return PetHookResult(record: record, cleanup: cleanup) }
+            guard HookEventDeduplication.claim(identity: identity, in: &session, now: now) else {
+                session.visible = false
+                record = session
+                return PetHookResult(record: record, cleanup: cleanup)
+            }
             let agentId = startingAgentId(identity: identity, session: session)
             if let existingIndex = session.activeSubagents.firstIndex(where: { trackedSubagent in
                 trackedSubagent.id == agentId
@@ -134,6 +139,7 @@ enum PetSubagentTracking {
             let now = Date().timeIntervalSince1970
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             if var session = record,
+               HookEventDeduplication.claim(identity: identity, in: &session, now: now),
                let agentId = stoppingAgentId(identity: identity, session: session),
                isTracking(agentId, in: session) {
                 session.activeSubagents.removeAll { trackedSubagent in trackedSubagent.id == agentId }

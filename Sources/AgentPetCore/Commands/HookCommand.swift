@@ -40,15 +40,22 @@ enum HookCommand {
     private static let lineSeparator: Character = "\n"
 
     static func run(flags: ParsedFlags) -> Int32 {
-        guard let payload = readPayload() else { return ExitCode.success }
+        let standardInputData = FileHandle.standardInput.readDataToEndOfFile()
+        guard let payload = decodePayload(standardInputData) else { return ExitCode.success }
         guard let rawEventName = payload.hookEventName,
               let eventName = HookEventName(rawValue: rawEventName) else { return ExitCode.success }
         guard let sessionId = resolveSessionId(payload: payload, flags: flags) else { return ExitCode.success }
+        guard PetSessionStore().hasRecord(sessionId: sessionId) else { return ExitCode.success }
 
         if let transcriptPath = payload.transcriptPath, !transcriptPath.isEmpty {
             PetTranscriptTracking.recordTranscriptPath(sessionId: sessionId, transcriptPath: transcriptPath)
         }
-        let result = handle(eventName: eventName, payload: payload, sessionId: sessionId)
+        let result = handle(
+            eventName: eventName,
+            payload: payload,
+            payloadData: standardInputData,
+            sessionId: sessionId
+        )
         logCleanupDetails(result.cleanup, sessionId: sessionId)
         HookEventLog.append(
             event: eventName,
@@ -64,6 +71,7 @@ enum HookCommand {
     private static func handle(
         eventName: HookEventName,
         payload: HookPayload,
+        payloadData: Data,
         sessionId: String
     ) -> PetHookResult {
         switch eventName {
@@ -74,12 +82,12 @@ enum HookCommand {
         case .subagentStart:
             return PetSubagentTracking.recordStartAndHide(
                 sessionId: sessionId,
-                identity: subagentIdentity(in: payload)
+                identity: subagentIdentity(in: payload, payloadData: payloadData)
             )
         case .subagentStop:
             return PetSubagentTracking.recordStop(
                 sessionId: sessionId,
-                identity: subagentIdentity(in: payload)
+                identity: subagentIdentity(in: payload, payloadData: payloadData)
             )
         case .userPromptSubmit, .preToolUse:
             return PetHookResult(snapshot: PetTurnState.hide(sessionId: sessionId))
@@ -146,8 +154,10 @@ enum HookCommand {
         DaemonCommand.ensureRunning()
     }
 
-    private static func subagentIdentity(in payload: HookPayload) -> SubagentIdentity {
-        guard let agentId = payload.agentId, !agentId.isEmpty else { return .unreported }
+    private static func subagentIdentity(in payload: HookPayload, payloadData: Data) -> SubagentIdentity {
+        guard let agentId = payload.agentId, !agentId.isEmpty else {
+            return .unreported(fingerprint: HookEventDeduplication.fingerprint(ofPayload: payloadData))
+        }
         return .reported(agentId)
     }
 
@@ -156,8 +166,7 @@ enum HookCommand {
         return SessionIdentifierResolver.resolve(flags: flags)
     }
 
-    private static func readPayload() -> HookPayload? {
-        let standardInputData = FileHandle.standardInput.readDataToEndOfFile()
+    private static func decodePayload(_ standardInputData: Data) -> HookPayload? {
         guard !standardInputData.isEmpty else { return nil }
         return try? JSONDecoder().decode(HookPayload.self, from: standardInputData)
     }
