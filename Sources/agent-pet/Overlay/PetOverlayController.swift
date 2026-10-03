@@ -6,7 +6,6 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private static let livenessIntervalInSeconds: TimeInterval = 5
     private static let animationIntervalInSeconds: TimeInterval = 1.0 / 30.0
     private static let maximumAnimationStepInSeconds: TimeInterval = 0.25
-    private static let substituteGroundFrameIndex = 0
     private static let shutdownDeadlineInSeconds: TimeInterval = 2
 
     private let store: PetSessionStore
@@ -17,7 +16,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var lastConfigurationModification: Date?
 
     private var presencesBySessionId: [String: PetPresence] = [:]
-    private var spriteImageCache: [SpriteImageCacheKey: NSImage] = [:]
+    private let spriteFrames = PetSpriteFrames()
     private var lastPetSessionsSignature: SessionsDirectorySignature?
     private var lastClaudeSessionsSignature: SessionSourceSignature?
     private var nextSettleDeadline: TimeInterval?
@@ -160,7 +159,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let configurationChanged = reloadConfigurationIfChanged()
         let replacementLoader = configurationChanged || forceReload ? contracts.spritePackLoader : nil
         if spritePackRegistry.reloadChangedPacks(using: replacementLoader) {
-            spriteImageCache.removeAll()
+            spriteFrames.removeAllCachedImages()
         }
         let petSessionsSignature = SessionsDirectorySignature.current(directory: PetPaths.sessionsDirectory)
         let claudeSessionsSignature = contracts.sessionSource.signature()
@@ -313,73 +312,13 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func renderSprite(for presence: PetPresence) {
-        guard let resolvedAnimation = resolveAnimation(
-            presence.animator.animationName,
-            in: presence.spriteSheet
-        ) else { return }
-
-        let frameIndex = frameIndex(for: presence, resolvedAnimation: resolvedAnimation)
-        let cacheKey = SpriteImageCacheKey(
-            packName: presence.spritePackName,
-            tint: presence.spriteTint,
-            animationName: resolvedAnimation.animationName,
-            frameIndex: frameIndex,
-            facingLeft: presence.animator.facingLeft
-        )
-
-        let spriteImage: NSImage
-        if let cachedImage = spriteImageCache[cacheKey] {
-            spriteImage = cachedImage
-        } else {
-            spriteImage = PixelRenderer.image(
-                for: resolvedAnimation.frames[frameIndex],
-                palette: presence.spriteSheet.palette,
-                scale: PetGeometry.spriteScale,
-                facingLeft: presence.animator.facingLeft
-            )
-            spriteImageCache[cacheKey] = spriteImage
-        }
-
+        guard let spriteImage = spriteFrames.image(for: presence) else { return }
         presence.view.update(
             spriteImage: spriteImage,
             bubbleVerticalOffset: presence.animator.bubbleVerticalOffset,
             groundOffsetFraction: CGFloat(presence.animator.groundOffsetFraction),
             chromeOpacity: CGFloat(presence.animator.chromeOpacity)
         )
-    }
-
-    private func frameIndex(for presence: PetPresence, resolvedAnimation: ResolvedAnimation) -> Int {
-        let frameCount = resolvedAnimation.frames.count
-        guard presence.animator.playsGroundAnimationOnce else {
-            return presence.animator.frameTick % frameCount
-        }
-        guard resolvedAnimation.animationName == presence.animator.animationName else {
-            return PetOverlayController.substituteGroundFrameIndex
-        }
-        let spreadIndex = Int(presence.animator.groundAnimationProgress * Double(frameCount))
-        return min(frameCount - 1, max(0, spreadIndex))
-    }
-
-    private struct ResolvedAnimation {
-        let animationName: SpriteAnimationName
-        let frames: [PixelFrame]
-    }
-
-    private func resolveAnimation(
-        _ requestedAnimation: SpriteAnimationName,
-        in spriteSheet: SpriteSheet
-    ) -> ResolvedAnimation? {
-        let requestedFrames = requestedAnimation.frames(in: spriteSheet)
-        if !requestedFrames.isEmpty {
-            return ResolvedAnimation(animationName: requestedAnimation, frames: requestedFrames)
-        }
-        for fallbackAnimation in SpriteAnimationName.allCases {
-            let fallbackFrames = fallbackAnimation.frames(in: spriteSheet)
-            if !fallbackFrames.isEmpty {
-                return ResolvedAnimation(animationName: fallbackAnimation, frames: fallbackFrames)
-            }
-        }
-        return nil
     }
 
     private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames) {
