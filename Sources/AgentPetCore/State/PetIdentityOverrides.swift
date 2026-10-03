@@ -8,6 +8,7 @@ struct PetIdentityOverrides {
     let tmuxTarget: String?
     let pid: Int32?
     let sprite: String?
+    let focusTarget: String?
 
     static let none = PetIdentityOverrides(
         nickname: nil,
@@ -16,7 +17,8 @@ struct PetIdentityOverrides {
         agent: nil,
         tmuxTarget: nil,
         pid: nil,
-        sprite: nil
+        sprite: nil,
+        focusTarget: nil
     )
 
     var hasAnyOverride: Bool {
@@ -27,6 +29,7 @@ struct PetIdentityOverrides {
             || tmuxTarget != nil
             || pid != nil
             || sprite != nil
+            || focusTarget != nil
     }
 
     func applied(to session: PetSession) -> PetSession {
@@ -38,6 +41,7 @@ struct PetIdentityOverrides {
         if let tmuxTarget { updated.tmuxTarget = tmuxTarget }
         if let pid { updated.pid = pid }
         if let sprite { updated.sprite = sprite }
+        if let focusTarget { updated.focusTarget = focusTarget }
         return updated
     }
 }

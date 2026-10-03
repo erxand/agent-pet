@@ -16,11 +16,14 @@ enum StatusCommand {
     private static let moodColumnWidth = 11
     private static let agentsColumnWidth = 7
 
-    static func run() -> Int32 {
+    static func run(flags: ParsedFlags) -> Int32 {
         let sessions = PetSessionStore().list().sorted { leftSession, rightSession in
             leftSession.updatedAt < rightSession.updatedAt
         }
         let claudeSessions = AgentPetContracts.loaded().sessionSource.recordsBySessionId()
+        if flags.isPresent(.json) {
+            return StatusReport.print(sessions: sessions, claudeSessions: claudeSessions)
+        }
 
         print(headerRow())
         for session in sessions {
@@ -90,6 +93,14 @@ enum StatusCommand {
 
     private static func yesOrNo(_ value: Bool) -> String {
         value ? affirmative : negative
+    }
+
+    static func liveDaemonProcessIdentifier() -> Int32? {
+        guard let processIdentifier = DaemonProcessIdentifierFile.read(),
+              ProcessLiveness.isAlive(processIdentifier: processIdentifier) else {
+            return nil
+        }
+        return processIdentifier
     }
 
     private static func daemonDescription() -> String {

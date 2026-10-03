@@ -12,6 +12,7 @@ package enum TmuxSubcommand: String {
 enum CommandSwitch: String, CaseIterable {
     case noColorSync = "--no-color-sync"
     case noClientSwitch = "--no-client-switch"
+    case json = "--json"
 }
 
 package protocol TmuxCommandRunning {

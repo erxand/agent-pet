@@ -25,7 +25,7 @@ public enum AgentPetCommandLine {
         case .remove:
             return SessionCommands.remove(flags: flags)
         case .status:
-            return StatusCommand.run()
+            return StatusCommand.run(flags: flags)
         case .hook:
             return HookCommand.run(flags: flags)
         case .preview:

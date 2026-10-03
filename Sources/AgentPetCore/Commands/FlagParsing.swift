@@ -69,7 +69,8 @@ enum FlagParsing {
             agent: try agent(in: flags),
             tmuxTarget: flags.value(for: .tmux),
             pid: try processIdentifier(in: flags),
-            sprite: flags.value(for: .sprite)
+            sprite: flags.value(for: .sprite),
+            focusTarget: flags.value(for: .focusTarget)
         )
     }
 }

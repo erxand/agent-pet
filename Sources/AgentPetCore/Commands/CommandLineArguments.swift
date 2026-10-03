@@ -30,6 +30,7 @@ enum CommandFlag: String, CaseIterable {
     case sprite = "--sprite"
     case path = "--path"
     case from = "--from"
+    case focusTarget = "--focus-target"
 }
 
 struct ParsedFlags {
