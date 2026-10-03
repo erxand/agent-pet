@@ -10,10 +10,12 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `emerge.txt` and `dive.txt` are optional, 3 frames each. They play once while the pet rises
   out of the ground as it appears and drops back into it as it hides. A pack without them holds
   `idle` frame 0 for both moves.
-- Character legend for the shipped `claude` pack: `o` body, `O` body shade, `#` outline,
-  `e` eye, `w` highlight, `.` transparent.
-- `A` and `a` are never in `palette`. They always take the session accent color and its shade,
-  which is how you tell one session's pet from another, so draw the scarf with them.
-- Any character that is not in `palette` and is not `A` or `a` is transparent.
-- To use a pack, copy its directory to `~/.agent-pet/sprites/<name>/` and start a pet with
-  `agent-pet on --sprite <name>` (or `agent-pet preview --sprite <name>`).
+- Every color is fixed by the palette. `.` is transparent, and so is any character that is not
+  in `palette`. No character is reserved: the session accent shows on the label dot and the mood
+  bubble, never on the sprite.
+- The shipped packs all use `#` for the outline, `e` for eyes and a lowercase/uppercase pair for
+  a color and its shade, but that is convention, not a rule.
+- To use a pack, copy its directory to `~/.agent-pet/sprites/<name>/`. Every installed pack is in
+  the pool that `/pet` draws from, and `agent-pet preview --sprite <name>` shows one on demand.
+
+Shipped packs: `claude`, `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl`.

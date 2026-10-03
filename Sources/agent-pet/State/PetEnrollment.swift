@@ -6,6 +6,9 @@ enum PetEnrollment {
             var enrolled = overrides.applied(to: record ?? PetSession.newlyEnrolled(sessionId: sessionId))
             enrolled.enabled = true
             enrolled.visible = false
+            if enrolled.sprite == nil {
+                enrolled.sprite = SpritePackAssignment.current(excludingSessionId: sessionId).pickLeastUsedPackName()
+            }
             if enrolled.tmuxTarget == nil {
                 enrolled.tmuxTarget = TmuxTargetResolver.resolveFromEnvironment()
             }

@@ -35,10 +35,10 @@ jumps you back to the session it belongs to.
 
 | form | effect |
 |---|---|
-| `/pet` | enroll this session with a default label and an accent color derived from the session id |
+| `/pet` | enroll this session with a default label, a randomly assigned sprite pack and an accent color derived from the session id |
 | `/pet <nickname>` | enroll with a label of your choosing |
 | `/pet <nickname> cyan` | enroll with a label and a named accent color |
-| `/pet <nickname> cyan sprite:cat` | also pick a sprite pack |
+| `/pet <nickname> cyan sprite:golem` | also pick a sprite pack instead of the random one |
 | `/pet off` | unenroll this session and stop its pet |
 
 Word order does not matter. The accent name and the `sprite:` token are pulled out of the
@@ -49,10 +49,11 @@ Right-click to hide it without focusing.
 
 Five commands are useful from any shell:
 
-- `agent-pet status` prints one row per enrolled session (short id, label, accent, enabled,
-  visible, mood, running subagent count, alive) and the daemon's pid.
+- `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
+  enabled, visible, mood, running subagent count, alive) and the daemon's pid.
 - `agent-pet preview` shows a fake pet for 20 seconds, so you can check the overlay without
-  enrolling a real session.
+  enrolling a real session. It picks a sprite the same way `on` does; add `--sprite <name>` to
+  see a specific one.
 - `agent-pet focus [--session ID]` runs exactly what a click runs. It exits 2 when the session
   has no record or no tmux pane. Add `--no-client-switch` to select the window and pane and
   leave every attached client where it is.
@@ -135,10 +136,17 @@ hidden while pi works. Every pi call is fire and forget with a two second timeou
 
 ## Telling sessions apart
 
-Every pet shares the same orange body. Sessions differ in four ways.
+Sessions differ in four ways.
 
-**Accent color**, on the sprite's scarf and on the label dot. The default is derived from the
-session id. `/pet <nickname> <color>` overrides it.
+**Sprite pack**: each session gets its own creature. When `/pet` runs without a `sprite:` token,
+agent-pet picks one of the installed packs at random among the packs that the fewest other live
+sessions are using, so no two sessions share a pet until there are more sessions than packs.
+The pick is stored in the session's record, so it stays put for the life of the session.
+`sprite:<name>` chooses one explicitly. The repo ships seven: `claude` (the original orange
+critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon` and `tinowl`.
+
+**Accent color**, on the label dot and the mood bubble. The default is derived from the session
+id. `/pet <nickname> <color>` overrides it.
 
 | name   | hex     |
 |--------|---------|
@@ -163,8 +171,6 @@ the basename of its working directory.
 **Lane**: the daemon sorts visible pets by last update time and spreads them evenly across the
 screen width. Each pet wanders near its own spot, so two pets never overlap.
 
-**Sprite pack**: `--sprite <name>` gives a session a different creature.
-
 ## Customizing the pet
 
 A sprite pack is a directory of plain text, so you can draw a new pet in any editor. See
@@ -176,9 +182,10 @@ sprites/README.md for the full rules.
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
 ```
 
-`A` and `a` are never in the palette. They always take the session accent and its shade, so
-draw the scarf with them. Packs live in `~/.agent-pet/sprites/<name>/`, and `install.sh` copies
-a shipped pack there only when no pack of that name exists, so your edits survive a reinstall.
+Every color in a pack is fixed by its palette; the session accent never touches the sprite.
+Packs live in `~/.agent-pet/sprites/<name>/`, and `install.sh` copies a shipped pack there only
+when no pack of that name exists, so your edits survive a reinstall. Every installed pack joins
+the random pool, so dropping a new directory in is all it takes to add a pet.
 
 ## Troubleshooting
 

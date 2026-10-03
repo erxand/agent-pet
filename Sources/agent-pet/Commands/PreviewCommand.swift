@@ -28,6 +28,9 @@ enum PreviewCommand {
 
         var record = overrides.applied(to: PetSession.newlyEnrolled(sessionId: sessionId))
         record.nickname = record.nickname ?? PetSession.previewNickname
+        if record.sprite == nil {
+            record.sprite = SpritePackAssignment.current(excludingSessionId: sessionId).pickLeastUsedPackName()
+        }
         record.visible = true
         record.mood = mood
         record.updatedAt = Date().timeIntervalSince1970
@@ -36,7 +39,8 @@ enum PreviewCommand {
         store.save(record)
         DaemonCommand.ensureRunning()
         print(
-            "preview \(sessionId), accent \(record.resolvedAccent.rawValue), mood \(mood.rawValue), "
+            "preview \(sessionId), sprite \(record.sprite ?? SpritePackLoader.defaultPackName), "
+                + "accent \(record.resolvedAccent.rawValue), mood \(mood.rawValue), "
                 + "\(formattedDuration(durationInSeconds)) s"
         )
 

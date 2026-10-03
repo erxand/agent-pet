@@ -55,8 +55,8 @@ If it is empty, or it is anything that does not start with `off`, enroll this se
 
 If `$ARGUMENTS` starts with `off`, run `agent-pet off` instead.
 
-After the command runs, report back in exactly one line: the resolved accent from the
-command's output, that the pet will appear along the bottom of the screen when this
+After the command runs, report back in exactly one line: the sprite and the resolved accent
+from the command's output, that the pet will appear along the bottom of the screen when this
 session's turn ends, and that clicking it jumps back to this session. Do not restate how
 the tool works beyond that line.
 

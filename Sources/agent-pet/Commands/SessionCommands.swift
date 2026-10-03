@@ -12,7 +12,8 @@ enum SessionCommands {
             )
             DaemonCommand.ensureRunning()
             let label = PetLabel.resolve(session: enrolled, claudeSession: nil)
-            print("pet on for \(label), accent \(enrolled.resolvedAccent.rawValue)")
+            let spriteName = enrolled.sprite ?? SpritePackLoader.defaultPackName
+            print("pet on for \(label), sprite \(spriteName), accent \(enrolled.resolvedAccent.rawValue)")
             if let target = promptBarColorSyncTarget(session: enrolled, flags: flags) {
                 PromptBarColorSync.applyAccent(enrolled.resolvedAccent, target: target)
             }

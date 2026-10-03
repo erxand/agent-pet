@@ -7,8 +7,8 @@ enum PixelInk: Character, CaseIterable {
     case bodyShade = "O"
     case eye = "e"
     case highlight = "w"
-    case accent = "A"
-    case accentShade = "a"
+    case scarf = "A"
+    case scarfShade = "a"
 }
 
 struct PixelFrame {
@@ -72,8 +72,8 @@ struct SpriteSheet {
         )
     }
 
-    func palette(accent: AccentColor) -> SpritePalette {
-        SpritePalette(accent: accent, colorsByCharacter: colorsByCharacter)
+    var palette: SpritePalette {
+        SpritePalette(colorsByCharacter: colorsByCharacter)
     }
 
     private static func deriveFrameSize(
@@ -112,10 +112,6 @@ enum AccentColor: String, CaseIterable, Codable {
         }
     }
 
-    var shade: NSColor {
-        color.blended(withFraction: 0.3, of: .black) ?? color
-    }
-
     static func derived(fromSessionId sessionId: String) -> AccentColor {
         let hash = fnv1a(sessionId)
         return allCases[Int(hash % UInt64(allCases.count))]
@@ -137,28 +133,26 @@ struct SpritePalette {
     static let outline = NSColor(hex: 0x3B2418)
     static let eye = NSColor(hex: 0x1A1A1A)
     static let highlight = NSColor(hex: 0xF5D0BF)
+    static let scarf = NSColor(hex: 0x2EE6D6)
+    static let scarfShade = NSColor(hex: 0x20A196)
 
     static let defaultColorsByCharacter: [Character: NSColor] = [
         PixelInk.outline.rawValue: SpritePalette.outline,
         PixelInk.body.rawValue: SpritePalette.body,
         PixelInk.bodyShade.rawValue: SpritePalette.bodyShade,
         PixelInk.eye.rawValue: SpritePalette.eye,
-        PixelInk.highlight.rawValue: SpritePalette.highlight
+        PixelInk.highlight.rawValue: SpritePalette.highlight,
+        PixelInk.scarf.rawValue: SpritePalette.scarf,
+        PixelInk.scarfShade.rawValue: SpritePalette.scarfShade
     ]
 
-    let accent: AccentColor
     let colorsByCharacter: [Character: NSColor]
 
-    init(accent: AccentColor, colorsByCharacter: [Character: NSColor] = SpritePalette.defaultColorsByCharacter) {
-        self.accent = accent
-        self.colorsByCharacter = colorsByCharacter.filter { entry in
-            entry.key != PixelInk.accent.rawValue && entry.key != PixelInk.accentShade.rawValue
-        }
+    init(colorsByCharacter: [Character: NSColor] = SpritePalette.defaultColorsByCharacter) {
+        self.colorsByCharacter = colorsByCharacter
     }
 
     func color(for character: Character) -> NSColor? {
-        if character == PixelInk.accent.rawValue { return accent.color }
-        if character == PixelInk.accentShade.rawValue { return accent.shade }
         if character == PixelInk.clear.rawValue { return nil }
         return colorsByCharacter[character]
     }

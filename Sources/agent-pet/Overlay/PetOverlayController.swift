@@ -224,12 +224,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         ) else { return }
 
         let frameIndex = frameIndex(for: presence, resolvedAnimation: resolvedAnimation)
-        let accent = presence.view.petAppearance.accent
         let cacheKey = SpriteImageCacheKey(
             packName: presence.spritePackName,
             animationName: resolvedAnimation.animationName,
             frameIndex: frameIndex,
-            accent: accent,
             facingLeft: presence.animator.facingLeft
         )
 
@@ -239,7 +237,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         } else {
             spriteImage = PixelRenderer.image(
                 for: resolvedAnimation.frames[frameIndex],
-                palette: presence.spriteSheet.palette(accent: accent),
+                palette: presence.spriteSheet.palette,
                 scale: PetGeometry.spriteScale,
                 facingLeft: presence.animator.facingLeft
             )

@@ -30,6 +30,5 @@ struct SpriteImageCacheKey: Hashable {
     let packName: String
     let animationName: SpriteAnimationName
     let frameIndex: Int
-    let accent: AccentColor
     let facingLeft: Bool
 }

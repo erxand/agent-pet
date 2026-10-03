@@ -9,6 +9,7 @@ enum StatusCommand {
 
     private static let sessionColumnWidth = 10
     private static let labelColumnWidth = 24
+    private static let spriteColumnWidth = 10
     private static let accentColumnWidth = 8
     private static let enabledColumnWidth = 8
     private static let visibleColumnWidth = 8
@@ -34,6 +35,7 @@ enum StatusCommand {
         columns(
             session: "SESSION",
             label: "LABEL",
+            sprite: "SPRITE",
             accent: "ACCENT",
             enabled: "ENABLED",
             visible: "VISIBLE",
@@ -47,6 +49,7 @@ enum StatusCommand {
         columns(
             session: String(session.sessionId.prefix(shortSessionIdLength)),
             label: PetLabel.resolve(session: session, claudeSession: claudeSession),
+            sprite: session.sprite ?? SpritePackLoader.defaultPackName,
             accent: session.resolvedAccent.rawValue,
             enabled: yesOrNo(session.enabled),
             visible: yesOrNo(session.visible),
@@ -59,6 +62,7 @@ enum StatusCommand {
     private static func columns(
         session: String,
         label: String,
+        sprite: String,
         accent: String,
         enabled: String,
         visible: String,
@@ -69,6 +73,7 @@ enum StatusCommand {
         [
             padded(session, width: sessionColumnWidth),
             padded(label, width: labelColumnWidth),
+            padded(sprite, width: spriteColumnWidth),
             padded(accent, width: accentColumnWidth),
             padded(enabled, width: enabledColumnWidth),
             padded(visible, width: visibleColumnWidth),

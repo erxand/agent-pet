@@ -16,7 +16,7 @@ agent-pet/
     Commands/                  one file per subcommand, plus flag parsing and feedback
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run + color sync
     Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
-    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry
+    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
   sprites/<pack>/              shipped sprite packs, see "Sprite packs"
@@ -51,8 +51,9 @@ file on every write (temp file in the same dir, then rename).
 
 - `agent` is `claude-code` or `pi`, defaulting to `claude-code`. `nickname`, `label`, `accent`
   and `sprite` are optional overrides: `accent` is an `AccentColor` name, and `sprite` is a pack
-  name where missing or unknown means `claude`. Label resolution order is `nickname`, `label`,
-  Claude session `name`, basename of `cwd`.
+  name where missing or unknown means the compiled-in `claude` art. `on` and `preview` fill
+  `sprite` when it is absent, see "Sprite assignment". Label resolution order is `nickname`,
+  `label`, Claude session `name`, basename of `cwd`.
 - `tmuxTarget` is `SESSION:@WINDOW.%PANE`. When absent and the enrolling process has
   `$TMUX_PANE`, the CLI resolves it at `on` time with
   `tmux display-message -p -t $TMUX_PANE '#{session_name}:#{window_id}.#{pane_id}'`.
@@ -110,16 +111,28 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
 
 ## Session differentiation
 
-1. **Accent color** on the sprite's accent pixels (scarf or bandana) and the label dot. Default
-   is `AccentColor.allCases[fnv1a(sessionId) % count]`, overridable with `--accent`.
-2. **Label** under the sprite: the resolved label, in a small bold monospaced font on a dark
+1. **Sprite pack**: assigned at `on` time when the record has no `sprite`, or chosen with
+   `--sprite`. See "Sprite assignment".
+2. **Accent color** on the label dot and the mood bubble, never on the sprite. Default is
+   `AccentColor.allCases[fnv1a(sessionId) % count]`, overridable with `--accent`.
+3. **Label** under the sprite: the resolved label, in a small bold monospaced font on a dark
    rounded pill, with an accent-colored dot at the left.
-3. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
+4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
    gets home x at `(i + 1) / (n + 1)` of the screen width and wanders within +/-120 px of home.
-4. **Sprite pack**, chosen with `--sprite`.
+
+### Sprite assignment
+
+`SpritePackAssignment` runs inside `on` and `preview` whenever the record would otherwise have no
+`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/`), counts how many other enabled,
+alive records use each one, keeps the packs with the lowest count, and picks one of those at
+random. With fewer live sessions than packs every session gets a different pet; past that the
+duplicates spread evenly. The pick is written into the record once, so a session keeps its pet
+across `show` and `hide`, and `/pet` on an already enrolled session keeps the pet it has. An
+explicit `--sprite` always wins, and with no packs installed the record stays without `sprite`
+and the daemon draws the compiled-in art.
 
 `AccentColor` cases and hex. These are exactly the eight names Claude Code's `/color` command
-takes, so the bandana and the prompt bar always agree by name. Do not add a case without
+takes, so the label dot and the prompt bar always agree by name. Do not add a case without
 updating this file and the accent lists in the skill and the pi extension.
 
 | name   | hex     |
@@ -133,9 +146,8 @@ updating this file and the accent lists in the skill and the pi extension.
 | pink   | #FF7EB6 |
 | cyan   | #2EE6D6 |
 
-`orange` is deliberately a bright amber so it still reads against the terracotta body. Body
-palette (fixed): body `#D97757`, bodyShade `#B85C3E`, outline `#3B2418`, eye `#1A1A1A`,
-highlight `#F5D0BF`.
+Compiled-in `claude` palette (fixed): body `#D97757`, bodyShade `#B85C3E`, outline `#3B2418`,
+eye `#1A1A1A`, highlight `#F5D0BF`, scarf `#2EE6D6`, scarfShade `#20A196`.
 
 ## CLI, one binary `agent-pet`
 
@@ -147,14 +159,14 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 |---|---|
 | `daemon` | run the overlay in the foreground (accessory app, no dock icon) |
 | `ensure-daemon` | kickstart the launchd agent when its plist exists, otherwise start `daemon` detached if `daemon.pid` is missing or dead; idempotent, see "Daemon lifecycle" |
-| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false; ensure-daemon; print one line naming the resolved accent; then sync the prompt bar color |
+| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID]` | visible false |
 | `remove [--session ID]` | delete the record |
-| `status` | table: session id (short), label, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid |
+| `status` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
-| `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`) for N seconds (default 20) so the overlay can be tested without a real session |
+| `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
 | `focus [--session ID] [--no-client-switch]` | run the same `SessionFocuser.focus` a left click runs, so focusing can be tested from a shell; exit 2 when the record is missing or has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client |
 | `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
@@ -311,14 +323,15 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
 
 `SpriteContract.swift` is fixed. `PixelFrame` derives its square side length per frame, so packs may be 16, 24 or
 32 px and the renderer still scales by 4. `SpriteSheet` carries `frameSize` and `colorsByCharacter`; `SpritePalette`
-is data (a `[Character: NSColor]` plus the accent) and the compiled-in palette is its default instance. The
+is data (a `[Character: NSColor]`, nothing else) and the compiled-in palette is its default instance, so a sprite
+image depends only on its pack, animation, frame and facing, never on the session. The
 initializer is `SpriteSheet(idle:walk:wave:sit:emerge:dive:colorsByCharacter:)` with `emerge` and `dive` defaulting
 to `[]`, and `SpriteAnimationName` covers all six. `ClaudeSprite.swift` provides the built-in art as
 `extension SpriteSheet { static let claude8Bit: SpriteSheet }`: frames of `PixelInk` raw characters, `.` transparent,
 idle 2 frames, walk 4, wave 3, sit 2, facing right for the renderer to mirror. The character is a squat, rounded,
 friendly orange critter in the spirit of the pixel Claude persona Anthropic uses (terracotta body, two dark eyes,
-tiny stub legs, no mouth or a tiny one), original art rather than a copy of any Anthropic asset, with the accent
-pixels forming the scarf or bandana.
+tiny stub legs, no mouth or a tiny one), original art rather than a copy of any Anthropic asset, with a fixed teal
+scarf drawn in the `scarf` and `scarfShade` inks.
 
 ### Sprite packs
 
@@ -327,22 +340,25 @@ Art also ships as plain-text packs so anyone can draw a new pet in a text editor
 ```
 sprites/<pack-name>/
   pack.json      {"name":"claude","frameSize":16,
-                  "palette":{"o":"#D97757","O":"#B85C3E","#":"#3B2418","e":"#1A1A1A","w":"#F5D0BF"}}
+                  "palette":{"o":"#D97757","O":"#B85C3E","#":"#3B2418","e":"#1A1A1A","w":"#F5D0BF",
+                             "A":"#2EE6D6","a":"#20A196"}}
   idle.txt       frames of <frameSize> rows, separated by one blank line
   walk.txt, wave.txt, sit.txt
   emerge.txt, dive.txt         optional, 3 frames each recommended
 ```
 
-- `A` and `a` are never in `palette`; they always take the session accent and its shade. Any
-  other character in `palette` maps to a fixed hex color, and unknown characters are transparent.
-- The repo ships `sprites/claude/`, the same art as `claude8Bit` exported to text. `install.sh` copies each pack
-  directory into `~/.agent-pet/sprites/` only when no pack of that name is installed, so local edits survive.
+- Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
+  are transparent. No character is reserved, and the session accent never reaches the sprite.
+- The repo ships seven packs: `claude` (the same art as `claude8Bit` exported to text), `golem`, `hatchling`,
+  `mossling`, `nimbus`, `seon` and `tinowl`. `install.sh` copies each pack directory into `~/.agent-pet/sprites/`
+  only when no pack of that name is installed, so local edits survive. Every installed pack is in the assignment
+  pool, so adding a pet is adding a directory.
 - The daemon loads packs from `~/.agent-pet/sprites/<name>/` at startup and re-reads a pack when
   its directory mtime changes. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
-- Art direction for `claude`: emerge = eyes closed and squinting up with a dirt-ruffled top (a few
-  `#` and `O` pixels above the head), then eyes open wide, then a shake. dive = look down, squash
-  flat, then a small `#`/`O` dust puff where the body was.
+- Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
+  something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
+  then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
 
 ## Focusing a session
 
@@ -408,8 +424,8 @@ synchronous, needs `/pet` again to pick the new frontmatter up. Reading completi
 change the hook set, so a session that is already enrolled needs no re-enrollment for it: the next hook runs the
 new binary. The absolute path is deliberate: hook shells do
 not reliably have `~/.local/bin` on `PATH`.
-Invoking `/pet` is the whole opt-in; the body tells Claude to run `agent-pet on` with an optional nickname and accent
-from `$ARGUMENTS`, or `agent-pet off` for `/pet off`, then report the accent in one line.
+Invoking `/pet` is the whole opt-in; the body tells Claude to run `agent-pet on` with an optional nickname, accent
+and sprite from `$ARGUMENTS`, or `agent-pet off` for `/pet off`, then report the sprite and accent in one line.
 
 ## pi extension
 
