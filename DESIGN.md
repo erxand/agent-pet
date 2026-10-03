@@ -18,7 +18,7 @@ agent-pet/
     Contracts/                 AgentPetConfiguration, ConfigurationFile, the contract protocols and their implementations, PetDisplayPlanner
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking
-    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver
+    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, PixelFont (nametag glyphs), TerminalSpriteRenderer
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
     Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
@@ -80,6 +80,10 @@ file on every write (temp file in the same dir, then rename).
   tracked under the synthetic id `unknown-<n>`, where `n` is the lowest number not already in the set: a start adds
   one, and a stop removes the most recently added `unknown-` id. A missing field therefore degrades to a counter
   instead of to no tracking at all.
+- `group`, `owner` and `enrolledAt` are optional and absent unless `--group` or `--owner` was passed. `group`
+  is the key of the pet the session belongs to; absent means the session id, which is the one pet per
+  session model. `owner` is `true` on the member flagged with `--owner`. `enrolledAt` is stamped once,
+  when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
 - `focusTarget` is optional and opaque: `--focus-target` stores it and the command focuser hands it on as
   `AGENT_PET_FOCUS_TARGET`. agent-pet never interprets it.
 - `handledHookEvents` is optional and present only after a `SubagentStart` or `SubagentStop` without an
@@ -133,19 +137,28 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    Resolution order: `--accent`, then the pack's declared `accent`, then the pack's dominant
    color, then `AccentColor.allCases[fnv1a(sessionId) % count]` when there is no installed pack.
 3. **Label** under the sprite: the resolved label, in a small bold monospaced font on a dark
-   rounded pill, with an accent-colored dot at the left.
+   rounded pill, with an accent-colored dot at the left. With `labelPlacement` `nametag` it sits
+   over the head instead, on a square dark tag with a 2 pt accent stripe along its bottom, in
+   `PixelFont`, a 3 by 5 pixel font drawn at 2 pt per pixel so it matches the sprite art. A label
+   with a character the font lacks is drawn in unantialiased 9 pt Menlo Bold on the same tag. With
+   `disambiguateLabels` on, two visible pets whose labels read the same (after the 28 character cut)
+   both get a space and the last 4 characters of their owner's session id, recomputed on every
+   redraw, so the suffix goes away when one of them hides.
 4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
    gets home x at `(i + 1) / (n + 1)` of the screen width and wanders within +/-120 px of home.
 
 ### Sprite assignment
 
 `SpritePackAssignment` runs inside `on` and `preview` whenever the record would otherwise have no
-`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/`), counts how many other enabled,
-alive records use each one, keeps the packs with the lowest count, and picks one of those at
-random. With fewer live sessions than packs every session gets a different pet; past that the
+`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/`) minus the `reservedSprites` of
+the config, counts how many other live pets use each one (a pet's sprite is its owner's, so a group
+counts once), keeps the packs with the lowest count, and picks one of those at random. A session
+that joins a group whose live owner already has a sprite takes that sprite instead, so the pet looks
+the same whichever member ends up owning it. A reserved pack is never picked at random, and with
+every pack reserved the record stays without `sprite`. With fewer live sessions than packs every session gets a different pet; past that the
 duplicates spread evenly. The pick is written into the record once, so a session keeps its pet
 across `show` and `hide`, and `/pet` on an already enrolled session keeps the pet it has. An
-explicit `--sprite` always wins, and with no packs installed the record stays without `sprite`
+explicit `--sprite` always wins, reserved or not, and with no packs installed the record stays without `sprite`
 and the daemon draws the compiled-in art.
 
 Right after the sprite is assigned or confirmed, `on` and `preview` fill the record's `accent`
@@ -186,8 +199,10 @@ eye `#1A1A1A`, highlight `#F5D0BF`, scarf `#2EE6D6`, scarfShade `#20A196`.
 All session-taking commands default `--session` to `$CLAUDE_CODE_SESSION_ID` and fail with exit 2
 and a one-line stderr message if neither is set. `--session` works from any shell; the tmux target is
 still resolved from the caller's `$TMUX_PANE` unless `--tmux` is passed. The identity flags
-`--nickname`, `--label`, `--accent`, `--agent`, `--tmux`, `--pid`, `--sprite` and `--focus-target`
-work on `on`, `show` and `preview` alike.
+`--nickname`, `--label`, `--accent`, `--agent`, `--tmux`, `--pid`, `--sprite`, `--focus-target`, `--group KEY`
+and the `--owner` switch work on `on`, `show` and `preview` alike. `--group` puts the session in the pet named
+KEY, and `--owner` makes it that pet's owner and clears `owner` on every other record of the group, see
+"Groups".
 
 | command | effect |
 |---|---|
@@ -198,11 +213,13 @@ work on `on`, `show` and `preview` alike.
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID]` | visible false |
 | `remove [--session ID]` | delete the record |
-| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session; `group` is the session id until grouping exists |
+| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
 | `focus [--session ID] [--no-client-switch]` | run the configured Focuser the way a left click does, so focusing can be tested from a shell; exit 2 when the record is missing, or, with the `tmux-iterm` focuser, when it has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client. The CLI waits for a command focuser to finish |
 | `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
+| `render --pack NAME [--animation idle] [--frame N]` | print one frame to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, or N is not a frame of it |
+| `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 
 ## `hook` dispatch on `hook_event_name`
@@ -346,9 +363,12 @@ crash left every later hook updating records that nothing drew.
   `blocked` plays `sit` with a `?` bubble.
 - Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
   described under "Focusing a session".
-- What is on screen comes from `PetDisplayPlanner`: enabled, visible, live records, oldest `updatedAt`
-  first, passed through the Grouping contract (one pet per session by default), each with its resolved
-  label and the FocusRequest a click hands the Focuser.
+- What is on screen comes from `PetDisplayPlanner`: enabled, live records, oldest `updatedAt` first,
+  passed through the Grouping contract, keeping each group with at least one visible member. Each item
+  carries the owner (for sprite, accent and label), the mood, the waiting member's message, the bubble
+  caption, every member's session id, and the FocusRequest a click hands the Focuser. Without `group`
+  on any record every group is one session, so this is exactly one pet per visible session.
+- A click (either button) hides every member of the pet, not only the one that was focused.
 - The daemon polls `~/.agent-pet/sessions/` every 300 ms (mtime of the dir, then file contents on
   change) and reconciles windows to records. Liveness check every 5 s.
 - The same poll signs every SessionSource directory the same way. On change the daemon re-resolves every
@@ -356,6 +376,25 @@ crash left every later hook updating records that nothing drew.
   poll interval without recreating the window or restarting the animation.
 - The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
   and reconciles every record again, so no restart is needed after editing it.
+
+### Groups
+
+Sessions that share a `group` share one pet. `SharedKeyGrouping` keys each record by `group`, else its
+session id, and the planner applies these rules to the live members of each key:
+
+- The pet is visible while any live member is visible, that is, waiting on the user. A group with no
+  live member has no pet, and the 5 s sweep deletes dead records as before.
+- The mood is the strongest among the waiting members: `needsInput`, then `blocked`, then `ready`.
+- When the group has more than one live member, the bubble names the most recently updated waiting
+  member: its nickname, its label, its Claude session name, or else `#` and the last 4 characters of its
+  session id. The bubble then widens to hold the caption, and shows even for `ready`, which otherwise
+  has no bubble.
+- A click focuses the most recently updated waiting member, else the owner. `FocusRequest.group` and
+  so `AGENT_PET_GROUP` are the group key.
+- The owner is the live member flagged `owner`, else the live member with the earliest `enrolledAt`
+  (falling back to `updatedAt` for a record without it). The pet's sprite, accent and label come from
+  the owner, so when the owner exits the next member takes over on the next poll.
+- Subagent tracking stays per session: a member's running subagents hide that member, never the others.
 
 ### Emerge and dive
 
@@ -544,10 +583,13 @@ the defaults.
 | Focuser | `tmux-iterm`, `TmuxItermFocuser` | `command`, `CommandFocuser` | `focuser` |
 | SessionSource | `~/.claude/sessions` | any list of directories | `sessionDirectories` |
 | ColorSync | `tmux-color`, `TmuxPromptBarColorSync` | `none`, `DisabledColorSync` | `colorSync` |
-| SpriteStrategy | least used at random, `LeastUsedSpriteStrategy` | none yet | none yet |
-| PetGrouping | one pet per session, `OnePetPerSessionGrouping` | none yet | none yet |
+| SpriteStrategy | least used at random, `LeastUsedSpriteStrategy` | the same with a reserved set left out of the random pick; `--sprite` is the explicit choice | `reservedSprites` |
+| PetGrouping | `SharedKeyGrouping`: one pet per session unless sessions name a `group` | `OnePetPerSessionGrouping` stays for comparison in tests | `--group` on the session, not config |
+| LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
+| LabelDisambiguation | off | last 4 of the owner's session id on duplicate labels | `disambiguateLabels` |
 
-Accent stays as before: the pack accent, or `--accent`. The label pill is drawn by `PetView`.
+Accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
+the placement and the disambiguation are decided in `AgentPetCore`, so they are testable without AppKit.
 
 ## Configuration
 
@@ -559,7 +601,10 @@ missing key, an unknown key and a bad value all mean the default for that key, n
 {
   "focuser": { "kind": "command", "command": ["/abs/path/focus-script"] },
   "sessionDirectories": ["~/.claude/sessions", "~/.claude-*/sessions"],
-  "colorSync": "none"
+  "colorSync": "none",
+  "labelPlacement": "nametag",
+  "disambiguateLabels": true,
+  "reservedSprites": ["claude"]
 }
 ```
 
@@ -569,6 +614,10 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   expands to the home directory and `*`, `?` and `[...]` match within one path component. Later
   directories never override a session id an earlier one already had. An empty list means the default.
 - `colorSync` is `tmux-color` or `none`.
+- `labelPlacement` is `pill` or `nametag`.
+- `disambiguateLabels` is a boolean, default `false`.
+- `reservedSprites` is a list of pack names never chosen by random assignment. Non-string and empty
+  entries are dropped.
 
 ## Tests
 
