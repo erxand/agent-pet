@@ -1,0 +1,213 @@
+import Foundation
+
+package protocol DemoStage: AnyObject {
+    var isSettled: Bool { get }
+    func present(scene: DemoScene, number: Int, of sceneCount: Int)
+    func present(title: DemoTitleCard?)
+    func present(caption: DemoCaption?)
+    func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement)
+    func present(toast: DemoToast)
+    func advance(elapsedSeconds: Double, sceneProgress: Double)
+    func tearDown()
+}
+
+package final class DemoRunner {
+    private static let recordTimeBase: Double = 1_000_000
+
+    private let scenes: [DemoScene]
+    private let stage: DemoStage
+    private var castBySessionId: [String: PetSession]
+    private let cast: [DemoActor]
+
+    private(set) var currentSceneIndex = 0
+    private(set) var sceneElapsedSeconds: Double = 0
+    private(set) var totalElapsedSeconds: Double = 0
+    private var sceneStartTotalSeconds: Double = 0
+    private(set) var isFinished = false
+    private(set) var isTornDown = false
+    private var appliedStepCount = 0
+    private var hasStarted = false
+
+    package init(scenes: [DemoScene], cast: [DemoActor] = DemoScript.cast, stage: DemoStage) {
+        self.scenes = scenes
+        self.cast = cast
+        self.stage = stage
+        castBySessionId = DemoRunner.records(for: cast)
+    }
+
+    package var totalDurationInSeconds: Double {
+        scenes.reduce(0) { total, scene in total + scene.durationInSeconds }
+    }
+
+    package var currentScene: DemoScene? {
+        guard !isFinished, scenes.indices.contains(currentSceneIndex) else { return nil }
+        return scenes[currentSceneIndex]
+    }
+
+    package var displayedPets: [PetDisplayItem] {
+        guard let currentScene else { return [] }
+        return planner(for: currentScene).displayItems(records: Array(castBySessionId.values), claudeSessions: [:])
+    }
+
+    package func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+        guard !scenes.isEmpty else {
+            finish()
+            return
+        }
+        enterScene(at: 0)
+    }
+
+    package func advance(byElapsedSeconds elapsedSeconds: Double) {
+        start()
+        guard !isFinished, !isTornDown else { return }
+        var remainingSeconds = max(0, elapsedSeconds)
+        while !isFinished, let scene = currentScene {
+            let secondsLeftInScene = scene.durationInSeconds - sceneElapsedSeconds
+            let stepSeconds = min(remainingSeconds, secondsLeftInScene)
+            sceneElapsedSeconds += stepSeconds
+            totalElapsedSeconds += stepSeconds
+            remainingSeconds -= stepSeconds
+            applyDueSteps(of: scene)
+            guard sceneElapsedSeconds >= scene.durationInSeconds else { break }
+            moveToScene(at: currentSceneIndex + 1)
+            guard remainingSeconds > 0 else { break }
+        }
+    }
+
+    package var sceneProgress: Double {
+        guard let scene = currentScene, scene.durationInSeconds > 0 else { return 1 }
+        return min(1, sceneElapsedSeconds / scene.durationInSeconds)
+    }
+
+    package func skipToNextScene() {
+        start()
+        guard !isFinished, !isTornDown, let scene = currentScene else { return }
+        totalElapsedSeconds += scene.durationInSeconds - sceneElapsedSeconds
+        moveToScene(at: currentSceneIndex + 1)
+    }
+
+    package func handleClick(petKey: String) {
+        guard !isFinished, !isTornDown, let currentScene else { return }
+        guard let item = displayedPets.first(where: { item in item.petKey == petKey }) else { return }
+        for memberSessionId in item.memberSessionIds {
+            castBySessionId[memberSessionId]?.visible = false
+        }
+        stage.present(toast: DemoToast(
+            title: DemoScript.achievementTitle,
+            body: DemoScript.clickToastBodyPrefix + item.label,
+            sprite: item.session.sprite ?? SpritePackLoader.defaultPackName
+        ))
+        presentPets(for: currentScene)
+    }
+
+    package func stop() {
+        guard !isTornDown else { return }
+        isFinished = true
+        isTornDown = true
+        stage.tearDown()
+    }
+
+    private func moveToScene(at index: Int) {
+        guard scenes.indices.contains(index) else {
+            finish()
+            return
+        }
+        enterScene(at: index)
+    }
+
+    private func enterScene(at index: Int) {
+        currentSceneIndex = index
+        sceneElapsedSeconds = 0
+        sceneStartTotalSeconds = totalElapsedSeconds
+        appliedStepCount = 0
+        castBySessionId = DemoRunner.records(for: cast)
+        let scene = scenes[index]
+        stage.present(scene: scene, number: index + 1, of: scenes.count)
+        stage.present(title: nil)
+        stage.present(caption: scene.caption.map { text in
+            DemoCaption(text: text, sceneNumber: index + 1, sceneCount: scenes.count)
+        })
+        presentPets(for: scene)
+        applyDueSteps(of: scene)
+    }
+
+    private func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        castBySessionId = DemoRunner.records(for: cast)
+        stage.present(title: nil)
+        stage.present(caption: nil)
+        stage.present(pets: [], labelPlacement: scenes.last?.labelPlacement ?? .pill)
+    }
+
+    private func applyDueSteps(of scene: DemoScene) {
+        while appliedStepCount < scene.steps.count,
+              scene.steps[appliedStepCount].offsetInSeconds <= sceneElapsedSeconds {
+            let step = scene.steps[appliedStepCount]
+            appliedStepCount += 1
+            if apply(step.action, at: step.offsetInSeconds) {
+                presentPets(for: scene)
+            }
+        }
+    }
+
+    private func apply(_ action: DemoAction, at offsetInSeconds: Double) -> Bool {
+        switch action {
+        case .showTitle(let titleCard):
+            stage.present(title: titleCard)
+            return false
+        case .hideTitle:
+            stage.present(title: nil)
+            return false
+        case .show(let actorId, let mood, let message):
+            guard castBySessionId[actorId] != nil else { return false }
+            castBySessionId[actorId]?.visible = true
+            castBySessionId[actorId]?.mood = mood
+            castBySessionId[actorId]?.message = message
+            castBySessionId[actorId]?.updatedAt = DemoRunner.recordTimeBase + sceneStartTotalSeconds + offsetInSeconds
+            return true
+        case .hide(let actorIds):
+            for actorId in actorIds {
+                castBySessionId[actorId]?.visible = false
+            }
+            return true
+        case .click(let actorId):
+            guard let item = displayedPets.first(where: { item in item.memberSessionIds.contains(actorId) }) else {
+                return false
+            }
+            handleClick(petKey: item.petKey)
+            return false
+        case .toast(let toast):
+            stage.present(toast: toast)
+            return false
+        }
+    }
+
+    private func presentPets(for scene: DemoScene) {
+        stage.present(pets: displayedPets, labelPlacement: scene.labelPlacement)
+    }
+
+    private func planner(for scene: DemoScene) -> PetDisplayPlanner {
+        PetDisplayPlanner(grouping: SharedKeyGrouping(), disambiguatesLabels: scene.disambiguatesLabels)
+    }
+
+    private static func records(for cast: [DemoActor]) -> [String: PetSession] {
+        let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+        var recordsBySessionId: [String: PetSession] = [:]
+        for (castIndex, actor) in cast.enumerated() {
+            var record = PetSession.newlyEnrolled(sessionId: actor.sessionId)
+            record.nickname = actor.nickname
+            record.sprite = actor.sprite
+            record.accent = actor.accent
+            record.group = actor.group
+            record.owner = actor.isOwner ? true : nil
+            record.enrolledAt = actor.group == nil ? nil : Double(castIndex)
+            record.pid = ownProcessIdentifier
+            record.updatedAt = recordTimeBase
+            recordsBySessionId[actor.sessionId] = record
+        }
+        return recordsBySessionId
+    }
+}
