@@ -74,8 +74,9 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
 `agent-pet demo` plays a short tour of about 30 seconds on your desktop. A caption at the bottom of the
 screen tells you what each scene shows:
 
-- A pet climbs out of the ground when its agent finishes a turn.
-- A pet stands still under a `!` bubble when its agent needs your OK.
+- All the states of a pet, side by side, each with a label. A pet climbs out of the ground and walks
+  when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your input.
+  It sits under a `?` bubble when it is blocked. A working agent has no pet.
 - Three sessions show three pets, each in its own lane.
 - A click makes a pet dive. In real use, the click also brings that session's terminal tab to the front.
   The demo does not do this. The caption tells you what would happen.
@@ -83,6 +84,8 @@ screen tells you what each scene shows:
 
 The last card tells you that you can configure much more: labels, sprites, colors, groups and how a click
 focuses. See [Configuration](#configuration).
+
+No hook sets the `blocked` mood. To see it, run `agent-pet preview --mood blocked`.
 
 The demo runs in its own process with a cast that exists only in memory. It writes no session record.
 It does not start the daemon or send it data. It does not focus a session or type into a pane. Thus you
@@ -96,7 +99,7 @@ can run it next to real pets. It uses your installed packs. When it runs from a 
 | `agent-pet demo --list` | print each scene with its length and caption |
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timeline in the terminal, and draw nothing |
-| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene and a sample scene to DIR |
+| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene, the lanes scene and the states scene to DIR |
 
 To go to the next scene, click the caption. Ctrl-C or SIGTERM closes all demo windows and stops the demo.
 

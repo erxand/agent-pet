@@ -12,11 +12,13 @@ final class DemoCapturingStage: DemoStage {
     private(set) var pets: [PetDisplayItem] = []
     private(set) var labelPlacement: LabelPlacement = .pill
     private(set) var captions: [DemoCaption?] = []
+    private(set) var states: [DemoStateMark] = []
 
     var isSettled: Bool { true }
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
     func present(title: DemoTitleCard?) {}
     func present(caption: DemoCaption?) { captions.append(caption) }
+    func present(states: [DemoStateMark]) { self.states = states }
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() {}
 
@@ -33,6 +35,9 @@ enum DemoSnapshot {
     private static let captionProgress = 0.4
     private static let snapshotScreenWidth: CGFloat = 1440
     private static let lanesMomentInSeconds: Double = 2.5
+    private static let statesMomentInSeconds: Double = 3
+    private static let stateCellWidth: CGFloat = 288
+    private static let stateLabelGap: CGFloat = 12
     private static let petGap: CGFloat = 48
     private static let clickMomentInSeconds: Double = 2
 
@@ -41,6 +46,7 @@ enum DemoSnapshot {
         static let caption = "caption.png"
         static let click = "click.png"
         static let stage = "stage.png"
+        static let states = "states.png"
     }
 
     static func formattedSeconds(_ seconds: Double) -> String {
@@ -59,7 +65,7 @@ enum DemoSnapshot {
         let captionScene = scenes.first { scene in scene.caption != nil } ?? DemoScript.scenes.first { scene in scene.caption != nil }
 
         var written: [URL] = []
-        var expectedCount = 2
+        var expectedCount = 3
         if let titleCard {
             expectedCount += 1
             written.append(contentsOf: save(DemoTitleView(card: titleCard), named: FileName.title, in: directory))
@@ -81,6 +87,7 @@ enum DemoSnapshot {
         }
         written.append(contentsOf: save(clickComposite(spriteSheets: spriteSheets), named: FileName.click, in: directory))
         written.append(contentsOf: save(stageComposite(spriteSheets: spriteSheets), named: FileName.stage, in: directory))
+        written.append(contentsOf: save(statesComposite(spriteSheets: spriteSheets), named: FileName.states, in: directory))
 
         for fileURL in written {
             print(fileURL.path)
@@ -157,6 +164,56 @@ enum DemoSnapshot {
         caption.progress = captionProgress
         let pets = petViews(from: petsAt(sceneNamed: .lanes, seconds: lanesMomentInSeconds), spriteSheets: spriteSheets)
         return composite(caption: caption, pets: pets)
+    }
+
+    private static func statesComposite(spriteSheets: DemoSpriteSheets) -> NSView {
+        let stage = petsAt(sceneNamed: .states, seconds: statesMomentInSeconds)
+        let scene = DemoScript.scene(named: .states)
+        let caption = DemoCaptionView(
+            caption: DemoCaption(
+                text: scene?.caption ?? "",
+                sceneNumber: (DemoScript.scenes.firstIndex { scene in scene.name == .states } ?? 0) + 1,
+                sceneCount: DemoScript.scenes.count,
+                accent: scene.flatMap { scene in sceneAccent(scene) }
+            ),
+            maximumWidth: snapshotScreenWidth
+        )
+        caption.progress = statesMomentInSeconds / (scene?.durationInSeconds ?? 1)
+        var petViewsBySessionId: [String: PetView] = [:]
+        for (item, view) in zip(stage.pets, petViews(from: stage, spriteSheets: spriteSheets)) {
+            for sessionId in item.memberSessionIds { petViewsBySessionId[sessionId] = view }
+        }
+        let pixelSide = DemoStateLabelView.pixelSide(for: stage.states, laneSpacing: stateCellWidth)
+        let defaultSide = PetGeometry.spritePixelSideLength(frameSize: spriteSheets.sheet(forPackNamed: SpritePackLoader.defaultPackName).frameSize)
+        let petHeight = PetGeometry.totalHeight(spriteSideLength: defaultSide, labelPlacement: .pill)
+        let labels = stage.states.map { mark in DemoStateLabelView(mark: mark, pixelSide: pixelSide) }
+        let labelHeight = labels.map { label in label.preferredSize.height }.max() ?? 0
+        let rowWidth = stateCellWidth * CGFloat(stage.states.count)
+        let rowHeight = petHeight + stateLabelGap + labelHeight
+        let width = max(caption.preferredSize.width, rowWidth) + margin * 2
+        let height = margin * 3 + caption.preferredSize.height + rowHeight
+        let backdrop = DemoBackdropView(frame: CGRect(x: 0, y: 0, width: width, height: height))
+        caption.setFrameOrigin(CGPoint(x: ((width - caption.preferredSize.width) / 2).rounded(), y: margin * 2 + rowHeight))
+        backdrop.addSubview(caption)
+        let rowLeft = ((width - rowWidth) / 2).rounded()
+        for (slotIndex, mark) in stage.states.enumerated() {
+            let centerX = rowLeft + stateCellWidth * (CGFloat(slotIndex) + 0.5)
+            let label = labels[slotIndex]
+            label.setFrameOrigin(CGPoint(x: (centerX - label.preferredSize.width / 2).rounded(), y: margin + petHeight + stateLabelGap))
+            backdrop.addSubview(label)
+            if let sessionId = mark.sessionId, let petView = petViewsBySessionId[sessionId] {
+                petView.setFrameOrigin(CGPoint(x: (centerX - petView.preferredSize.width / 2).rounded(), y: margin))
+                backdrop.addSubview(petView)
+            } else {
+                let spot = DemoEmptySpotView(sideLength: defaultSide)
+                spot.setFrameOrigin(CGPoint(
+                    x: (centerX - defaultSide / 2).rounded(),
+                    y: margin + PetGeometry.spriteBaseline(labelPlacement: .pill)
+                ))
+                backdrop.addSubview(spot)
+            }
+        }
+        return backdrop
     }
 
     private static func clickComposite(spriteSheets: DemoSpriteSheets) -> NSView {

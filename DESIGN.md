@@ -488,8 +488,9 @@ sprites/<pack-name>/
 ## Demo
 
 `agent-pet demo` is a self-running tour of about 30 seconds for people who have never seen a pet. It
-shows only the core flow (a pet climbs out, asks for input, has its own lane, dives on a click or when
-you return), then one card that points at Configuration. It does not show groups, nametags or reserved
+shows only the core flow, then one card that points at Configuration. The `states` scene holds every
+`PetMood` side by side for 9.5 s, and the hidden working state as an empty dashed spot. Each slot has a
+`DemoStateLabelView` above it in the panel style. The other scenes show lanes, a click and a dive. It does not show groups, nametags or reserved
 sprites, and it uses the pill labels a new user sees. It changes nothing for
 anyone who never runs it, and it never touches real state:
 
@@ -498,7 +499,7 @@ anyone who never runs it, and it never touches real state:
   to `~/.agent-pet`, the daemon is never ensured, no Focuser runs and no ColorSync types into a pane. A
   dry run in a fresh home leaves it empty.
 - `DemoScript.scenes` is data: each `DemoScene` has a name, a one line caption, a duration, a label
-  placement, and steps at offsets into the scene (show an actor with a
+  placement, steps, and optional state slots (a label and an actor, or no actor for the working state) at offsets into the scene (show an actor with a
   mood, hide actors, click an actor, show or hide the title card).
 - `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
   real `PetDisplayPlanner` with `SharedKeyGrouping`, so the lanes and moods in the demo are the shipped

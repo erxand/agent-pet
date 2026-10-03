@@ -85,6 +85,8 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
     private static let titleVerticalFraction: CGFloat = 0.55
     private static let captionWidthFraction: CGFloat = 0.9
     private static let homeEasingPerSecond: CGFloat = 3
+    private static let stateLabelGap: CGFloat = 12
+    private static let captionGapAboveStates: CGFloat = 24
 
     var onPetClicked: ((String) -> Void)?
     var onCaptionClicked: (() -> Void)?
@@ -95,9 +97,12 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
     private var displayedHomeByPetKey: [String: CGFloat] = [:]
     private var titlePanels: [DemoPanelWindow] = []
     private var captionPanels: [DemoPanelWindow] = []
+    private var statePanels: [DemoPanelWindow] = []
+    private var stateMarks: [DemoStateMark] = []
+    private var stateLabelsTop: CGFloat?
 
     var isSettled: Bool {
-        presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty
+        presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty && statePanels.isEmpty
     }
 
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
@@ -121,7 +126,36 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
         view.onClick = { [weak self] in self?.onCaptionClicked?() }
         let panel = DemoPanelWindow(view: view, acceptsClicks: true)
         captionPanels.append(panel)
-        panel.place(centerX: screenFrame.midX, bottom: screenFrame.minY + DemoOverlayStage.captionBottomAboveGround)
+        var bottom = screenFrame.minY + DemoOverlayStage.captionBottomAboveGround
+        if let stateLabelsTop {
+            bottom = max(bottom, stateLabelsTop + DemoOverlayStage.captionGapAboveStates)
+        }
+        panel.place(centerX: screenFrame.midX, bottom: bottom)
+    }
+
+    func present(states: [DemoStateMark]) {
+        for panel in statePanels { panel.fadeOut() }
+        stateMarks = states
+        stateLabelsTop = nil
+        guard !states.isEmpty else { return }
+        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        let ground = screenFrame.minY + PetGeometry.windowBottomInset
+        let sideLengths = states.map { mark in spriteSideLength(forPackNamed: mark.sprite) }
+        let petsHeight = sideLengths.map { side in PetGeometry.totalHeight(spriteSideLength: side, labelPlacement: .pill) }.max() ?? 0
+        let laneSpacing = screenFrame.width / CGFloat(states.count + 1)
+        let pixelSide = DemoStateLabelView.pixelSide(for: states, laneSpacing: laneSpacing)
+        let labelBottom = ground + petsHeight + DemoOverlayStage.stateLabelGap
+        for (slotIndex, mark) in states.enumerated() {
+            let centerX = LaneLayout.homeHorizontalCenter(laneIndex: slotIndex, laneCount: states.count, screenFrame: screenFrame)
+            let label = DemoPanelWindow(view: DemoStateLabelView(mark: mark, pixelSide: pixelSide), acceptsClicks: false)
+            label.place(centerX: centerX, bottom: labelBottom)
+            statePanels.append(label)
+            stateLabelsTop = max(stateLabelsTop ?? 0, labelBottom + label.view.preferredSize.height)
+            guard mark.sessionId == nil else { continue }
+            let spot = DemoPanelWindow(view: DemoEmptySpotView(sideLength: sideLengths[slotIndex]), acceptsClicks: false)
+            spot.place(centerX: centerX, bottom: ground + PetGeometry.spriteBaseline(labelPlacement: .pill))
+            statePanels.append(spot)
+        }
     }
 
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {
@@ -130,7 +164,10 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
             presence.animator.requestDive()
         }
         let screenFrame = OverlayScreenFrames.current().visibleFrame
-        for (laneIndex, item) in pets.enumerated() {
+        for (petIndex, item) in pets.enumerated() {
+            let slotIndex = stateMarks.firstIndex { mark in mark.sessionId.map(item.memberSessionIds.contains) ?? false }
+            let laneIndex = slotIndex ?? petIndex
+            let laneCount = slotIndex == nil ? pets.count : stateMarks.count
             let packName = item.session.sprite ?? SpritePackLoader.defaultPackName
             let spriteSheet = spriteSheets.sheet(forPackNamed: packName)
             let appearance = PetAppearance(
@@ -150,7 +187,7 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
             presence.memberSessionIds = item.memberSessionIds
             presence.homeHorizontalCenter = LaneLayout.homeHorizontalCenter(
                 laneIndex: laneIndex,
-                laneCount: pets.count,
+                laneCount: laneCount,
                 screenFrame: screenFrame
             )
             if displayedHomeByPetKey[item.petKey] == nil {
@@ -169,6 +206,8 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
             (panel.view as? DemoCaptionView)?.progress = sceneProgress
         }
         captionPanels.removeAll { panel in panel.isGone }
+        for panel in statePanels { panel.advance(elapsedSeconds: elapsedSeconds) }
+        statePanels.removeAll { panel in panel.isGone }
         advancePets(elapsedSeconds: elapsedSeconds, screenFrame: screenFrame)
     }
 
@@ -179,9 +218,12 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
         }
         presencesByPetKey.removeAll()
         displayedHomeByPetKey.removeAll()
-        for panel in titlePanels + captionPanels { panel.close() }
+        for panel in titlePanels + captionPanels + statePanels { panel.close() }
         titlePanels.removeAll()
         captionPanels.removeAll()
+        statePanels.removeAll()
+        stateMarks.removeAll()
+        stateLabelsTop = nil
     }
 
     func petViewDidReceiveLeftClick(sessionId petKey: String) {
@@ -190,6 +232,11 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
 
     func petViewDidReceiveRightClick(sessionId petKey: String) {
         onPetClicked?(petKey)
+    }
+
+    private func spriteSideLength(forPackNamed packName: String?) -> CGFloat {
+        let sheet = spriteSheets.sheet(forPackNamed: packName ?? SpritePackLoader.defaultPackName)
+        return PetGeometry.spritePixelSideLength(frameSize: sheet.frameSize)
     }
 
     private func placeTitle(_ panel: DemoPanelWindow) {
