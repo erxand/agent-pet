@@ -6,7 +6,6 @@ package protocol DemoStage: AnyObject {
     func present(title: DemoTitleCard?)
     func present(caption: DemoCaption?)
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement)
-    func present(toast: DemoToast)
     func advance(elapsedSeconds: Double, sceneProgress: Double)
     func tearDown()
 }
@@ -94,12 +93,13 @@ package final class DemoRunner {
         for memberSessionId in item.memberSessionIds {
             castBySessionId[memberSessionId]?.visible = false
         }
-        stage.present(toast: DemoToast(
-            title: DemoScript.achievementTitle,
-            body: DemoScript.clickToastBodyPrefix + item.label,
-            sprite: item.session.sprite ?? SpritePackLoader.defaultPackName
-        ))
         presentPets(for: currentScene)
+        stage.present(caption: DemoCaption(
+            text: DemoScript.clickCaption(petLabel: item.label),
+            sceneNumber: currentSceneIndex + 1,
+            sceneCount: scenes.count,
+            accent: item.session.resolvedAccent
+        ))
     }
 
     package func stop() {
@@ -127,7 +127,7 @@ package final class DemoRunner {
         stage.present(scene: scene, number: index + 1, of: scenes.count)
         stage.present(title: nil)
         stage.present(caption: scene.caption.map { text in
-            DemoCaption(text: text, sceneNumber: index + 1, sceneCount: scenes.count)
+            DemoCaption(text: text, sceneNumber: index + 1, sceneCount: scenes.count, accent: accent(of: scene))
         })
         presentPets(for: scene)
         applyDueSteps(of: scene)
@@ -179,10 +179,16 @@ package final class DemoRunner {
             }
             handleClick(petKey: item.petKey)
             return false
-        case .toast(let toast):
-            stage.present(toast: toast)
-            return false
         }
+    }
+
+    private func accent(of scene: DemoScene) -> AccentColor? {
+        for step in scene.steps {
+            if case .show(let actorId, _, _) = step.action, let actor = cast.first(where: { actor in actor.sessionId == actorId }) {
+                return actor.accent
+            }
+        }
+        return nil
     }
 
     private func presentPets(for scene: DemoScene) {

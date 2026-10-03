@@ -44,41 +44,6 @@ final class DemoPanelWindow {
     }
 }
 
-final class DemoToastWindow {
-    private static let slideSeconds: Double = 0.6
-    private static let holdSeconds: Double = 3.6
-    private static let margin: CGFloat = 16
-
-    let panel: DemoPanelWindow
-    private var elapsedSeconds: Double = 0
-
-    init(view: DemoToastView) {
-        panel = DemoPanelWindow(view: view, acceptsClicks: false)
-        panel.window.alphaValue = 1
-    }
-
-    var isGone: Bool {
-        elapsedSeconds >= DemoToastWindow.slideSeconds * 2 + DemoToastWindow.holdSeconds
-    }
-
-    func advance(elapsedSeconds stepSeconds: Double, screenFrame: CGRect) {
-        elapsedSeconds += stepSeconds
-        let slideIn = min(1, elapsedSeconds / DemoToastWindow.slideSeconds)
-        let slideOutStart = DemoToastWindow.slideSeconds + DemoToastWindow.holdSeconds
-        let slideOut = min(1, max(0, (elapsedSeconds - slideOutStart) / DemoToastWindow.slideSeconds))
-        let shown = DemoEasing.smooth(slideIn) - DemoEasing.smooth(slideOut)
-        let size = panel.view.preferredSize
-        let restingBottom = screenFrame.maxY - DemoToastWindow.margin - size.height
-        let hiddenBottom = screenFrame.maxY + 1
-        let bottom = hiddenBottom + (restingBottom - hiddenBottom) * CGFloat(shown)
-        panel.window.setFrame(
-            CGRect(x: screenFrame.maxX - DemoToastWindow.margin - size.width, y: bottom.rounded(), width: size.width, height: size.height),
-            display: true
-        )
-        if isGone { panel.close() }
-    }
-}
-
 enum DemoEasing {
     static func smooth(_ progress: Double) -> Double {
         let clamped = min(max(progress, 0), 1)
@@ -113,12 +78,6 @@ final class DemoSpriteSheets {
         }
         return shippedRegistry?.sheet(forPackNamed: packName) ?? installedRegistry.sheet(forPackNamed: packName)
     }
-
-    func icon(forPackNamed packName: String, pixelSide: Int) -> NSImage? {
-        let sheet = sheet(forPackNamed: packName)
-        guard let frame = sheet.idle.first else { return nil }
-        return PixelRenderer.image(for: frame, palette: sheet.palette, scale: pixelSide, facingLeft: false)
-    }
 }
 
 final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
@@ -126,7 +85,6 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
     private static let titleVerticalFraction: CGFloat = 0.55
     private static let captionWidthFraction: CGFloat = 0.9
     private static let homeEasingPerSecond: CGFloat = 3
-    private static let toastIconPixelSide = 2
 
     var onPetClicked: ((String) -> Void)?
     var onCaptionClicked: (() -> Void)?
@@ -137,10 +95,9 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
     private var displayedHomeByPetKey: [String: CGFloat] = [:]
     private var titlePanels: [DemoPanelWindow] = []
     private var captionPanels: [DemoPanelWindow] = []
-    private var toasts: [DemoToastWindow] = []
 
     var isSettled: Bool {
-        presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty && toasts.isEmpty
+        presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty
     }
 
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
@@ -203,12 +160,6 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
         }
     }
 
-    func present(toast: DemoToast) {
-        for existing in toasts { existing.panel.close() }
-        let icon = spriteSheets.icon(forPackNamed: toast.sprite, pixelSide: DemoOverlayStage.toastIconPixelSide)
-        toasts = [DemoToastWindow(view: DemoToastView(toast: toast, icon: icon))]
-    }
-
     func advance(elapsedSeconds: Double, sceneProgress: Double) {
         let screenFrame = OverlayScreenFrames.current().visibleFrame
         for panel in titlePanels { panel.advance(elapsedSeconds: elapsedSeconds) }
@@ -218,8 +169,6 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
             (panel.view as? DemoCaptionView)?.progress = sceneProgress
         }
         captionPanels.removeAll { panel in panel.isGone }
-        for toast in toasts { toast.advance(elapsedSeconds: elapsedSeconds, screenFrame: screenFrame) }
-        toasts.removeAll { toast in toast.isGone }
         advancePets(elapsedSeconds: elapsedSeconds, screenFrame: screenFrame)
     }
 
@@ -233,8 +182,6 @@ final class DemoOverlayStage: DemoStage, PetViewInteractionHandler {
         for panel in titlePanels + captionPanels { panel.close() }
         titlePanels.removeAll()
         captionPanels.removeAll()
-        for toast in toasts { toast.panel.close() }
-        toasts.removeAll()
     }
 
     func petViewDidReceiveLeftClick(sessionId petKey: String) {

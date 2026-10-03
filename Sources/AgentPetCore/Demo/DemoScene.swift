@@ -41,12 +41,12 @@ package struct DemoActor: Equatable {
 package struct DemoTitleCard: Equatable {
     package let title: String
     package let subtitle: String
-    package let splash: String?
+    package let accent: AccentColor
 
-    package init(title: String, subtitle: String, splash: String?) {
+    package init(title: String, subtitle: String, accent: AccentColor) {
         self.title = title
         self.subtitle = subtitle
-        self.splash = splash
+        self.accent = accent
     }
 }
 
@@ -54,23 +54,13 @@ package struct DemoCaption: Equatable {
     package let text: String
     package let sceneNumber: Int
     package let sceneCount: Int
+    package let accent: AccentColor?
 
-    package init(text: String, sceneNumber: Int, sceneCount: Int) {
+    package init(text: String, sceneNumber: Int, sceneCount: Int, accent: AccentColor?) {
         self.text = text
         self.sceneNumber = sceneNumber
         self.sceneCount = sceneCount
-    }
-}
-
-package struct DemoToast: Equatable {
-    package let title: String
-    package let body: String
-    package let sprite: String
-
-    package init(title: String, body: String, sprite: String) {
-        self.title = title
-        self.body = body
-        self.sprite = sprite
+        self.accent = accent
     }
 }
 
@@ -80,7 +70,6 @@ package enum DemoAction: Equatable {
     case show(actorId: String, mood: PetMood, message: String?)
     case hide(actorIds: [String])
     case click(actorId: String)
-    case toast(DemoToast)
 }
 
 package struct DemoStep: Equatable {

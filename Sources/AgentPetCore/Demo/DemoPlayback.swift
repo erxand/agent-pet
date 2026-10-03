@@ -49,7 +49,7 @@ package final class DemoPlayback {
     package func interrupt(signal signalNumber: Int32) {
         guard !hasFinished else { return }
         runner.stop()
-        reportStop("demo stopped by \(DemoPlayback.signalName(signalNumber)), every demo window closed")
+        reportStop("demo stopped by \(DemoPlayback.signalName(signalNumber)). All demo windows are closed.")
         complete(exitCode: DemoPlayback.interruptedExitCodeBase + signalNumber)
     }
 

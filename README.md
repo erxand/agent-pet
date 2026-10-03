@@ -72,25 +72,34 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
 
 ## Demo
 
-`agent-pet demo` plays a one minute tour on your desktop: pets climb out when a turn finishes, a pet
-waits under a `!` bubble, five sessions share the screen in their own lanes, one ticket with three agents
-shares one pet, two clashing names get their session suffix, a reserved sprite appears, a click shows an
-"Achievement get!" toast, and every pet dives away. A short caption explains each scene.
+`agent-pet demo` plays a tour of about one minute on your desktop. A caption at the bottom of the
+screen tells you what each scene shows:
 
-The demo runs in its own process with an in-memory cast. It writes no session record, never starts or
-talks to the daemon, never focuses a session and never types into a pane, so it is safe to run next to
-real pets. It uses your installed packs, or the repo's `sprites/` when it runs from a checkout.
+- A pet climbs out of the ground when its agent finishes a turn.
+- A pet stands still under a `!` bubble when its agent needs your OK.
+- Five sessions show five pets, each in its own lane.
+- Three agents on one ticket share one pet, and its bubble shows which agent waits.
+- Two tabs with one name get the end of their session ID on the nametag.
+- A random pick never uses a reserved sprite.
+- A click makes a pet dive. In real use, the click also brings that session's terminal tab to the front.
+  The demo does not do this. The caption tells you what would happen.
+- All pets dive into the ground when you return to your desk.
+
+The demo runs in its own process with a cast that exists only in memory. It writes no session record.
+It does not start the daemon or send it data. It does not focus a session or type into a pane. Thus you
+can run it next to real pets. It uses your installed packs. When it runs from a checkout, it uses the
+`sprites/` directory of the repo.
 
 | form | effect |
 |---|---|
-| `agent-pet demo` | play every scene, about 66 seconds |
-| `agent-pet demo --scene NAME` | play one scene, see `--list` for the names |
-| `agent-pet demo --list` | print every scene with its length and caption |
-| `agent-pet demo --speed 2` | play faster (or slower, below 1) |
-| `agent-pet demo --dry-run` | print the timeline in the terminal instead of drawing it |
-| `agent-pet demo --snapshot DIR` | write the title card, a caption, a toast and a sample scene as PNGs to DIR |
+| `agent-pet demo` | play all scenes, about 66 seconds |
+| `agent-pet demo --scene NAME` | play one scene. `--list` shows the names |
+| `agent-pet demo --list` | print each scene with its length and caption |
+| `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
+| `agent-pet demo --dry-run` | print the timeline in the terminal, and draw nothing |
+| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene and a sample scene to DIR |
 
-Click the caption to skip to the next scene. Ctrl-C, or SIGTERM, closes every demo window and exits.
+To go to the next scene, click the caption. Ctrl-C or SIGTERM closes all demo windows and stops the demo.
 
 ## Configuration
 

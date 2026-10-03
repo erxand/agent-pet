@@ -51,7 +51,7 @@ enum DemoApplication {
         retainedDelegate = delegate
         application.delegate = delegate
         print("agent-pet demo: \(DemoSnapshot.formattedSeconds(request.scenes.reduce(0) { total, scene in total + scene.durationInSeconds } / request.speed)) s. "
-            + "Click the caption to skip a scene, ctrl-c to quit.")
+            + "Click the caption to go to the next scene. Press ctrl-c to quit.")
         application.run()
         return delegate.exitCode
     }
