@@ -9,6 +9,8 @@ struct PetIdentityOverrides {
     let pid: Int32?
     let sprite: String?
     let focusTarget: String?
+    let group: String?
+    let owner: Bool
 
     static let none = PetIdentityOverrides(
         nickname: nil,
@@ -18,7 +20,9 @@ struct PetIdentityOverrides {
         tmuxTarget: nil,
         pid: nil,
         sprite: nil,
-        focusTarget: nil
+        focusTarget: nil,
+        group: nil,
+        owner: false
     )
 
     var hasAnyOverride: Bool {
@@ -30,6 +34,8 @@ struct PetIdentityOverrides {
             || pid != nil
             || sprite != nil
             || focusTarget != nil
+            || group != nil
+            || owner
     }
 
     func applied(to session: PetSession) -> PetSession {
@@ -42,6 +48,9 @@ struct PetIdentityOverrides {
         if let pid { updated.pid = pid }
         if let sprite { updated.sprite = sprite }
         if let focusTarget { updated.focusTarget = focusTarget }
+        if let group { updated.group = group }
+        if owner { updated.owner = true }
+        if updated.group != nil, updated.enrolledAt == nil { updated.enrolledAt = Date().timeIntervalSince1970 }
         return updated
     }
 }

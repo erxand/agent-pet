@@ -4,6 +4,7 @@ struct StatusReport: Encodable {
     struct SessionEntry: Encodable {
         let sessionId: String
         let group: String
+        let owner: Bool
         let label: String
         let sprite: String
         let accent: String
@@ -18,7 +19,7 @@ struct StatusReport: Encodable {
         let updatedAt: Double
 
         enum CodingKeys: String, CodingKey {
-            case sessionId, group, label, sprite, accent, agent, enabled, visible, mood
+            case sessionId, group, owner, label, sprite, accent, agent, enabled, visible, mood
             case activeSubagents, alive, pid, focusTarget, updatedAt
         }
 
@@ -26,6 +27,7 @@ struct StatusReport: Encodable {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(sessionId, forKey: .sessionId)
             try container.encode(group, forKey: .group)
+            try container.encode(owner, forKey: .owner)
             try container.encode(label, forKey: .label)
             try container.encode(sprite, forKey: .sprite)
             try container.encode(accent, forKey: .accent)
@@ -55,10 +57,17 @@ struct StatusReport: Encodable {
     }
 
     static func print(sessions: [PetSession], claudeSessions: [String: ClaudeSessionRecord]) -> Int32 {
+        let ownerSessionIds = Set(
+            LivePets.groups(records: sessions, claudeSessions: claudeSessions).compactMap { pet in pet.owner?.sessionId }
+        )
         let report = StatusReport(
             daemonPid: StatusCommand.liveDaemonProcessIdentifier(),
             sessions: sessions.map { session in
-                entry(for: session, claudeSession: claudeSessions[session.sessionId])
+                entry(
+                    for: session,
+                    claudeSession: claudeSessions[session.sessionId],
+                    isOwner: ownerSessionIds.contains(session.sessionId)
+                )
             }
         )
         let encoder = JSONEncoder()
@@ -69,10 +78,11 @@ struct StatusReport: Encodable {
         return ExitCode.success
     }
 
-    private static func entry(for session: PetSession, claudeSession: ClaudeSessionRecord?) -> SessionEntry {
+    private static func entry(for session: PetSession, claudeSession: ClaudeSessionRecord?, isOwner: Bool) -> SessionEntry {
         SessionEntry(
             sessionId: session.sessionId,
-            group: session.sessionId,
+            group: session.petKey,
+            owner: isOwner,
             label: PetLabel.resolve(session: session, claudeSession: claudeSession),
             sprite: session.sprite ?? SpritePackLoader.defaultPackName,
             accent: session.resolvedAccent.rawValue,

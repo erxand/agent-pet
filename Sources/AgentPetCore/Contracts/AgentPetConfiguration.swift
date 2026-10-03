@@ -10,6 +10,11 @@ package enum ColorSyncKind: String, Equatable {
     case none
 }
 
+package enum LabelPlacement: String, Equatable {
+    case pill
+    case nametag
+}
+
 package struct AgentPetConfiguration: Equatable {
     package static let defaultSessionDirectoryPatterns = ["~/.claude/sessions"]
 
@@ -22,11 +27,24 @@ package struct AgentPetConfiguration: Equatable {
     package var focuser: FocuserConfiguration
     package var sessionDirectoryPatterns: [String]
     package var colorSync: ColorSyncKind
+    package var labelPlacement: LabelPlacement
+    package var disambiguatesLabels: Bool
+    package var reservedSprites: [String]
 
-    package init(focuser: FocuserConfiguration, sessionDirectoryPatterns: [String], colorSync: ColorSyncKind) {
+    package init(
+        focuser: FocuserConfiguration,
+        sessionDirectoryPatterns: [String],
+        colorSync: ColorSyncKind,
+        labelPlacement: LabelPlacement = .pill,
+        disambiguatesLabels: Bool = false,
+        reservedSprites: [String] = []
+    ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
         self.colorSync = colorSync
+        self.labelPlacement = labelPlacement
+        self.disambiguatesLabels = disambiguatesLabels
+        self.reservedSprites = reservedSprites
     }
 }
 
@@ -62,6 +80,11 @@ package enum ConfigurationFile {
         if let colorSync = raw.colorSync.flatMap({ rawValue in ColorSyncKind(rawValue: rawValue) }) {
             configuration.colorSync = colorSync
         }
+        if let labelPlacement = raw.labelPlacement.flatMap({ rawValue in LabelPlacement(rawValue: rawValue) }) {
+            configuration.labelPlacement = labelPlacement
+        }
+        if let disambiguatesLabels = raw.disambiguateLabels { configuration.disambiguatesLabels = disambiguatesLabels }
+        if let reservedSprites = raw.reservedSprites { configuration.reservedSprites = reservedSprites }
         return configuration
     }
 
@@ -103,11 +126,17 @@ private struct RawConfiguration: Decodable {
     let focuser: RawFocuser?
     let sessionDirectories: [String]?
     let colorSync: String?
+    let labelPlacement: String?
+    let disambiguateLabels: Bool?
+    let reservedSprites: [String]?
 
     enum CodingKeys: String, CodingKey {
         case focuser
         case sessionDirectories
         case colorSync
+        case labelPlacement
+        case disambiguateLabels
+        case reservedSprites
     }
 
     init(from decoder: Decoder) throws {
@@ -117,6 +146,11 @@ private struct RawConfiguration: Decodable {
             .compactMap { entry in entry.value }
             .filter { pattern in !pattern.isEmpty }
         colorSync = try? container.decodeIfPresent(String.self, forKey: .colorSync)
+        labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
+        disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
+        reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?
+            .compactMap { entry in entry.value }
+            .filter { packName in !packName.isEmpty }
     }
 }
 

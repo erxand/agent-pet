@@ -14,6 +14,8 @@ enum CommandName: String, CaseIterable {
     case focus
     case clearSubagents = "clear-subagents"
     case scanTranscript = "scan-transcript"
+    case render
+    case packs
 }
 
 enum CommandFlag: String, CaseIterable {
@@ -31,6 +33,10 @@ enum CommandFlag: String, CaseIterable {
     case path = "--path"
     case from = "--from"
     case focusTarget = "--focus-target"
+    case group = "--group"
+    case pack = "--pack"
+    case animation = "--animation"
+    case frame = "--frame"
 }
 
 struct ParsedFlags {

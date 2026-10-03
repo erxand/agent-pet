@@ -36,6 +36,10 @@ public enum AgentPetCommandLine {
             return SessionCommands.clearSubagents(flags: flags)
         case .scanTranscript:
             return ScanTranscriptCommand.run(flags: flags)
+        case .render:
+            return RenderCommand.run(flags: flags)
+        case .packs:
+            return PacksCommand.run(flags: flags)
         }
     }
 }

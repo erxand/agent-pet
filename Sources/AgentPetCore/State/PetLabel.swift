@@ -1,7 +1,8 @@
 import Foundation
 
 package enum PetLabel {
-    private static let fallback = "session"
+    package static let fallback = "session"
+    package static let displayCharacterLimit = 28
 
     package static func resolve(session: PetSession, claudeSession: ClaudeSessionRecord?) -> String {
         for candidate in [session.nickname, session.label, claudeSession?.name] {

@@ -36,7 +36,7 @@ package struct FocusRequest: Equatable {
             sessionId: session.sessionId,
             processIdentifier: session.pid ?? claudeSession?.pid,
             focusTarget: session.focusTarget,
-            group: session.sessionId,
+            group: session.petKey,
             agent: session.agent,
             tmuxTarget: session.parsedTmuxTarget ?? claudeSession?.tmux.flatMap { rawTarget in
                 TmuxTarget(rawValue: rawTarget)

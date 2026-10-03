@@ -55,6 +55,26 @@ package enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportMissingPack() -> Int32 {
+        writeToStandardError("no pack. Pass \(CommandFlag.pack.rawValue) NAME.")
+        return ExitCode.usage
+    }
+
+    static func reportUnknownPack(_ packName: String) -> Int32 {
+        writeToStandardError("no sprite pack named \(packName).")
+        return ExitCode.usage
+    }
+
+    static func reportUnknownAnimation(_ animationName: String) -> Int32 {
+        writeToStandardError("unknown animation \(animationName). Valid values: \(joined(SpriteAnimationName.allCases.map { animation in animation.rawValue })).")
+        return ExitCode.usage
+    }
+
+    static func reportUnknownFrame(_ rawValue: String, animation: SpriteAnimationName, frameCount: Int) -> Int32 {
+        writeToStandardError("\(CommandFlag.frame.rawValue) \(rawValue) is not a frame of \(animation.rawValue), which has \(frameCount).")
+        return ExitCode.usage
+    }
+
     static func reportUsage() -> Int32 {
         writeToStandardError(usageText)
         return ExitCode.usage
@@ -85,6 +105,8 @@ package enum CommandFeedback {
       focus            jump to this session's tmux pane and terminal tab
       clear-subagents  forget every subagent this session is tracking as running
       scan-transcript  diagnostic: print every subagent completion found in a transcript file
+      render           print a sprite pack frame to the terminal in truecolor half blocks
+      packs            list installed sprite packs with accent, reserved, and live pet count
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

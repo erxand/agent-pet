@@ -70,7 +70,9 @@ enum FlagParsing {
             tmuxTarget: flags.value(for: .tmux),
             pid: try processIdentifier(in: flags),
             sprite: flags.value(for: .sprite),
-            focusTarget: flags.value(for: .focusTarget)
+            focusTarget: flags.value(for: .focusTarget),
+            group: flags.value(for: .group),
+            owner: flags.isPresent(.owner)
         )
     }
 }

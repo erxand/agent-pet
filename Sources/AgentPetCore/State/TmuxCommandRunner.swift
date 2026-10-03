@@ -13,6 +13,7 @@ enum CommandSwitch: String, CaseIterable {
     case noColorSync = "--no-color-sync"
     case noClientSwitch = "--no-client-switch"
     case json = "--json"
+    case owner = "--owner"
 }
 
 package protocol TmuxCommandRunning {

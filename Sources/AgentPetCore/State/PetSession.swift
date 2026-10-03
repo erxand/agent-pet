@@ -39,6 +39,9 @@ package struct PetSession: Codable, Equatable {
     package var pid: Int32?
     package var sprite: String?
     package var focusTarget: String?
+    package var group: String?
+    package var owner: Bool?
+    package var enrolledAt: Double?
     package var activeSubagents: [TrackedSubagent]
     package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
@@ -47,6 +50,18 @@ package struct PetSession: Codable, Equatable {
 
     package var isPreview: Bool {
         sessionId.hasPrefix(PetSession.previewSessionIdPrefix)
+    }
+
+    package var petKey: String {
+        group ?? sessionId
+    }
+
+    package var isFlaggedOwner: Bool {
+        owner == true
+    }
+
+    package var enrollmentOrder: Double {
+        enrolledAt ?? updatedAt
     }
 
     package var resolvedAccent: AccentColor {
@@ -78,6 +93,9 @@ extension PetSession {
         pid = try container.decodeIfPresent(Int32.self, forKey: .pid)
         sprite = try container.decodeIfPresent(String.self, forKey: .sprite)
         focusTarget = try container.decodeIfPresent(String.self, forKey: .focusTarget)
+        group = try container.decodeIfPresent(String.self, forKey: .group)
+        owner = try container.decodeIfPresent(Bool.self, forKey: .owner)
+        enrolledAt = try container.decodeIfPresent(Double.self, forKey: .enrolledAt)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
@@ -108,6 +126,9 @@ extension PetSession {
             pid: nil,
             sprite: nil,
             focusTarget: nil,
+            group: nil,
+            owner: nil,
+            enrolledAt: nil,
             activeSubagents: [],
             handledHookEvents: nil,
             transcriptPath: nil,

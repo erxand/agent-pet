@@ -2,12 +2,12 @@ import Foundation
 
 enum PetEnrollment {
     static func enroll(sessionId: String, overrides: PetIdentityOverrides, spriteStrategy: SpriteStrategy) -> PetSession {
-        PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession in
+        let enrolled = PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession in
             var enrolled = overrides.applied(to: record ?? PetSession.newlyEnrolled(sessionId: sessionId))
             enrolled.enabled = true
             enrolled.visible = false
             if enrolled.sprite == nil {
-                enrolled.sprite = spriteStrategy.spriteName(forNewSessionId: sessionId)
+                enrolled.sprite = spriteStrategy.spriteName(forNewSessionId: sessionId, group: enrolled.group)
             }
             if enrolled.accent == nil, let spriteName = enrolled.sprite {
                 enrolled.accent = SpritePackAccent.accent(forPackNamed: spriteName)
@@ -19,6 +19,8 @@ enum PetEnrollment {
             record = enrolled
             return enrolled
         }
+        if overrides.owner { relinquishOwnership(of: enrolled) }
+        return enrolled
     }
 
     static func disable(sessionId: String) -> PetSession? {
@@ -34,11 +36,26 @@ enum PetEnrollment {
 
     @discardableResult
     static func applyOverrides(sessionId: String, overrides: PetIdentityOverrides) -> PetSession? {
-        PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession? in
+        let updated = PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession? in
             guard let existing = record, existing.enabled else { return nil }
             let updated = overrides.applied(to: existing)
             record = updated
             return updated
+        }
+        if overrides.owner, let updated { relinquishOwnership(of: updated) }
+        return updated
+    }
+
+    private static func relinquishOwnership(of newOwner: PetSession) {
+        let store = PetSessionStore()
+        for other in store.list() where other.sessionId != newOwner.sessionId
+            && other.petKey == newOwner.petKey
+            && other.isFlaggedOwner {
+            store.withLockedRecord(sessionId: other.sessionId) { record in
+                guard var formerOwner = record, formerOwner.petKey == newOwner.petKey else { return }
+                formerOwner.owner = nil
+                record = formerOwner
+            }
         }
     }
 }

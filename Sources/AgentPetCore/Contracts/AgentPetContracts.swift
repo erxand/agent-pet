@@ -29,8 +29,15 @@ package struct AgentPetContracts {
         case .none:
             colorSync = DisabledColorSync()
         }
-        spriteStrategy = LeastUsedSpriteStrategy(sessionSource: sessionSource)
-        grouping = OnePetPerSessionGrouping()
+        spriteStrategy = LeastUsedSpriteStrategy(
+            sessionSource: sessionSource,
+            reservedPackNames: configuration.reservedSprites
+        )
+        grouping = SharedKeyGrouping()
+    }
+
+    package var displayPlanner: PetDisplayPlanner {
+        PetDisplayPlanner(grouping: grouping, disambiguatesLabels: configuration.disambiguatesLabels)
     }
 
     package static func loaded(focusCompletion: FocusCompletion = .waits) -> AgentPetContracts {
