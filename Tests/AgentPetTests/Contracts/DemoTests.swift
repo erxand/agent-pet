@@ -111,7 +111,7 @@ struct DemoTimelineTests {
         #expect(dive.displayedPets.map { item in item.label } == ["ui"])
     }
 
-    @Test func theStatesSceneShowsEveryRealMoodAndTheHiddenWorkingStateAtOnce() throws {
+    @Test func theStatesSceneShowsTheStatesAUserSeesAtOnce() throws {
         let scene = try #require(DemoScript.scene(named: .states))
         let pets = scene.steps.compactMap { step -> (String, PetMood)? in
             if case .show(let actorId, let mood, _) = step.action { return (actorId, mood) }
@@ -121,15 +121,15 @@ struct DemoTimelineTests {
         let hide = try #require(scene.steps.first { step in if case .hide = step.action { return true } else { return false } })
         #expect(hide.offsetInSeconds - lastShow.offsetInSeconds >= 7)
         #expect(scene.durationInSeconds >= 8 && scene.durationInSeconds <= 10)
-        #expect(Set(pets.map { pet in pet.1 }) == Set(PetMood.allCases))
-        #expect(pets.count == PetMood.allCases.count)
-        #expect(scene.stateSlots.map { slot in slot.label } == ["Ready: turn done", "Needs your input", "Blocked", "Working: no pet"])
+        #expect(scene.caption == "Your pets will appear when your agent is ready and waiting for you.")
+        #expect(pets.map { pet in pet.1 } == [.ready, .needsInput])
+        #expect(scene.stateSlots.map { slot in slot.label } == ["Ready: turn done", "Needs your input", "Working: no pet"])
         #expect(scene.stateSlots.compactMap { slot in slot.actorId } == pets.map { pet in pet.0 })
 
         let stage = RecordingDemoStage()
         let states = try runner(for: .states, stage: stage)
         advance(states, by: 2)
-        #expect(states.displayedPets.map { item in item.mood } == [.ready, .needsInput, .blocked])
+        #expect(states.displayedPets.map { item in item.mood } == [.ready, .needsInput])
         let marks = try #require(stage.states.last)
         #expect(marks.map { mark in mark.label } == scene.stateSlots.map { slot in slot.label })
         #expect(marks.last?.sessionId == nil)
@@ -210,7 +210,7 @@ struct DemoTimelineTests {
         let scene = try #require(DemoScript.scene(named: .states))
         let runner = DemoRunner(scenes: [scene], stage: stage, waitsForUser: true)
         advance(runner, by: 20)
-        #expect(runner.displayedPets.count == 3)
+        #expect(runner.displayedPets.count == 2)
     }
 
     @Test func spaceSkipsTheTitleEarlyAndEscQuitsAndGivesFocusBack() throws {
@@ -240,6 +240,15 @@ struct DemoTimelineTests {
         #expect(!playback.handle(key: .space))
         #expect(!playback.handle(key: .escape))
         #expect(focus.returnCount == 1)
+    }
+
+    @Test func theKeyHintSaysHowToGetTheKeysBack() {
+        #expect(DemoScript.keyHint(hasFocus: true) == "space: next   esc: quit")
+        #expect(DemoScript.keyHint(hasFocus: false) == "click here, then press space")
+        for hint in [DemoScript.focusedKeyHint, DemoScript.unfocusedKeyHint] {
+            #expect(DemoPixelFont.canRender(hint))
+            #expect(!hint.contains("\u{2014}") && !hint.contains("\u{2013}") && !hint.contains("!"))
+        }
     }
 
     @Test func onlySpaceAndEscAreDemoKeys() {
@@ -412,7 +421,7 @@ struct DemoCommandTests {
 
         #expect(run.exitStatus == 0)
         #expect(run.standardOutput.contains("scene 6/6 finale"))
-        #expect(run.standardOutput.contains("states: Ready: turn done (claude), Needs your input (golem), Blocked (seon), Working: no pet (no pet)"))
+        #expect(run.standardOutput.contains("states: Ready: turn done (claude), Needs your input (golem), Working: no pet (no pet)"))
         #expect(run.standardOutput.contains("pets: tests (hatchling ready), docs (mossling needsInput), api (nimbus ready)"))
         #expect(run.standardOutput.contains("teardown"))
         #expect(try Data(contentsOf: sandbox.recordURL("real-session")) == recordBefore)

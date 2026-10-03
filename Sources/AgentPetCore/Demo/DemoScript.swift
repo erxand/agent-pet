@@ -1,6 +1,13 @@
 import Foundation
 
 package enum DemoScript {
+    package static let focusedKeyHint = "space: next   esc: quit"
+    package static let unfocusedKeyHint = "click here, then press space"
+
+    package static func keyHint(hasFocus: Bool) -> String {
+        hasFocus ? focusedKeyHint : unfocusedKeyHint
+    }
+
     private enum PackName {
         static let claude = SpritePackLoader.defaultPackName
         static let golem = "golem"
@@ -19,7 +26,6 @@ package enum DemoScript {
         static let deploy = "demo-deploy-6e2b"
         static let lint = "demo-lint-91fa"
         static let ui = "demo-ui-47c3"
-        static let search = "demo-search-88a0"
     }
 
     package static let cast: [DemoActor] = [
@@ -30,8 +36,7 @@ package enum DemoScript {
         DemoActor(sessionId: ActorId.api, nickname: "api", sprite: PackName.nimbus, accent: .blue),
         DemoActor(sessionId: ActorId.deploy, nickname: "deploy", sprite: PackName.hatchling, accent: .cyan),
         DemoActor(sessionId: ActorId.lint, nickname: "lint", sprite: PackName.nimbus, accent: .blue),
-        DemoActor(sessionId: ActorId.ui, nickname: "ui", sprite: PackName.seon, accent: .yellow),
-        DemoActor(sessionId: ActorId.search, nickname: "search", sprite: PackName.seon, accent: .yellow)
+        DemoActor(sessionId: ActorId.ui, nickname: "ui", sprite: PackName.seon, accent: .yellow)
     ]
 
     package static let scenes: [DemoScene] = [
@@ -51,20 +56,18 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .states,
-            caption: "A pet shows the state of its agent. A working agent has no pet.",
+            caption: "Your pets will appear when your agent is ready and waiting for you.",
             durationInSeconds: 9.5,
             labelPlacement: .pill,
             steps: [
                 DemoStep(offsetInSeconds: 0.4, action: .show(actorId: ActorId.refactor, mood: .ready, message: "Refactor done")),
                 DemoStep(offsetInSeconds: 0.7, action: .show(actorId: ActorId.migrate, mood: .needsInput, message: "Run the migration?")),
-                DemoStep(offsetInSeconds: 1.0, action: .show(actorId: ActorId.search, mood: .blocked, message: nil)),
-                DemoStep(offsetInSeconds: 8.4, action: .hide(actorIds: [ActorId.refactor, ActorId.migrate, ActorId.search]))
+                DemoStep(offsetInSeconds: 8.4, action: .hide(actorIds: [ActorId.refactor, ActorId.migrate]))
             ],
             holdOffsetInSeconds: 2.5,
             stateSlots: [
                 DemoStateSlot(label: "Ready: turn done", actorId: ActorId.refactor),
                 DemoStateSlot(label: "Needs your input", actorId: ActorId.migrate),
-                DemoStateSlot(label: "Blocked", actorId: ActorId.search),
                 DemoStateSlot(label: "Working: no pet", actorId: nil)
             ]
         ),

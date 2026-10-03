@@ -2,7 +2,23 @@ import AgentPetCore
 import AppKit
 
 class DemoPanelView: NSView {
+    var onClick: (() -> Void)?
+
     var preferredSize: CGSize { bounds.size }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onClick?()
+    }
+}
+
+protocol DemoKeyHintShowing: AnyObject {
+    var hasFocus: Bool { get set }
 }
 
 enum DemoPanelFrame {
@@ -26,8 +42,8 @@ enum DemoPanelFrame {
     }
 }
 
-final class DemoCaptionView: DemoPanelView {
-    static let hintText = "space: next   esc: quit"
+final class DemoCaptionView: DemoPanelView, DemoKeyHintShowing {
+    private static let hintTexts = [DemoScript.keyHint(hasFocus: true), DemoScript.keyHint(hasFocus: false)]
 
     private static let unit = DemoPanelFrame.unit
     private static let lineGap: CGFloat = 6 * unit
@@ -39,11 +55,24 @@ final class DemoCaptionView: DemoPanelView {
     let caption: DemoCaption
     private let captionStyle: DemoTextStyle
     private let smallStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.smallPixelSide)
+    private let unfocusedHintStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.smallPixelSide)
 
     var progress: Double = 0 {
         didSet {
             if abs(progress - oldValue) > 0.001 { needsDisplay = true }
         }
+    }
+
+    var hasFocus = true {
+        didSet {
+            if hasFocus != oldValue { needsDisplay = true }
+        }
+    }
+
+    private var hintText: String { DemoScript.keyHint(hasFocus: hasFocus) }
+
+    private var widestHintWidth: CGFloat {
+        DemoCaptionView.hintTexts.map { text in DemoPixelPainter.size(of: text, style: smallStyle).width }.max() ?? 0
     }
 
     init(caption: DemoCaption, maximumWidth: CGFloat) {
@@ -71,7 +100,7 @@ final class DemoCaptionView: DemoPanelView {
         let captionSize = DemoPixelPainter.size(of: caption.text, style: captionStyle)
         let footerTextWidth = DemoPixelPainter.size(of: counterText, style: smallStyle).width
             + DemoCaptionView.hintGap
-            + DemoPixelPainter.size(of: DemoCaptionView.hintText, style: smallStyle).width
+            + widestHintWidth
         let footerWidth = DemoCaptionView.minimumBarWidth + DemoCaptionView.barGap + footerTextWidth
         let footerHeight = max(DemoCaptionView.barHeight, DemoPixelPainter.size(of: counterText, style: smallStyle).height)
         let contentWidth = max(captionSize.width, footerWidth)
@@ -87,10 +116,10 @@ final class DemoCaptionView: DemoPanelView {
         DemoPixelPainter.draw(caption.text, topLeft: CGPoint(x: padding, y: bounds.maxY - padding), style: captionStyle)
 
         let footerTextHeight = DemoPixelPainter.size(of: counterText, style: smallStyle).height
-        let hintWidth = DemoPixelPainter.size(of: DemoCaptionView.hintText, style: smallStyle).width
+        let hintWidth = DemoPixelPainter.size(of: hintText, style: smallStyle).width
         let counterWidth = DemoPixelPainter.size(of: counterText, style: smallStyle).width
         let hintLeft = bounds.maxX - padding - hintWidth
-        let counterLeft = hintLeft - DemoCaptionView.hintGap - counterWidth
+        let counterLeft = bounds.maxX - padding - widestHintWidth - DemoCaptionView.hintGap - counterWidth
         let textTop = padding + footerTextHeight
         let capTop = textTop - DemoPanelFrame.smallPixelSide * CGFloat(DemoPixelFont.capHeight)
         let barRect = CGRect(
@@ -101,7 +130,7 @@ final class DemoCaptionView: DemoPanelView {
         )
         drawProgressBar(in: barRect)
         DemoPixelPainter.draw(counterText, topLeft: CGPoint(x: counterLeft, y: textTop), style: smallStyle)
-        DemoPixelPainter.draw(DemoCaptionView.hintText, topLeft: CGPoint(x: hintLeft, y: textTop), style: smallStyle)
+        DemoPixelPainter.draw(hintText, topLeft: CGPoint(x: hintLeft, y: textTop), style: hasFocus ? smallStyle : unfocusedHintStyle)
     }
 
     private func drawProgressBar(in rect: CGRect) {
@@ -116,15 +145,24 @@ final class DemoCaptionView: DemoPanelView {
     }
 }
 
-final class DemoTitleView: DemoPanelView {
+final class DemoTitleView: DemoPanelView, DemoKeyHintShowing {
     private static let unit = DemoPanelFrame.unit
     private static let underlineHeight: CGFloat = 2 * unit
     private static let underlineGap: CGFloat = 4 * unit
     private static let subtitleGap: CGFloat = 10 * unit
+    private static let hintGap: CGFloat = 8 * unit
 
     let card: DemoTitleCard
     private let titleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.titlePixelSide)
     private let subtitleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private let hintStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.smallPixelSide)
+    private let unfocusedHintStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.smallPixelSide)
+
+    var hasFocus = true {
+        didSet {
+            if hasFocus != oldValue { needsDisplay = true }
+        }
+    }
 
     init(card: DemoTitleCard) {
         self.card = card
@@ -141,9 +179,10 @@ final class DemoTitleView: DemoPanelView {
     private func computedSize() -> CGSize {
         let titleSize = DemoPixelPainter.size(of: card.title, style: titleStyle)
         let subtitleSize = DemoPixelPainter.size(of: card.subtitle, style: subtitleStyle)
-        let contentWidth = max(titleSize.width, subtitleSize.width)
+        let hintSize = DemoPixelPainter.size(of: DemoScript.keyHint(hasFocus: false), style: hintStyle)
+        let contentWidth = max(titleSize.width, subtitleSize.width, hintSize.width)
         let contentHeight = titleSize.height + DemoTitleView.underlineGap + DemoTitleView.underlineHeight
-            + DemoTitleView.subtitleGap + subtitleSize.height
+            + DemoTitleView.subtitleGap + subtitleSize.height + DemoTitleView.hintGap + hintSize.height
         return CGSize(
             width: ceil(contentWidth + DemoPanelFrame.padding * 2),
             height: ceil(contentHeight + DemoPanelFrame.padding * 2)
@@ -166,12 +205,20 @@ final class DemoTitleView: DemoPanelView {
             height: DemoTitleView.underlineHeight
         ).fill()
 
+        let hintText = DemoScript.keyHint(hasFocus: hasFocus)
+        let hintSize = DemoPixelPainter.size(of: hintText, style: hintStyle)
+        DemoPixelPainter.draw(
+            hintText,
+            topLeft: CGPoint(x: ((bounds.width - hintSize.width) / 2).rounded(), y: DemoPanelFrame.padding + hintSize.height),
+            style: hasFocus ? hintStyle : unfocusedHintStyle
+        )
+
         let subtitleSize = DemoPixelPainter.size(of: card.subtitle, style: subtitleStyle)
         DemoPixelPainter.draw(
             card.subtitle,
             topLeft: CGPoint(
                 x: ((bounds.width - subtitleSize.width) / 2).rounded(),
-                y: DemoPanelFrame.padding + subtitleSize.height
+                y: DemoPanelFrame.padding + hintSize.height + DemoTitleView.hintGap + subtitleSize.height
             ),
             style: subtitleStyle
         )
