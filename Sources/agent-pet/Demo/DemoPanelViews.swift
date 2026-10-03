@@ -189,3 +189,80 @@ final class DemoTitleView: DemoPanelView {
         )
     }
 }
+
+final class DemoStateLabelView: DemoPanelView {
+    private static let padding: CGFloat = 6 * DemoPanelFrame.unit
+    private static let laneMargin: CGFloat = 12 * DemoPanelFrame.unit
+
+    static func pixelSide(for marks: [DemoStateMark], laneSpacing: CGFloat) -> CGFloat {
+        let fits = marks.allSatisfy { mark in
+            DemoStateLabelView(mark: mark, pixelSide: DemoPanelFrame.bodyPixelSide).preferredSize.width + laneMargin <= laneSpacing
+        }
+        return fits ? DemoPanelFrame.bodyPixelSide : DemoPanelFrame.smallPixelSide
+    }
+
+    let mark: DemoStateMark
+    private let textStyle: DemoTextStyle
+
+    init(mark: DemoStateMark, pixelSide: CGFloat) {
+        self.mark = mark
+        textStyle = DemoTextStyle.text(pixelSide: pixelSide)
+        super.init(frame: .zero)
+        setFrameSize(computedSize())
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override var preferredSize: CGSize { computedSize() }
+
+    private func computedSize() -> CGSize {
+        let textSize = DemoPixelPainter.size(of: mark.label, style: textStyle)
+        return CGSize(
+            width: ceil(textSize.width + DemoStateLabelView.padding * 2 + DemoPanelFrame.accentStripeWidth),
+            height: ceil(textSize.height + DemoStateLabelView.padding * 2)
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        DemoPanelFrame.draw(in: bounds, accentStripe: DemoPalette.accentColor(mark.accent))
+        let textSize = DemoPixelPainter.size(of: mark.label, style: textStyle)
+        DemoPixelPainter.draw(
+            mark.label,
+            topLeft: CGPoint(
+                x: DemoStateLabelView.padding + DemoPanelFrame.accentStripeWidth,
+                y: ((bounds.height + textSize.height) / 2).rounded()
+            ),
+            style: textStyle
+        )
+    }
+}
+
+final class DemoEmptySpotView: DemoPanelView {
+    private static let dashLength: CGFloat = 4 * DemoPanelFrame.unit
+    private static let lineWidth = DemoPanelFrame.unit
+
+    init(sideLength: CGFloat) {
+        super.init(frame: CGRect(x: 0, y: 0, width: sideLength, height: sideLength))
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let dash = DemoEmptySpotView.dashLength
+        let line = DemoEmptySpotView.lineWidth
+        DemoPalette.mutedText.withAlphaComponent(0.6).setFill()
+        var position: CGFloat = 0
+        while position < bounds.width {
+            let length = min(dash, bounds.width - position)
+            CGRect(x: position, y: 0, width: length, height: line).fill()
+            CGRect(x: position, y: bounds.height - line, width: length, height: line).fill()
+            CGRect(x: 0, y: position, width: line, height: length).fill()
+            CGRect(x: bounds.width - line, y: position, width: line, height: length).fill()
+            position += dash * 2
+        }
+    }
+}

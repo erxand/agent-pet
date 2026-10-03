@@ -7,12 +7,14 @@ final class RecordingDemoStage: DemoStage {
     private(set) var presentedPets: [[PetDisplayItem]] = []
     private(set) var titles: [DemoTitleCard?] = []
     private(set) var captions: [DemoCaption?] = []
+    private(set) var states: [[DemoStateMark]] = []
     private(set) var tearDownCount = 0
 
     var isSettled: Bool { true }
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
     func present(title: DemoTitleCard?) { titles.append(title) }
     func present(caption: DemoCaption?) { captions.append(caption) }
+    func present(states: [DemoStateMark]) { self.states.append(states) }
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) { presentedPets.append(pets) }
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() { tearDownCount += 1 }
@@ -38,9 +40,9 @@ struct DemoTimelineTests {
 
     @Test func everySceneIsScriptedOnceInOrderAndTheTourIsShort() {
         #expect(DemoScript.scenes.map { scene in scene.name } == DemoSceneName.allCases)
-        #expect(DemoScript.scenes.map { scene in scene.name } == [.title, .climbOut, .needsInput, .lanes, .click, .dive, .finale])
+        #expect(DemoScript.scenes.map { scene in scene.name } == [.title, .states, .lanes, .click, .dive, .finale])
         #expect(DemoScript.totalDurationInSeconds >= 25)
-        #expect(DemoScript.totalDurationInSeconds <= 30)
+        #expect(DemoScript.totalDurationInSeconds <= 35)
     }
 
     @Test func stepsStayInsideTheirSceneInOrderAndNameRealActors() {
@@ -74,16 +76,6 @@ struct DemoTimelineTests {
     }
 
     @Test func petScenesShowWhatTheirCaptionPromises() throws {
-        let climbStage = RecordingDemoStage()
-        let climb = try runner(for: .climbOut, stage: climbStage)
-        advance(climb, by: 2)
-        #expect(climb.displayedPets.map { item in item.mood } == [.ready])
-
-        let inputStage = RecordingDemoStage()
-        let needsInput = try runner(for: .needsInput, stage: inputStage)
-        advance(needsInput, by: 2)
-        #expect(needsInput.displayedPets.map { item in item.mood } == [.needsInput])
-
         let laneStage = RecordingDemoStage()
         let lanes = try runner(for: .lanes, stage: laneStage)
         advance(lanes, by: 2.5)
@@ -97,6 +89,35 @@ struct DemoTimelineTests {
         #expect(dive.displayedPets.map { item in item.label } == ["lint", "ui"])
         advance(dive, by: 1)
         #expect(dive.displayedPets.map { item in item.label } == ["ui"])
+    }
+
+    @Test func theStatesSceneShowsEveryRealMoodAndTheHiddenWorkingStateAtOnce() throws {
+        let scene = try #require(DemoScript.scene(named: .states))
+        let pets = scene.steps.compactMap { step -> (String, PetMood)? in
+            if case .show(let actorId, let mood, _) = step.action { return (actorId, mood) }
+            return nil
+        }
+        let lastShow = try #require(scene.steps.last { step in if case .show = step.action { return true } else { return false } })
+        let hide = try #require(scene.steps.first { step in if case .hide = step.action { return true } else { return false } })
+        #expect(hide.offsetInSeconds - lastShow.offsetInSeconds >= 7)
+        #expect(scene.durationInSeconds >= 8 && scene.durationInSeconds <= 10)
+        #expect(Set(pets.map { pet in pet.1 }) == Set(PetMood.allCases))
+        #expect(pets.count == PetMood.allCases.count)
+        #expect(scene.stateSlots.map { slot in slot.label } == ["Ready: turn done", "Needs your input", "Blocked", "Working: no pet"])
+        #expect(scene.stateSlots.compactMap { slot in slot.actorId } == pets.map { pet in pet.0 })
+
+        let stage = RecordingDemoStage()
+        let states = try runner(for: .states, stage: stage)
+        advance(states, by: 2)
+        #expect(states.displayedPets.map { item in item.mood } == [.ready, .needsInput, .blocked])
+        let marks = try #require(stage.states.last)
+        #expect(marks.map { mark in mark.label } == scene.stateSlots.map { slot in slot.label })
+        #expect(marks.last?.sessionId == nil)
+        #expect(marks.last?.sprite == nil)
+        #expect(marks.dropLast().allSatisfy { mark in mark.sessionId != nil && mark.sprite != nil })
+
+        states.skipToNextScene()
+        #expect(stage.states.last == [])
     }
 
     @Test func everySceneUsesThePillLabelsANewUserSees() {
@@ -125,9 +146,9 @@ struct DemoTimelineTests {
 
     @Test func aSceneCaptionCarriesTheAccentOfItsPet() throws {
         let stage = RecordingDemoStage()
-        let needsInput = try runner(for: .needsInput, stage: stage)
-        needsInput.start()
-        #expect(stage.captions.last??.accent == .green)
+        let states = try runner(for: .states, stage: stage)
+        states.start()
+        #expect(stage.captions.last??.accent == .orange)
         let titleStage = RecordingDemoStage()
         let title = try runner(for: .title, stage: titleStage)
         title.start()
@@ -202,6 +223,7 @@ struct DemoPixelFontTests {
         var texts: [String] = [DemoScript.clickCaption(petLabel: "deploy")]
         for scene in DemoScript.scenes {
             if let caption = scene.caption { texts.append(caption) }
+            texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
             for step in scene.steps {
                 switch step.action {
                 case .showTitle(let card):
@@ -249,7 +271,7 @@ struct DemoCommandTests {
         let one = try sandbox.run(["demo", "--scene", "lanes", "--list"])
         #expect(one.standardOutput.split(separator: "\n").first?.hasPrefix("lanes") == true)
 
-        for removed in ["group", "nametags", "reserved"] {
+        for removed in ["group", "nametags", "reserved", "climb-out", "needs-input"] {
             #expect(try sandbox.run(["demo", "--scene", removed, "--list"]).exitStatus == 2)
         }
     }
@@ -259,7 +281,7 @@ struct DemoCommandTests {
         let unknownScene = try sandbox.run(["demo", "--scene", "nosuch"])
         #expect(unknownScene.exitStatus == 2)
         #expect(unknownScene.standardError.contains("unknown scene nosuch"))
-        #expect(unknownScene.standardError.contains("climb-out"))
+        #expect(unknownScene.standardError.contains("states"))
         #expect(try sandbox.run(["demo", "--speed", "0", "--dry-run"]).exitStatus == 2)
         #expect(try sandbox.run(["demo", "--speed", "fast", "--dry-run"]).exitStatus == 2)
     }
@@ -279,7 +301,8 @@ struct DemoCommandTests {
         let run = try sandbox.run(["demo", "--dry-run", "--speed", "1000"])
 
         #expect(run.exitStatus == 0)
-        #expect(run.standardOutput.contains("scene 7/7 finale"))
+        #expect(run.standardOutput.contains("scene 6/6 finale"))
+        #expect(run.standardOutput.contains("states: Ready: turn done (claude), Needs your input (golem), Blocked (seon), Working: no pet (no pet)"))
         #expect(run.standardOutput.contains("pets: tests (hatchling ready), docs (mossling needsInput), api (nimbus ready)"))
         #expect(run.standardOutput.contains("teardown"))
         #expect(try Data(contentsOf: sandbox.recordURL("real-session")) == recordBefore)
@@ -327,7 +350,7 @@ struct DemoCommandTests {
         #expect(process.terminationStatus == 128 + signalNumber)
         #expect(output.contains("teardown: all demo windows are closed"))
         #expect(output.contains("demo stopped by \(signalName)"))
-        #expect(!output.contains("scene 2/7"))
+        #expect(!output.contains("scene 2/6"))
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.sessionsDirectory.path).isEmpty)
     }
 }
@@ -369,6 +392,7 @@ struct DemoWordsTests {
         var texts = [DemoScript.clickCaption(petLabel: "deploy")]
         for scene in DemoScript.scenes {
             if let caption = scene.caption { texts.append(caption) }
+            texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
             for step in scene.steps {
                 if case .showTitle(let card) = step.action { texts.append(contentsOf: [card.title, card.subtitle]) }
             }

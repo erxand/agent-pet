@@ -26,6 +26,11 @@ package final class DemoTranscriptStage: DemoStage {
         write("caption: \(caption.text)")
     }
 
+    package func present(states: [DemoStateMark]) {
+        guard !states.isEmpty else { return }
+        write("states: " + states.map { mark in "\(mark.label) (\(mark.sprite ?? "no pet"))" }.joined(separator: ", "))
+    }
+
     package func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {
         let line = pets.isEmpty
             ? "pets: none"

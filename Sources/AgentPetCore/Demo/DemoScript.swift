@@ -23,6 +23,7 @@ package enum DemoScript {
         static let deploy = "demo-deploy-6e2b"
         static let lint = "demo-lint-91fa"
         static let ui = "demo-ui-47c3"
+        static let search = "demo-search-88a0"
     }
 
     package static let cast: [DemoActor] = [
@@ -33,7 +34,8 @@ package enum DemoScript {
         DemoActor(sessionId: ActorId.api, nickname: "api", sprite: PackName.nimbus, accent: .blue),
         DemoActor(sessionId: ActorId.deploy, nickname: "deploy", sprite: PackName.hatchling, accent: .cyan),
         DemoActor(sessionId: ActorId.lint, nickname: "lint", sprite: PackName.nimbus, accent: .blue),
-        DemoActor(sessionId: ActorId.ui, nickname: "ui", sprite: PackName.seon, accent: .yellow)
+        DemoActor(sessionId: ActorId.ui, nickname: "ui", sprite: PackName.seon, accent: .yellow),
+        DemoActor(sessionId: ActorId.search, nickname: "search", sprite: PackName.seon, accent: .yellow)
     ]
 
     package static let scenes: [DemoScene] = [
@@ -52,23 +54,21 @@ package enum DemoScript {
             ]
         ),
         DemoScene(
-            name: .climbOut,
-            caption: "An agent finishes its turn. Its pet climbs out of the ground.",
-            durationInSeconds: 4.5,
+            name: .states,
+            caption: "A pet shows the state of its agent. A working agent has no pet.",
+            durationInSeconds: 9.5,
             labelPlacement: .pill,
             steps: [
-                DemoStep(offsetInSeconds: 0.6, action: .show(actorId: ActorId.refactor, mood: .ready, message: "Refactor done")),
-                DemoStep(offsetInSeconds: 3.4, action: .hide(actorIds: [ActorId.refactor]))
-            ]
-        ),
-        DemoScene(
-            name: .needsInput,
-            caption: "This agent needs your OK. Its pet stands still under a ! bubble.",
-            durationInSeconds: 4.5,
-            labelPlacement: .pill,
-            steps: [
-                DemoStep(offsetInSeconds: 0.6, action: .show(actorId: ActorId.migrate, mood: .needsInput, message: "Run the migration?")),
-                DemoStep(offsetInSeconds: 3.4, action: .hide(actorIds: [ActorId.migrate]))
+                DemoStep(offsetInSeconds: 0.4, action: .show(actorId: ActorId.refactor, mood: .ready, message: "Refactor done")),
+                DemoStep(offsetInSeconds: 0.7, action: .show(actorId: ActorId.migrate, mood: .needsInput, message: "Run the migration?")),
+                DemoStep(offsetInSeconds: 1.0, action: .show(actorId: ActorId.search, mood: .blocked, message: nil)),
+                DemoStep(offsetInSeconds: 8.4, action: .hide(actorIds: [ActorId.refactor, ActorId.migrate, ActorId.search]))
+            ],
+            stateSlots: [
+                DemoStateSlot(label: "Ready: turn done", actorId: ActorId.refactor),
+                DemoStateSlot(label: "Needs your input", actorId: ActorId.migrate),
+                DemoStateSlot(label: "Blocked", actorId: ActorId.search),
+                DemoStateSlot(label: "Working: no pet", actorId: nil)
             ]
         ),
         DemoScene(
@@ -113,7 +113,7 @@ package enum DemoScript {
             steps: [
                 DemoStep(offsetInSeconds: 0, action: .showTitle(DemoTitleCard(
                     title: "You can configure much more",
-                    subtitle: "Labels, sprites, colors, groups and how a click focuses. Read Configuration in the README.",
+                    subtitle: "Labels, sprites, colors, how a click focuses, and more. Read Configuration in the README.",
                     accent: .orange
                 ))),
                 DemoStep(offsetInSeconds: 3.5, action: .hideTitle)
