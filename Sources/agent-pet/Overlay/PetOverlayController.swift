@@ -43,7 +43,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func hideSession(forPetKey petKey: String) {
-        PetTurnState.hide(sessionId: presencesBySessionId[petKey]?.focusRequest?.sessionId ?? petKey)
+        let memberSessionIds = presencesBySessionId[petKey]?.memberSessionIds ?? [petKey]
+        for memberSessionId in memberSessionIds {
+            PetTurnState.hide(sessionId: memberSessionId)
+        }
     }
 
     private func reloadConfigurationIfChanged() -> Bool {
@@ -104,7 +107,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func displayItems(records: [PetSession]) -> [PetDisplayItem] {
-        PetDisplayPlanner(grouping: contracts.grouping).displayItems(
+        contracts.displayPlanner.displayItems(
             records: records,
             claudeSessions: contracts.sessionSource.recordsBySessionId()
         )
@@ -137,8 +140,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             let petAppearance = PetAppearance(
                 label: item.label,
                 accent: record.resolvedAccent,
-                mood: record.mood,
-                message: record.message,
+                mood: item.mood,
+                message: item.message,
+                bubbleCaption: item.bubbleCaption,
+                labelPlacement: contracts.configuration.labelPlacement,
                 spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize)
             )
             let presence = presencesBySessionId[item.petKey]
@@ -153,6 +158,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             presence.spritePackName = packName
             presence.spriteSheet = spriteSheet
             presence.focusRequest = item.focusRequest
+            presence.memberSessionIds = item.memberSessionIds
             presence.homeHorizontalCenter = LaneLayout.homeHorizontalCenter(
                 laneIndex: laneIndex,
                 laneCount: items.count,

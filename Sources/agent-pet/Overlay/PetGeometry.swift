@@ -11,31 +11,58 @@ enum PetGeometry {
     static let labelDotDiameter: CGFloat = 6
     static let labelDotTextGap: CGFloat = 4
     static let labelFontSize: CGFloat = 10
-    static let labelCharacterLimit = 28
+    static let labelCharacterLimit = PetLabel.displayCharacterLimit
     static let labelPillBackgroundColor = NSColor(srgbRed: 0.08, green: 0.08, blue: 0.09, alpha: 0.88)
     static let labelTextColor = NSColor.white
 
+    static let nametagPixelScale: CGFloat = 2
+    static let nametagHorizontalPadding: CGFloat = 5
+    static let nametagVerticalPadding: CGFloat = 3
+    static let nametagAccentStripeHeight: CGFloat = 2
+    static let nametagFallbackFontSize: CGFloat = 9
+    static let nametagHeight: CGFloat = CGFloat(PixelFont.glyphHeight) * nametagPixelScale
+        + nametagVerticalPadding * 2
+        + nametagAccentStripeHeight
+
     static let bubbleSideLength: CGFloat = 22
+    static let bubbleCaptionPadding: CGFloat = 6
+    static let bubbleCaptionGap: CGFloat = 4
     static let bubbleCornerRadius: CGFloat = 6
     static let bubbleBorderWidth: CGFloat = 2
     static let bubbleFontSize: CGFloat = 14
     static let bubbleBobAmplitude: CGFloat = 3
     static let bubbleBobRadiansPerSecond: Double = 4
 
-    static let spriteBaseline: CGFloat = labelPillHeight + verticalGap
+    static func spriteBaseline(labelPlacement: LabelPlacement) -> CGFloat {
+        switch labelPlacement {
+        case .pill: return labelPillHeight + verticalGap
+        case .nametag: return verticalGap
+        }
+    }
 
     static func spritePixelSideLength(frameSize: Int) -> CGFloat {
         CGFloat(frameSize * spriteScale)
     }
 
-    static func submergedGroundOffset(spriteSideLength: CGFloat) -> CGFloat {
-        spriteBaseline + spriteSideLength
+    static func submergedGroundOffset(spriteSideLength: CGFloat, labelPlacement: LabelPlacement) -> CGFloat {
+        spriteBaseline(labelPlacement: labelPlacement) + spriteSideLength
     }
 
-    static func totalHeight(spriteSideLength: CGFloat) -> CGFloat {
-        spriteBaseline
-            + spriteSideLength
-            + verticalGap
+    static func nametagBaseline(spriteSideLength: CGFloat) -> CGFloat {
+        spriteBaseline(labelPlacement: .nametag) + spriteSideLength + verticalGap
+    }
+
+    static func bubbleBaseline(spriteSideLength: CGFloat, labelPlacement: LabelPlacement) -> CGFloat {
+        switch labelPlacement {
+        case .pill:
+            return spriteBaseline(labelPlacement: .pill) + spriteSideLength + verticalGap
+        case .nametag:
+            return nametagBaseline(spriteSideLength: spriteSideLength) + nametagHeight + verticalGap
+        }
+    }
+
+    static func totalHeight(spriteSideLength: CGFloat, labelPlacement: LabelPlacement) -> CGFloat {
+        bubbleBaseline(spriteSideLength: spriteSideLength, labelPlacement: labelPlacement)
             + bubbleSideLength
             + bubbleBobAmplitude
     }

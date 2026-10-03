@@ -9,6 +9,7 @@ final class PetPresence {
 
     var homeHorizontalCenter: CGFloat = 0
     var focusRequest: FocusRequest?
+    var memberSessionIds: [String] = []
     var spritePackName: String
     var spriteSheet: SpriteSheet
 
