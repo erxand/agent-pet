@@ -13,12 +13,16 @@ final class DemoCapturingStage: DemoStage {
     private(set) var labelPlacement: LabelPlacement = .pill
     private(set) var captions: [DemoCaption?] = []
     private(set) var states: [DemoStateMark] = []
+    private(set) var cursor: DemoCursorCue?
+    private(set) var terminal: DemoTerminalCard?
 
     var isSettled: Bool { true }
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
     func present(title: DemoTitleCard?) {}
     func present(caption: DemoCaption?) { captions.append(caption) }
     func present(states: [DemoStateMark]) { self.states = states }
+    func present(cursor: DemoCursorCue?) { self.cursor = cursor }
+    func present(terminal: DemoTerminalCard?) { self.terminal = terminal }
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() {}
 
@@ -40,6 +44,8 @@ enum DemoSnapshot {
     private static let stateLabelGap: CGFloat = 12
     private static let petGap: CGFloat = 48
     private static let clickMomentInSeconds: Double = 2
+    private static let revealMomentInSeconds: Double = 4
+    private static let cursorAimHeightFraction: CGFloat = 0.55
 
     private enum FileName {
         static let title = "title.png"
@@ -47,6 +53,7 @@ enum DemoSnapshot {
         static let click = "click.png"
         static let stage = "stage.png"
         static let states = "states.png"
+        static let terminal = "terminal.png"
     }
 
     static func formattedSeconds(_ seconds: Double) -> String {
@@ -65,7 +72,7 @@ enum DemoSnapshot {
         let captionScene = scenes.first { scene in scene.caption != nil } ?? DemoScript.scenes.first { scene in scene.caption != nil }
 
         var written: [URL] = []
-        var expectedCount = 3
+        var expectedCount = 4
         if let titleCard {
             expectedCount += 1
             written.append(contentsOf: save(DemoTitleView(card: titleCard), named: FileName.title, in: directory))
@@ -88,6 +95,7 @@ enum DemoSnapshot {
         written.append(contentsOf: save(clickComposite(spriteSheets: spriteSheets), named: FileName.click, in: directory))
         written.append(contentsOf: save(stageComposite(spriteSheets: spriteSheets), named: FileName.stage, in: directory))
         written.append(contentsOf: save(statesComposite(spriteSheets: spriteSheets), named: FileName.states, in: directory))
+        written.append(contentsOf: save(revealComposite(spriteSheets: spriteSheets), named: FileName.terminal, in: directory))
 
         for fileURL in written {
             print(fileURL.path)
@@ -213,6 +221,50 @@ enum DemoSnapshot {
                 backdrop.addSubview(spot)
             }
         }
+        return backdrop
+    }
+
+    private static func revealComposite(spriteSheets: DemoSpriteSheets) -> NSView {
+        let shownStage = petsAt(sceneNamed: .click, seconds: clickMomentInSeconds)
+        let revealStage = petsAt(sceneNamed: .click, seconds: revealMomentInSeconds)
+        let scene = DemoScript.scene(named: .click)
+        let caption = DemoCaptionView(
+            caption: DemoCaption(
+                text: scene?.caption ?? "",
+                sceneNumber: (DemoScript.scenes.firstIndex { scene in scene.name == .click } ?? 0) + 1,
+                sceneCount: DemoScript.scenes.count,
+                accent: scene.flatMap { scene in sceneAccent(scene) }
+            ),
+            maximumWidth: snapshotScreenWidth
+        )
+        caption.progress = revealMomentInSeconds / (scene?.holdOffsetInSeconds ?? scene?.durationInSeconds ?? 1)
+        let terminal = revealStage.terminal.map { card in DemoTerminalView(card: card) }
+        let pets = petViews(from: shownStage, spriteSheets: spriteSheets, diving: true)
+        let cursor = DemoCursorView()
+        let terminalSize = terminal?.preferredSize ?? .zero
+        let petsHeight = pets.map { view in view.preferredSize.height }.max() ?? 0
+        let width = max(caption.preferredSize.width, terminalSize.width) + margin * 2
+        let height = margin * 4 + caption.preferredSize.height + terminalSize.height + petsHeight
+        let backdrop = DemoBackdropView(frame: CGRect(x: 0, y: 0, width: width, height: height))
+        if let terminal {
+            terminal.setFrameOrigin(CGPoint(x: ((width - terminalSize.width) / 2).rounded(), y: margin * 3 + caption.preferredSize.height + petsHeight))
+            backdrop.addSubview(terminal)
+        }
+        caption.setFrameOrigin(CGPoint(x: ((width - caption.preferredSize.width) / 2).rounded(), y: margin * 2 + petsHeight))
+        backdrop.addSubview(caption)
+        var aim = CGPoint(x: width / 2, y: margin + petsHeight / 2)
+        if let pet = pets.first {
+            pet.setFrameOrigin(CGPoint(x: ((width - pet.preferredSize.width) / 2).rounded(), y: margin))
+            backdrop.addSubview(pet)
+            let sheet = spriteSheets.sheet(forPackNamed: shownStage.pets.first?.session.sprite ?? SpritePackLoader.defaultPackName)
+            let spriteSide = PetGeometry.spritePixelSideLength(frameSize: sheet.frameSize)
+            aim = CGPoint(
+                x: pet.frame.midX,
+                y: margin + PetGeometry.spriteBaseline(labelPlacement: .pill) + spriteSide * cursorAimHeightFraction
+            )
+        }
+        cursor.setFrameOrigin(CGPoint(x: aim.x.rounded(), y: (aim.y - cursor.bounds.height - DemoCursorView.pixelSide).rounded()))
+        backdrop.addSubview(cursor)
         return backdrop
     }
 

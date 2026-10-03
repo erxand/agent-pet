@@ -19,6 +19,8 @@ final class DemoPanelWindow {
 
     var isGone: Bool { targetOpacity == 0 && opacity == 0 }
 
+    var isFadingOut: Bool { targetOpacity == 0 }
+
     func fadeOut() {
         targetOpacity = 0
     }
@@ -36,6 +38,10 @@ final class DemoPanelWindow {
             CGRect(x: (centerX - size.width / 2).rounded(), y: bottom.rounded(), width: size.width, height: size.height),
             display: true
         )
+    }
+
+    func place(topLeft: CGPoint) {
+        window.setFrameTopLeftPoint(CGPoint(x: topLeft.x.rounded(), y: topLeft.y.rounded()))
     }
 
     func close() {
@@ -87,6 +93,10 @@ final class DemoOverlayStage: DemoStage {
     private static let homeEasingPerSecond: CGFloat = 3
     private static let stateLabelGap: CGFloat = 12
     private static let captionGapAboveStates: CGFloat = 24
+    private static let cursorStartOffset = CGVector(dx: 260, dy: 300)
+    private static let cursorFollowPerSecond: CGFloat = 2.2
+    private static let cursorPressSeconds: Double = 0.2
+    private static let cursorAimHeightFraction: CGFloat = 0.55
 
     private let spriteSheets = DemoSpriteSheets()
     private let spriteFrames = PetSpriteFrames()
@@ -97,9 +107,16 @@ final class DemoOverlayStage: DemoStage {
     private var statePanels: [DemoPanelWindow] = []
     private var stateMarks: [DemoStateMark] = []
     private var stateLabelsTop: CGFloat?
+    private var terminalPanels: [DemoPanelWindow] = []
+    private var cursorPanels: [DemoPanelWindow] = []
+    private var cursorTargetSessionId: String?
+    private var cursorGoal: CGPoint?
+    private var cursorHotspot: CGPoint?
+    private var cursorPressSecondsLeft: Double = 0
 
     var isSettled: Bool {
         presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty && statePanels.isEmpty
+            && terminalPanels.isEmpty && cursorPanels.isEmpty
     }
 
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
@@ -127,6 +144,35 @@ final class DemoOverlayStage: DemoStage {
             bottom = max(bottom, stateLabelsTop + DemoOverlayStage.captionGapAboveStates)
         }
         panel.place(centerX: screenFrame.midX, bottom: bottom)
+    }
+
+    func present(cursor: DemoCursorCue?) {
+        guard let cursor else {
+            for panel in cursorPanels { panel.fadeOut() }
+            cursorTargetSessionId = nil
+            return
+        }
+        if cursorPanels.last.map({ panel in panel.isFadingOut }) ?? true {
+            cursorPanels.append(DemoPanelWindow(view: DemoCursorView()))
+            cursorGoal = nil
+            cursorHotspot = nil
+        }
+        cursorTargetSessionId = cursor.targetSessionId
+        if cursor.pressed {
+            cursorPressSecondsLeft = DemoOverlayStage.cursorPressSeconds
+        }
+    }
+
+    func present(terminal: DemoTerminalCard?) {
+        for panel in terminalPanels { panel.fadeOut() }
+        guard let terminal else { return }
+        let panel = DemoPanelWindow(view: DemoTerminalView(card: terminal))
+        terminalPanels.append(panel)
+        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        panel.place(
+            centerX: screenFrame.midX,
+            bottom: screenFrame.minY + screenFrame.height * DemoOverlayStage.titleVerticalFraction - panel.view.preferredSize.height / 2
+        )
     }
 
     func present(states: [DemoStateMark]) {
@@ -202,9 +248,12 @@ final class DemoOverlayStage: DemoStage {
             (panel.view as? DemoCaptionView)?.progress = sceneProgress
         }
         captionPanels.removeAll { panel in panel.isGone }
-        for panel in statePanels { panel.advance(elapsedSeconds: elapsedSeconds) }
+        for panel in statePanels + terminalPanels + cursorPanels { panel.advance(elapsedSeconds: elapsedSeconds) }
         statePanels.removeAll { panel in panel.isGone }
+        terminalPanels.removeAll { panel in panel.isGone }
+        cursorPanels.removeAll { panel in panel.isGone }
         advancePets(elapsedSeconds: elapsedSeconds, screenFrame: screenFrame)
+        advanceCursor(elapsedSeconds: elapsedSeconds)
     }
 
     func tearDown() {
@@ -214,12 +263,39 @@ final class DemoOverlayStage: DemoStage {
         }
         presencesByPetKey.removeAll()
         displayedHomeByPetKey.removeAll()
-        for panel in titlePanels + captionPanels + statePanels { panel.close() }
+        for panel in titlePanels + captionPanels + statePanels + terminalPanels + cursorPanels { panel.close() }
+        terminalPanels.removeAll()
+        cursorPanels.removeAll()
+        cursorTargetSessionId = nil
         titlePanels.removeAll()
         captionPanels.removeAll()
         statePanels.removeAll()
         stateMarks.removeAll()
         stateLabelsTop = nil
+    }
+
+    private func advanceCursor(elapsedSeconds: Double) {
+        guard let panel = cursorPanels.last, !panel.isFadingOut else { return }
+        if let sessionId = cursorTargetSessionId,
+           let presence = presencesByPetKey.values.first(where: { presence in presence.memberSessionIds.contains(sessionId) }) {
+            let frame = presence.window.frame
+            let spriteSide = PetGeometry.spritePixelSideLength(frameSize: presence.spriteSheet.frameSize)
+            cursorGoal = CGPoint(
+                x: frame.midX,
+                y: frame.minY + PetGeometry.spriteBaseline(labelPlacement: .pill) + spriteSide * DemoOverlayStage.cursorAimHeightFraction
+            )
+        }
+        guard let goal = cursorGoal else { return }
+        let start = cursorHotspot ?? CGPoint(
+            x: goal.x + DemoOverlayStage.cursorStartOffset.dx,
+            y: goal.y + DemoOverlayStage.cursorStartOffset.dy
+        )
+        let easing = min(1, DemoOverlayStage.cursorFollowPerSecond * CGFloat(elapsedSeconds))
+        let hotspot = CGPoint(x: start.x + (goal.x - start.x) * easing, y: start.y + (goal.y - start.y) * easing)
+        cursorHotspot = hotspot
+        cursorPressSecondsLeft = max(0, cursorPressSecondsLeft - elapsedSeconds)
+        let pressDepth = cursorPressSecondsLeft > 0 ? DemoCursorView.pixelSide : 0
+        panel.place(topLeft: CGPoint(x: hotspot.x, y: hotspot.y - pressDepth))
     }
 
     private func spriteSideLength(forPackNamed packName: String?) -> CGFloat {
@@ -239,6 +315,7 @@ final class DemoOverlayStage: DemoStage {
     private func makePresence(petKey: String, appearance: PetAppearance, packName: String, spriteSheet: SpriteSheet) -> PetPresence {
         let view = PetView(sessionId: petKey, petAppearance: appearance)
         let window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
+        window.ignoresMouseEvents = true
         window.orderFrontRegardless()
         return PetPresence(sessionId: petKey, window: window, view: view, spritePackName: packName, spriteSheet: spriteSheet)
     }

@@ -80,8 +80,10 @@ you what each scene shows:
   when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your input.
   It sits under a `?` bubble when it is blocked. A working agent has no pet.
 - Three sessions show three pets, each in its own lane.
-- A click on a pet brings the terminal tab of its session to the front. The demo shows this with a
-  scripted click, and the pet dives. The demo pets have no session, so a click on one does nothing.
+- A click on a pet brings the terminal tab of its session to the front. The demo shows this: a drawn
+  pixel cursor moves to a pet and clicks it, the pet dives, and a drawn terminal window appears. The
+  cursor and the terminal are only pictures. The demo does not move your mouse pointer, and it does not
+  open a real terminal. The demo pets have no session and ignore the mouse.
 - When you return to a session, its pet dives into the ground.
 
 The last card tells you that you can configure much more: labels, sprites, colors, how a click focuses,
@@ -103,12 +105,12 @@ can run it next to real pets. It uses your installed packs. When it runs from a 
 | form | effect |
 |---|---|
 | `agent-pet demo` | play all scenes. Each scene after the title waits for the space bar |
-| `agent-pet demo --auto` | play all scenes on a timer, about 34 seconds, with no keys needed |
+| `agent-pet demo --auto` | play all scenes on a timer, about 35 seconds, with no keys needed |
 | `agent-pet demo --scene NAME` | play one scene. `--list` shows the names |
 | `agent-pet demo --list` | print each scene with its length, `auto` or `space`, and its caption |
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
-| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene, the lanes scene and the states scene to DIR |
+| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene, the lanes scene, the states scene and the terminal reveal to DIR |
 
 ## Configuration
 

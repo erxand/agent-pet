@@ -31,6 +31,16 @@ package final class DemoTranscriptStage: DemoStage {
         write("states: " + states.map { mark in "\(mark.label) (\(mark.sprite ?? "no pet"))" }.joined(separator: ", "))
     }
 
+    package func present(cursor: DemoCursorCue?) {
+        guard let cursor else { return }
+        write("cursor: \(cursor.pressed ? "clicks" : "moves to") \(cursor.targetSessionId)")
+    }
+
+    package func present(terminal: DemoTerminalCard?) {
+        guard let terminal else { return }
+        write("terminal: \(terminal.title), " + terminal.lines.joined(separator: " | "))
+    }
+
     package func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {
         let line = pets.isEmpty
             ? "pets: none"
