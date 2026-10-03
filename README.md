@@ -35,7 +35,7 @@ jumps you back to the session it belongs to.
 
 | form | effect |
 |---|---|
-| `/pet` | enroll this session with a default label, a randomly assigned sprite pack and an accent color derived from the session id |
+| `/pet` | enroll this session with a default label, a randomly assigned sprite pack and that pack's accent color |
 | `/pet <nickname>` | enroll with a label of your choosing |
 | `/pet <nickname> cyan` | enroll with a label and a named accent color |
 | `/pet <nickname> cyan sprite:golem` | also pick a sprite pack instead of the random one |
@@ -145,8 +145,26 @@ The pick is stored in the session's record, so it stays put for the life of the 
 `sprite:<name>` chooses one explicitly. The repo ships seven: `claude` (the original orange
 critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon` and `tinowl`.
 
-**Accent color**, on the label dot and the mood bubble. The default is derived from the session
-id. `/pet <nickname> <color>` overrides it.
+**Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
+color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
+yours. `/pet <nickname> <color>` overrides it.
+
+| pack      | accent |
+|-----------|--------|
+| claude    | orange |
+| golem     | green  |
+| hatchling | cyan   |
+| mossling  | red    |
+| nimbus    | blue   |
+| seon      | yellow |
+| tinowl    | purple |
+
+A pack of your own sets its color with the `accent` field in `pack.json`. Without that field,
+agent-pet uses the pack's most common color, leaving out the two darkest ones (the outline and
+the eyes), matched to the nearest name below. Only a session with no installed pack at all gets
+a color derived from its session id. A session that already has an accent keeps it.
+
+The eight accent names:
 
 | name   | hex     |
 |--------|---------|
@@ -177,15 +195,20 @@ A sprite pack is a directory of plain text, so you can draw a new pet in any edi
 sprites/README.md for the full rules.
 
 ```
-<pack-name>/pack.json                    name, frameSize, and a character-to-hex palette
+<pack-name>/pack.json                    name, frameSize, optional accent, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
 ```
 
 Every color in a pack is fixed by its palette; the session accent never touches the sprite.
-Packs live in `~/.agent-pet/sprites/<name>/`, and `install.sh` copies a shipped pack there only
-when no pack of that name exists, so your edits survive a reinstall. Every installed pack joins
-the random pool, so dropping a new directory in is all it takes to add a pet.
+The optional `accent` field in `pack.json` names one of the eight accent colors, and every
+session that gets the pack uses it for the label dot, the mood bubble and the prompt bar.
+
+Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on
+each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling`, `nimbus`,
+`seon` or `tinowl` are overwritten. To customize a shipped pack, copy it under a new name and
+edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
+random pool, so dropping a new directory in is all it takes to add a pet.
 
 ## Troubleshooting
 

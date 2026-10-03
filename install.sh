@@ -40,12 +40,13 @@ ln -sfn "${PI_EXTENSION_SOURCE_PATH}" "${PI_EXTENSION_LINK_PATH}"
 for PACK_SOURCE_DIRECTORY in "${REPOSITORY_SPRITES_DIRECTORY}"/*/; do
     PACK_NAME="$(basename "${PACK_SOURCE_DIRECTORY}")"
     PACK_TARGET_DIRECTORY="${INSTALLED_SPRITES_DIRECTORY}/${PACK_NAME}"
+    PACK_INSTALL_ACTION="installed"
     if [[ -d "${PACK_TARGET_DIRECTORY}" ]]; then
-        echo "kept existing sprite pack ${PACK_TARGET_DIRECTORY}"
-        continue
+        rm -rf "${PACK_TARGET_DIRECTORY}"
+        PACK_INSTALL_ACTION="refreshed"
     fi
     cp -R "${PACK_SOURCE_DIRECTORY}" "${PACK_TARGET_DIRECTORY}"
-    echo "installed sprite pack ${PACK_TARGET_DIRECTORY}"
+    echo "${PACK_INSTALL_ACTION} sprite pack ${PACK_TARGET_DIRECTORY}"
 done
 
 cat > "${LAUNCH_AGENT_PLIST_PATH}" <<PLIST
@@ -102,4 +103,5 @@ echo "linked ${BINARY_LINK_PATH} -> ${BINARY_SOURCE_PATH}"
 echo "linked ${SKILL_LINK_PATH} -> ${SKILL_SOURCE_DIRECTORY}"
 echo "linked ${PI_EXTENSION_LINK_PATH} -> ${PI_EXTENSION_SOURCE_PATH}"
 echo "bootstrapped launch agent ${LAUNCH_AGENT_SERVICE_TARGET} from ${LAUNCH_AGENT_PLIST_PATH}"
+echo "shipped sprite packs are refreshed on every install; copy one under a new name in ${INSTALLED_SPRITES_DIRECTORY} to customize it"
 echo "new skills are picked up by new Claude Code sessions; restart any open session to use /pet"

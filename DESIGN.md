@@ -16,7 +16,7 @@ agent-pet/
     Commands/                  one file per subcommand, plus flag parsing and feedback
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run + color sync
     Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
-    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment
+    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
   sprites/<pack>/              shipped sprite packs, see "Sprite packs"
@@ -52,7 +52,8 @@ file on every write (temp file in the same dir, then rename).
 - `agent` is `claude-code` or `pi`, defaulting to `claude-code`. `nickname`, `label`, `accent`
   and `sprite` are optional overrides: `accent` is an `AccentColor` name, and `sprite` is a pack
   name where missing or unknown means the compiled-in `claude` art. `on` and `preview` fill
-  `sprite` when it is absent, see "Sprite assignment". Label resolution order is `nickname`,
+  `sprite` when it is absent, then fill `accent` from that pack when `accent` is absent, see
+  "Sprite assignment". Label resolution order is `nickname`,
   `label`, Claude session `name`, basename of `cwd`.
 - `tmuxTarget` is `SESSION:@WINDOW.%PANE`. When absent and the enrolling process has
   `$TMUX_PANE`, the CLI resolves it at `on` time with
@@ -113,8 +114,10 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
 
 1. **Sprite pack**: assigned at `on` time when the record has no `sprite`, or chosen with
    `--sprite`. See "Sprite assignment".
-2. **Accent color** on the label dot and the mood bubble, never on the sprite. Default is
-   `AccentColor.allCases[fnv1a(sessionId) % count]`, overridable with `--accent`.
+2. **Accent color** on the label dot, the mood bubble and the prompt bar, never on the sprite. It
+   matches the sprite, so the prompt bar color tells you which creature belongs to the session.
+   Resolution order: `--accent`, then the pack's declared `accent`, then the pack's dominant
+   color, then `AccentColor.allCases[fnv1a(sessionId) % count]` when there is no installed pack.
 3. **Label** under the sprite: the resolved label, in a small bold monospaced font on a dark
    rounded pill, with an accent-colored dot at the left.
 4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
@@ -130,6 +133,21 @@ duplicates spread evenly. The pick is written into the record once, so a session
 across `show` and `hide`, and `/pet` on an already enrolled session keeps the pet it has. An
 explicit `--sprite` always wins, and with no packs installed the record stays without `sprite`
 and the daemon draws the compiled-in art.
+
+Right after the sprite is assigned or confirmed, `on` and `preview` fill the record's `accent`
+when it is absent and `sprite` names an installed pack that loads: `SpritePackAccent` writes the
+pack's declared `accent`, or else what `PackAccentResolver` computes from the pack. The identity
+overrides run before this step, so `--accent` always wins. A record that already has `accent`
+keeps it. A record with `sprite` but no `accent`, such as one enrolled before this rule, gets its
+accent the next time `on` runs for it, and until then `resolvedAccent` falls back to the session
+hash. With no pack at all, `accent` stays absent and `resolvedAccent` uses the session hash.
+
+`PackAccentResolver.dominantAccent(colorsByCharacter:frames:)` is a pure function. It drops the
+two darkest palette entries by luminance (the outline and, by convention, the eyes), counts how
+often each remaining character occurs across every frame of every animation, takes the most
+frequent one (ties go to the lower character), and returns the `AccentColor` nearest to it by
+Euclidean distance in sRGB. A palette with two entries or fewer keeps them all. A pack whose
+frames use none of the candidates gives no accent, which leaves the session hash in charge.
 
 `AccentColor` cases and hex. These are exactly the eight names Claude Code's `/color` command
 takes, so the label dot and the prompt bar always agree by name. Do not add a case without
@@ -159,7 +177,7 @@ and a one-line stderr message if neither is set. The identity flags `--nickname`
 |---|---|
 | `daemon` | run the overlay in the foreground (accessory app, no dock icon) |
 | `ensure-daemon` | kickstart the launchd agent when its plist exists, otherwise start `daemon` detached if `daemon.pid` is missing or dead; idempotent, see "Daemon lifecycle" |
-| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color |
+| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID]` | visible false |
@@ -339,7 +357,7 @@ Art also ships as plain-text packs so anyone can draw a new pet in a text editor
 
 ```
 sprites/<pack-name>/
-  pack.json      {"name":"claude","frameSize":16,
+  pack.json      {"name":"claude","frameSize":16,"accent":"orange",
                   "palette":{"o":"#D97757","O":"#B85C3E","#":"#3B2418","e":"#1A1A1A","w":"#F5D0BF",
                              "A":"#2EE6D6","a":"#20A196"}}
   idle.txt       frames of <frameSize> rows, separated by one blank line
@@ -349,10 +367,25 @@ sprites/<pack-name>/
 
 - Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
   are transparent. No character is reserved, and the session accent never reaches the sprite.
-- The repo ships seven packs: `claude` (the same art as `claude8Bit` exported to text), `golem`, `hatchling`,
-  `mossling`, `nimbus`, `seon` and `tinowl`. `install.sh` copies each pack directory into `~/.agent-pet/sprites/`
-  only when no pack of that name is installed, so local edits survive. Every installed pack is in the assignment
-  pool, so adding a pet is adding a directory.
+- `accent` is optional and holds one `AccentColor` name. It becomes the accent of every session that gets the
+  pack, see "Sprite assignment". An unknown name is ignored: the daemon logs one line and the pack falls back to
+  its dominant color.
+- The repo ships seven packs (`claude` is the same art as `claude8Bit` exported to text):
+
+  | pack      | accent |
+  |-----------|--------|
+  | claude    | orange |
+  | golem     | green  |
+  | hatchling | cyan   |
+  | mossling  | red    |
+  | nimbus    | blue   |
+  | seon      | yellow |
+  | tinowl    | purple |
+
+- `install.sh` copies each shipped pack directory into `~/.agent-pet/sprites/` on every install. An installed pack
+  with a shipped name is deleted and copied fresh, and an installed pack whose name is not shipped is left alone.
+  To customize a shipped pack, copy it under a new name. Every installed pack is in the assignment pool, so adding
+  a pet is adding a directory.
 - The daemon loads packs from `~/.agent-pet/sprites/<name>/` at startup and re-reads a pack when
   its directory mtime changes. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.

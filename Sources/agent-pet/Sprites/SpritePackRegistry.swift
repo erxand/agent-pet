@@ -51,8 +51,11 @@ final class SpritePackRegistry {
 
     private func applyOutcome(_ outcome: SpritePackLoader.LoadOutcome, packName: String) {
         switch outcome {
-        case .loaded(let sheet):
-            sheetsByPackName[packName] = sheet
+        case .loaded(let pack):
+            sheetsByPackName[packName] = pack.sheet
+            if let unknownAccentName = pack.unknownAccentName {
+                reportFailure("agent-pet: sprite pack \(packName) accent \(unknownAccentName) is not an accent color, ignored")
+            }
         case .failed(let reason):
             sheetsByPackName.removeValue(forKey: packName)
             reportFailure("agent-pet: sprite pack \(packName) not loaded, \(reason)")

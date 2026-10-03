@@ -31,6 +31,9 @@ enum PreviewCommand {
         if record.sprite == nil {
             record.sprite = SpritePackAssignment.current(excludingSessionId: sessionId).pickLeastUsedPackName()
         }
+        if record.accent == nil, let spriteName = record.sprite {
+            record.accent = SpritePackAccent.accent(forPackNamed: spriteName)
+        }
         record.visible = true
         record.mood = mood
         record.updatedAt = Date().timeIntervalSince1970

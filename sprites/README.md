@@ -2,8 +2,15 @@
 
 A pack is a directory of plain text, so you can draw a new pet in any editor.
 
-- `pack.json` holds the pack name, the `frameSize` (frames are square), and a `palette` that
-  maps one character to one hex color.
+- `pack.json` holds the pack name, the `frameSize` (frames are square), an optional `accent`,
+  and a `palette` that maps one character to one hex color.
+- `accent` names one of the eight accent colors: `red`, `blue`, `green`, `yellow`, `purple`,
+  `orange`, `pink` or `cyan`. Every session that gets the pack uses it for the label dot, the
+  mood bubble and the Claude Code prompt bar, unless the session asked for a color of its own.
+  An unknown name is ignored and logged once in `~/.agent-pet/daemon.log`.
+- Without `accent`, agent-pet picks the color for you: it leaves out the two darkest palette
+  colors (the outline and the eyes), takes the color whose character occurs most often across
+  all frames of all animations, and uses the accent nearest to it in RGB.
 - `idle.txt`, `walk.txt`, `wave.txt` and `sit.txt` hold that animation's frames in order.
   Each frame is `frameSize` lines of `frameSize` characters. One blank line separates frames.
   Frame counts: idle 2, walk 4, wave 3, sit 2. Frames face right; the pet flips them to walk left.
@@ -17,5 +24,16 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
   a color and its shade, but that is convention, not a rule.
 - To use a pack, copy its directory to `~/.agent-pet/sprites/<name>/`. Every installed pack is in
   the pool that `/pet` draws from, and `agent-pet preview --sprite <name>` shows one on demand.
+- `install.sh` refreshes every shipped pack on each install: it deletes the installed copy of
+  that name and copies the shipped one again. To customize a shipped pack, copy it under a new
+  name and edit the copy. Packs with names that are not shipped are left alone.
 
-Shipped packs: `claude`, `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl`.
+| shipped pack | accent |
+|--------------|--------|
+| claude       | orange |
+| golem        | green  |
+| hatchling    | cyan   |
+| mossling     | red    |
+| nimbus       | blue   |
+| seon         | yellow |
+| tinowl       | purple |

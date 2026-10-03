@@ -11,8 +11,14 @@ struct SpritePackLoader {
     private static let lineSeparator: Character = "\n"
     private static let carriageReturn = "\r"
 
+    struct LoadedSpritePack {
+        let sheet: SpriteSheet
+        let declaredAccent: AccentColor?
+        let unknownAccentName: String?
+    }
+
     enum LoadOutcome {
-        case loaded(SpriteSheet)
+        case loaded(LoadedSpritePack)
         case failed(reason: String)
     }
 
@@ -67,16 +73,19 @@ struct SpritePackLoader {
         }
 
         let colorsByCharacter = SpritePackLoader.parsePalette(manifest.palette)
+        let sheet = SpriteSheet(
+            idle: framesByAnimation[.idle] ?? [],
+            walk: framesByAnimation[.walk] ?? [],
+            wave: framesByAnimation[.wave] ?? [],
+            sit: framesByAnimation[.sit] ?? [],
+            emerge: framesByAnimation[.emerge] ?? [],
+            dive: framesByAnimation[.dive] ?? [],
+            colorsByCharacter: colorsByCharacter
+        )
+        let declaredAccent = manifest.accent.flatMap { accentName in AccentColor(rawValue: accentName) }
+        let unknownAccentName = declaredAccent == nil ? manifest.accent : nil
         return .loaded(
-            SpriteSheet(
-                idle: framesByAnimation[.idle] ?? [],
-                walk: framesByAnimation[.walk] ?? [],
-                wave: framesByAnimation[.wave] ?? [],
-                sit: framesByAnimation[.sit] ?? [],
-                emerge: framesByAnimation[.emerge] ?? [],
-                dive: framesByAnimation[.dive] ?? [],
-                colorsByCharacter: colorsByCharacter
-            )
+            LoadedSpritePack(sheet: sheet, declaredAccent: declaredAccent, unknownAccentName: unknownAccentName)
         )
     }
 
@@ -93,6 +102,7 @@ struct SpritePackLoader {
         let name: String?
         let frameSize: Int?
         let palette: [String: String]?
+        let accent: String?
     }
 
     private static func parseFrames(from text: String, frameSize: Int) -> [PixelFrame]? {
