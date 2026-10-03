@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import AgentPetCore
@@ -6,7 +7,6 @@ final class RecordingDemoStage: DemoStage {
     private(set) var presentedPets: [[PetDisplayItem]] = []
     private(set) var titles: [DemoTitleCard?] = []
     private(set) var captions: [DemoCaption?] = []
-    private(set) var toasts: [DemoToast] = []
     private(set) var tearDownCount = 0
 
     var isSettled: Bool { true }
@@ -14,7 +14,6 @@ final class RecordingDemoStage: DemoStage {
     func present(title: DemoTitleCard?) { titles.append(title) }
     func present(caption: DemoCaption?) { captions.append(caption) }
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) { presentedPets.append(pets) }
-    func present(toast: DemoToast) { toasts.append(toast) }
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() { tearDownCount += 1 }
 }
@@ -56,7 +55,7 @@ struct DemoTimelineTests {
                     #expect(castIds.contains(actorId))
                 case .hide(let actorIds):
                     #expect(actorIds.allSatisfy { actorId in castIds.contains(actorId) })
-                case .showTitle, .hideTitle, .toast:
+                case .showTitle, .hideTitle:
                     break
                 }
             }
@@ -122,22 +121,35 @@ struct DemoTimelineTests {
         #expect(nametags.displayedPets.map { item in item.label } == ["server 7f3a", "server c21e"])
     }
 
-    @Test func aClickHidesThePetAndOnlyShowsAnAchievement() throws {
+    @Test func aClickDivesThePetAndTheCaptionSaysWhatRealUseDoes() throws {
+        let expected = "In real use, the terminal tab for deploy comes to the front."
         let stage = RecordingDemoStage()
         let click = try runner(for: .click, stage: stage)
         advance(click, by: 2)
         let pet = try #require(click.displayedPets.first)
         click.handleClick(petKey: pet.petKey)
         #expect(click.displayedPets.isEmpty)
-        #expect(stage.toasts == [DemoToast(title: "Achievement get!", body: "Back to deploy", sprite: "hatchling")])
+        #expect(stage.captions.last == DemoCaption(text: expected, sceneNumber: 1, sceneCount: 1, accent: .cyan))
+        let captionCount = stage.captions.count
         advance(click, by: 4)
-        #expect(stage.toasts.count == 1)
+        #expect(stage.captions.count == captionCount)
 
         let unattendedStage = RecordingDemoStage()
         let unattended = try runner(for: .click, stage: unattendedStage)
         advance(unattended, by: 6)
         #expect(unattended.displayedPets.isEmpty)
-        #expect(unattendedStage.toasts.map { toast in toast.body } == ["Back to deploy"])
+        #expect(unattendedStage.captions.last??.text == expected)
+    }
+
+    @Test func aSceneCaptionCarriesTheAccentOfItsPet() throws {
+        let stage = RecordingDemoStage()
+        let group = try runner(for: .group, stage: stage)
+        group.start()
+        #expect(stage.captions.last??.accent == .green)
+        let titleStage = RecordingDemoStage()
+        let title = try runner(for: .title, stage: titleStage)
+        title.start()
+        #expect(titleStage.captions.last == .some(nil))
     }
 
     @Test func aClickOnAGroupPetHidesEveryMember() throws {
@@ -147,7 +159,7 @@ struct DemoTimelineTests {
         let pet = try #require(group.displayedPets.first)
         group.handleClick(petKey: pet.petKey)
         #expect(group.displayedPets.isEmpty)
-        #expect(stage.toasts.first?.body == "Back to NIST-1025")
+        #expect(stage.captions.last??.text == "In real use, the terminal tab for NIST-1025 comes to the front.")
     }
 
     @Test func skippingMovesToTheNextSceneAndClearsThePets() {
@@ -215,15 +227,13 @@ struct DemoPixelFontTests {
     }
 
     @Test func everyWordTheDemoShowsCanBeDrawn() {
-        var texts: [String] = [DemoScript.achievementTitle, DemoScript.clickToastBodyPrefix]
+        var texts: [String] = [DemoScript.clickCaption(petLabel: "NIST-1025")]
         for scene in DemoScript.scenes {
             if let caption = scene.caption { texts.append(caption) }
             for step in scene.steps {
                 switch step.action {
                 case .showTitle(let card):
-                    texts.append(contentsOf: [card.title, card.subtitle] + (card.splash.map { splash in [splash] } ?? []))
-                case .toast(let toast):
-                    texts.append(contentsOf: [toast.title, toast.body])
+                    texts.append(contentsOf: [card.title, card.subtitle])
                 case .show, .hide, .click, .hideTitle:
                     break
                 }
@@ -313,7 +323,7 @@ struct DemoCommandTests {
             environment: ["HOME": freshHome.path, "CFFIXED_USER_HOME": freshHome.path]
         )
         #expect(run.exitStatus == 0)
-        #expect(run.standardOutput.contains("toast: Achievement get! Back to deploy"))
+        #expect(run.standardOutput.contains("caption: In real use, the terminal tab for deploy comes to the front."))
         #expect(try FileManager.default.contentsOfDirectory(atPath: freshHome.path).isEmpty)
     }
 
@@ -339,9 +349,58 @@ struct DemoCommandTests {
 
         #expect(process.terminationReason == .exit)
         #expect(process.terminationStatus == 128 + signalNumber)
-        #expect(output.contains("teardown: every demo window closed"))
+        #expect(output.contains("teardown: all demo windows are closed"))
         #expect(output.contains("demo stopped by \(signalName)"))
         #expect(!output.contains("scene 2/10"))
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.sessionsDirectory.path).isEmpty)
+    }
+}
+
+@Suite("demo palette")
+struct DemoPaletteTests {
+    private static let minimumTextContrast = 4.5
+    private static let minimumAccentContrast = 3.0
+
+    @Test func everyTextColorReadsAtLeastFourAndAHalfToOneOnEveryPanelTone() {
+        for text in DemoPalette.textColors {
+            for background in DemoPalette.textBackgrounds {
+                let ratio = DemoPalette.contrastRatio(text, background)
+                #expect(ratio >= DemoPaletteTests.minimumTextContrast, "text \(text) on \(background) is \(ratio):1")
+            }
+        }
+    }
+
+    @Test func everyAccentStandsOutFromTheBarTrackAndThePanel() {
+        for accent in AccentColor.allCases {
+            for background in [DemoPalette.frame, DemoPalette.fill] {
+                let ratio = DemoPalette.contrastRatio(DemoPalette.accentColor(accent), background)
+                #expect(ratio >= DemoPaletteTests.minimumAccentContrast, "\(accent.rawValue) is \(ratio):1")
+            }
+        }
+    }
+
+    @Test func theContrastMathMatchesKnownValues() {
+        let black = NSColor(hex: 0x000000)
+        let white = NSColor(hex: 0xFFFFFF)
+        #expect(abs(DemoPalette.contrastRatio(black, white) - 21) < 0.001)
+        #expect(abs(DemoPalette.contrastRatio(white, white) - 1) < 0.001)
+    }
+}
+
+@Suite("demo words")
+struct DemoWordsTests {
+    @Test func noShownTextUsesDashesOrExclamationMarksOrGameWords() {
+        var texts = [DemoScript.clickCaption(petLabel: "deploy")]
+        for scene in DemoScript.scenes {
+            if let caption = scene.caption { texts.append(caption) }
+            for step in scene.steps {
+                if case .showTitle(let card) = step.action { texts.append(contentsOf: [card.title, card.subtitle]) }
+            }
+        }
+        for text in texts {
+            #expect(!text.contains("\u{2014}") && !text.contains("\u{2013}"), "dash in \(text)")
+            #expect(!text.replacingOccurrences(of: "a ! bubble", with: "").contains("!"), "exclamation in \(text)")
+            #expect(!text.lowercased().contains("achievement"), "game word in \(text)")
+        }
     }
 }

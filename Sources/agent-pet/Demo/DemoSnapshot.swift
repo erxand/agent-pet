@@ -2,10 +2,8 @@ import AgentPetCore
 import AppKit
 
 final class DemoBackdropView: NSView {
-    static let desktopColor = NSColor(srgbRed: 0.23, green: 0.29, blue: 0.36, alpha: 1)
-
     override func draw(_ dirtyRect: NSRect) {
-        DemoBackdropView.desktopColor.setFill()
+        DemoPalette.backdrop.setFill()
         bounds.fill()
     }
 }
@@ -13,12 +11,12 @@ final class DemoBackdropView: NSView {
 final class DemoCapturingStage: DemoStage {
     private(set) var pets: [PetDisplayItem] = []
     private(set) var labelPlacement: LabelPlacement = .pill
+    private(set) var captions: [DemoCaption?] = []
 
     var isSettled: Bool { true }
     func present(scene: DemoScene, number: Int, of sceneCount: Int) {}
     func present(title: DemoTitleCard?) {}
-    func present(caption: DemoCaption?) {}
-    func present(toast: DemoToast) {}
+    func present(caption: DemoCaption?) { captions.append(caption) }
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() {}
 
@@ -37,12 +35,12 @@ enum DemoSnapshot {
     private static let groupMomentInSeconds: Double = 5
     private static let nametagMomentInSeconds: Double = 3
     private static let petGap: CGFloat = 48
-    private static let toastSample = DemoToast(title: DemoScript.achievementTitle, body: DemoScript.clickToastBodyPrefix + "deploy", sprite: "hatchling")
+    private static let clickMomentInSeconds: Double = 2
 
     private enum FileName {
         static let title = "title.png"
         static let caption = "caption.png"
-        static let toast = "toast.png"
+        static let click = "click.png"
         static let stage = "stage.png"
     }
 
@@ -71,14 +69,18 @@ enum DemoSnapshot {
             expectedCount += 1
             let sceneNumber = (DemoScript.scenes.firstIndex { scene in scene.name == captionScene.name } ?? 0) + 1
             let view = DemoCaptionView(
-                caption: DemoCaption(text: captionText, sceneNumber: sceneNumber, sceneCount: DemoScript.scenes.count),
+                caption: DemoCaption(
+                    text: captionText,
+                    sceneNumber: sceneNumber,
+                    sceneCount: DemoScript.scenes.count,
+                    accent: sceneAccent(captionScene)
+                ),
                 maximumWidth: snapshotScreenWidth
             )
             view.progress = captionProgress
             written.append(contentsOf: save(view, named: FileName.caption, in: directory))
         }
-        let toastView = DemoToastView(toast: toastSample, icon: spriteSheets.icon(forPackNamed: toastSample.sprite, pixelSide: 2))
-        written.append(contentsOf: save(toastView, named: FileName.toast, in: directory))
+        written.append(contentsOf: save(clickComposite(spriteSheets: spriteSheets), named: FileName.click, in: directory))
         written.append(contentsOf: save(stageComposite(spriteSheets: spriteSheets), named: FileName.stage, in: directory))
 
         for fileURL in written {
@@ -104,7 +106,18 @@ enum DemoSnapshot {
         return stage
     }
 
-    private static func petViews(from stage: DemoCapturingStage, spriteSheets: DemoSpriteSheets) -> [PetView] {
+    private static func sceneAccent(_ scene: DemoScene) -> AccentColor? {
+        let stage = DemoCapturingStage()
+        let runner = DemoRunner(scenes: [scene], stage: stage)
+        runner.start()
+        return stage.captions.compactMap { caption in caption }.last?.accent
+    }
+
+    private static func petViews(
+        from stage: DemoCapturingStage,
+        spriteSheets: DemoSpriteSheets,
+        diving: Bool = false
+    ) -> [PetView] {
         stage.pets.map { item in
             let packName = item.session.sprite ?? SpritePackLoader.defaultPackName
             let sheet = spriteSheets.sheet(forPackNamed: packName)
@@ -118,7 +131,8 @@ enum DemoSnapshot {
                 spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: sheet.frameSize)
             )
             let view = PetView(sessionId: item.petKey, petAppearance: appearance)
-            if let frame = sheet.idle.first {
+            let diveFrame = sheet.dive.indices.contains(1) ? sheet.dive[1] : sheet.dive.first
+            if let frame = diving ? (diveFrame ?? sheet.idle.first) : sheet.idle.first {
                 view.update(
                     spriteImage: PixelRenderer.image(for: frame, palette: sheet.palette, scale: PetGeometry.spriteScale, facingLeft: false),
                     bubbleVerticalOffset: 0,
@@ -136,13 +150,36 @@ enum DemoSnapshot {
             caption: DemoCaption(
                 text: groupScene?.caption ?? "",
                 sceneNumber: (DemoScript.scenes.firstIndex { scene in scene.name == .group } ?? 0) + 1,
-                sceneCount: DemoScript.scenes.count
+                sceneCount: DemoScript.scenes.count,
+                accent: groupScene.flatMap { scene in sceneAccent(scene) }
             ),
             maximumWidth: snapshotScreenWidth
         )
         caption.progress = captionProgress
         let pets = petViews(from: petsAt(sceneNamed: .group, seconds: groupMomentInSeconds), spriteSheets: spriteSheets)
             + petViews(from: petsAt(sceneNamed: .nametags, seconds: nametagMomentInSeconds), spriteSheets: spriteSheets)
+        return composite(caption: caption, pets: pets)
+    }
+
+    private static func clickComposite(spriteSheets: DemoSpriteSheets) -> NSView {
+        let stage = petsAt(sceneNamed: .click, seconds: clickMomentInSeconds)
+        let pets = petViews(from: stage, spriteSheets: spriteSheets, diving: true)
+        let sceneNumber = (DemoScript.scenes.firstIndex { scene in scene.name == .click } ?? 0) + 1
+        let pet = stage.pets.first
+        let caption = DemoCaptionView(
+            caption: DemoCaption(
+                text: DemoScript.clickCaption(petLabel: pet?.label ?? ""),
+                sceneNumber: sceneNumber,
+                sceneCount: DemoScript.scenes.count,
+                accent: pet?.session.resolvedAccent
+            ),
+            maximumWidth: snapshotScreenWidth
+        )
+        caption.progress = clickMomentInSeconds / (DemoScript.scene(named: .click)?.durationInSeconds ?? 1)
+        return composite(caption: caption, pets: pets)
+    }
+
+    private static func composite(caption: DemoCaptionView, pets: [PetView]) -> NSView {
         let petsWidth = pets.reduce(0) { total, view in total + view.preferredSize.width } + petGap * CGFloat(max(0, pets.count - 1))
         let petsHeight = pets.map { view in view.preferredSize.height }.max() ?? 0
         let width = max(caption.preferredSize.width, petsWidth) + margin * 2

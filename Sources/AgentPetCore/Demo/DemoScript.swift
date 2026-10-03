@@ -1,8 +1,9 @@
 import Foundation
 
 package enum DemoScript {
-    package static let achievementTitle = "Achievement get!"
-    package static let clickToastBodyPrefix = "Back to "
+    package static func clickCaption(petLabel: String) -> String {
+        "In real use, the terminal tab for \(petLabel) comes to the front."
+    }
 
     private static let ticketGroup = "NIST-1025"
 
@@ -71,16 +72,16 @@ package enum DemoScript {
             disambiguatesLabels: false,
             steps: [
                 DemoStep(offsetInSeconds: 0, action: .showTitle(DemoTitleCard(
-                    title: "AGENT PET",
-                    subtitle: "a tiny pet for every agent that waits on you",
-                    splash: "Now with groups!"
+                    title: "agent-pet",
+                    subtitle: "A small pet for each agent that waits for you.",
+                    accent: .orange
                 ))),
                 DemoStep(offsetInSeconds: 3.8, action: .hideTitle)
             ]
         ),
         DemoScene(
             name: .climbOut,
-            caption: "A turn finishes. Its pet climbs out of the ground.",
+            caption: "An agent finishes its turn. Its pet climbs out of the ground.",
             durationInSeconds: 6,
             labelPlacement: .pill,
             disambiguatesLabels: false,
@@ -91,7 +92,7 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .needsInput,
-            caption: "Waiting on your OK? It stands still under a ! bubble.",
+            caption: "This agent needs your OK. Its pet stands still under a ! bubble.",
             durationInSeconds: 6,
             labelPlacement: .pill,
             disambiguatesLabels: false,
@@ -102,7 +103,7 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .lanes,
-            caption: "Five sessions, five creatures, each in its own lane.",
+            caption: "Five sessions show five pets. Each pet has its own lane.",
             durationInSeconds: 8,
             labelPlacement: .pill,
             disambiguatesLabels: false,
@@ -119,7 +120,7 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .group,
-            caption: "One ticket, three agents, one pet. Its bubble says who waits.",
+            caption: "Three agents on one ticket share one pet. Its bubble shows who waits.",
             durationInSeconds: 9,
             labelPlacement: .nametag,
             disambiguatesLabels: false,
@@ -131,7 +132,7 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .nametags,
-            caption: "Two tabs with one name? Each tag adds its session's last 4.",
+            caption: "Two tabs have one name. Each tag adds the end of its session ID.",
             durationInSeconds: 6.5,
             labelPlacement: .nametag,
             disambiguatesLabels: true,
@@ -143,7 +144,7 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .reserved,
-            caption: "Random picks skip a reserved sprite. Ask for it by name.",
+            caption: "A random pick never uses a reserved sprite. Ask for it by name.",
             durationInSeconds: 6.5,
             labelPlacement: .nametag,
             disambiguatesLabels: false,
@@ -159,18 +160,18 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .click,
-            caption: "Click a pet to jump back to its session. Try it!",
+            caption: "Click a pet to go to its session. You can click this one.",
             durationInSeconds: 8,
             labelPlacement: .nametag,
             disambiguatesLabels: false,
             steps: [
                 DemoStep(offsetInSeconds: 0.8, action: .show(actorId: ActorId.deploy, mood: .ready, message: "Deployed")),
-                DemoStep(offsetInSeconds: 5.0, action: .click(actorId: ActorId.deploy))
+                DemoStep(offsetInSeconds: 4.5, action: .click(actorId: ActorId.deploy))
             ]
         ),
         DemoScene(
             name: .dive,
-            caption: "Back at your desk? Every pet dives away.",
+            caption: "When you return to your desk, the pets dive into the ground.",
             durationInSeconds: 6,
             labelPlacement: .nametag,
             disambiguatesLabels: false,
@@ -189,14 +190,9 @@ package enum DemoScript {
             disambiguatesLabels: false,
             steps: [
                 DemoStep(offsetInSeconds: 0, action: .showTitle(DemoTitleCard(
-                    title: "THANKS!",
-                    subtitle: "agent-pet demo --scene NAME replays one scene",
-                    splash: nil
-                ))),
-                DemoStep(offsetInSeconds: 0.6, action: .toast(DemoToast(
-                    title: achievementTitle,
-                    body: "Watched the whole tour",
-                    sprite: PackName.claude
+                    title: "End of the tour",
+                    subtitle: "To play one scene again, run agent-pet demo --scene NAME.",
+                    accent: .orange
                 ))),
                 DemoStep(offsetInSeconds: 4.4, action: .hideTitle)
             ]

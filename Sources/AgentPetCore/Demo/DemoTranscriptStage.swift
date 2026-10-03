@@ -35,15 +35,11 @@ package final class DemoTranscriptStage: DemoStage {
         write(line)
     }
 
-    package func present(toast: DemoToast) {
-        write("toast: \(toast.title) \(toast.body)")
-    }
-
     package func advance(elapsedSeconds: Double, sceneProgress: Double) {}
 
     package func tearDown() {
         tearDownCount += 1
-        write("teardown: every demo window closed, nothing written")
+        write("teardown: all demo windows are closed. Nothing was written.")
     }
 
     private static func describe(_ item: PetDisplayItem) -> String {

@@ -23,7 +23,7 @@ agent-pet/
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
     Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks
-    Demo/                      the demo's AppKit stage: caption, title card and toast panels, snapshots
+    Demo/                      the demo's AppKit stage: caption and title card panels, snapshots
   Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
@@ -496,22 +496,25 @@ anyone who never runs it, and it never touches real state:
   dry run in a fresh home leaves it empty.
 - `DemoScript.scenes` is data: each `DemoScene` has a name, a one line caption, a duration, a label
   placement, whether labels are disambiguated, and steps at offsets into the scene (show an actor with a
-  mood, hide actors, click an actor, show or hide the title card, show a toast).
+  mood, hide actors, click an actor, show or hide the title card).
 - `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
   real `PetDisplayPlanner` with `SharedKeyGrouping`, so groups, bubble captions, lanes and the session id
   suffix in the demo are the shipped rules, not a copy. Entering a scene resets the cast, so `--scene` and
-  skipping always start clean. A click, real or scripted, hides every member of the pet and shows an
-  "Achievement get!" toast; it never focuses anything.
+  skipping always start clean. A click, real or scripted, hides every member of the pet, so it dives, and
+  replaces the caption with `DemoScript.clickCaption`, which says what real use does (the session's
+  terminal tab comes to the front). The demo never focuses anything.
 - `DemoPlayback` drives the runner from a 30 Hz timer, scaled by `--speed`, and owns SIGINT and SIGTERM
   through dispatch signal sources: the stage tears down every window, a line is printed, and the exit code is
   128 plus the signal. At the end it waits for the stage to settle (pets dived, panels faded) for at most
   2.5 s, then tears down.
 - The AppKit stage reuses `PetView`, `PetWindow`, `PetAnimator` and `PetSpriteFrames`, so the pets are drawn
-  exactly as the daemon draws them. It eases a pet's lane home when the lane count changes. The caption is a
-  dark tooltip panel with a slow progress bar, the title card is a beveled stone logo on a darkened dirt
-  panel, and the toast slides in from the top right. All of it is drawn in code with `DemoPixelFont`, a
-  proportional 5 by 7 pixel font with lowercase and descenders. Nothing flashes or shakes: panels fade over
-  0.45 s and the toast slides over 0.6 s.
+  exactly as the daemon draws them. It eases a pet's lane home when the lane count changes. Every panel
+  uses one frame (`DemoPanelFrame`): a border, a rim and a fill from `DemoPalette`, cut pixel corners, one
+  padding and three pixel sizes of `DemoPixelFont`, a proportional 5 by 7 pixel font with lowercase and
+  descenders. The only other colors are the eight accent colors. The caption has a stripe and a progress
+  bar in the accent of the first pet its scene shows. The title card has an accent underline. Text is
+  off-white or a muted gray, and a test measures that both have at least 4.5:1 contrast on the panel
+  tones. Nothing flashes or shakes: panels fade over 0.45 s.
 - `--dry-run` swaps in `DemoTranscriptStage`, which prints the timeline, so the whole flow is testable
   without a window server. `--snapshot DIR` renders the panels offscreen to PNGs.
 
