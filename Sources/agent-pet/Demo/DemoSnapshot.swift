@@ -50,6 +50,7 @@ enum DemoSnapshot {
     private enum FileName {
         static let title = "title.png"
         static let caption = "caption.png"
+        static let unfocusedCaption = "caption-unfocused.png"
         static let click = "click.png"
         static let stage = "stage.png"
         static let states = "states.png"
@@ -78,19 +79,22 @@ enum DemoSnapshot {
             written.append(contentsOf: save(DemoTitleView(card: titleCard), named: FileName.title, in: directory))
         }
         if let captionScene, let captionText = captionScene.caption {
-            expectedCount += 1
             let sceneNumber = (DemoScript.scenes.firstIndex { scene in scene.name == captionScene.name } ?? 0) + 1
-            let view = DemoCaptionView(
-                caption: DemoCaption(
-                    text: captionText,
-                    sceneNumber: sceneNumber,
-                    sceneCount: DemoScript.scenes.count,
-                    accent: sceneAccent(captionScene)
-                ),
-                maximumWidth: snapshotScreenWidth
-            )
-            view.progress = captionProgress
-            written.append(contentsOf: save(view, named: FileName.caption, in: directory))
+            for (hasFocus, fileName) in [(true, FileName.caption), (false, FileName.unfocusedCaption)] {
+                expectedCount += 1
+                let view = DemoCaptionView(
+                    caption: DemoCaption(
+                        text: captionText,
+                        sceneNumber: sceneNumber,
+                        sceneCount: DemoScript.scenes.count,
+                        accent: sceneAccent(captionScene)
+                    ),
+                    maximumWidth: snapshotScreenWidth
+                )
+                view.progress = captionProgress
+                view.hasFocus = hasFocus
+                written.append(contentsOf: save(view, named: fileName, in: directory))
+            }
         }
         written.append(contentsOf: save(clickComposite(spriteSheets: spriteSheets), named: FileName.click, in: directory))
         written.append(contentsOf: save(stageComposite(spriteSheets: spriteSheets), named: FileName.stage, in: directory))

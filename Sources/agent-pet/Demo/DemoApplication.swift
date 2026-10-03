@@ -37,6 +37,12 @@ final class DemoAppFocus: DemoFocus {
         keyWindow.makeKey()
     }
 
+    func reclaimFocus() {
+        keyWindow.orderFrontRegardless()
+        NSApplication.shared.activate()
+        keyWindow.makeKey()
+    }
+
     func returnFocus() {
         if NSApplication.shared.isActive, let previousApplication, !previousApplication.isTerminated {
             previousApplication.activate(from: NSRunningApplication.current, options: [])
@@ -53,6 +59,7 @@ final class DemoApplicationDelegate: NSObject, NSApplicationDelegate {
     private let request: DemoRequest
     private var playback: DemoPlayback?
     private var keyMonitor: Any?
+    private var stage: DemoOverlayStage?
     private(set) var exitCode: Int32 = DemoApplicationDelegate.successExitCode
 
     init(request: DemoRequest) {
@@ -61,13 +68,16 @@ final class DemoApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let stage = DemoOverlayStage()
+        let focus = DemoAppFocus()
+        stage.onPanelClicked = { [weak focus] in focus?.reclaimFocus() }
+        self.stage = stage
         let runner = DemoRunner(scenes: request.scenes, stage: stage, waitsForUser: request.waitsForUser)
         let playback = DemoPlayback(
             runner: runner,
             stage: stage,
             speed: request.speed,
             reportStop: { line in print(line) },
-            focus: DemoAppFocus(),
+            focus: focus,
             onFinish: { [weak self] finishedExitCode in
                 self?.exitCode = finishedExitCode
                 self?.removeKeyMonitor()
@@ -83,6 +93,15 @@ final class DemoApplicationDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
         playback.start()
+        stage.hasFocus = NSApplication.shared.isActive
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        stage?.hasFocus = true
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        stage?.hasFocus = false
     }
 
     private func removeKeyMonitor() {

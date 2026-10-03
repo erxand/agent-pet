@@ -75,9 +75,9 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
 next scene plays, then waits until you press the space bar. A caption at the bottom of the screen tells
 you what each scene shows:
 
-- All the states of a pet, side by side, each with a label. A pet climbs out of the ground and walks
-  when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your input.
-  It sits under a `?` bubble when it is blocked. A working agent has no pet.
+- The states of a pet that you see, side by side, each with a label. A pet climbs out of the ground and
+  walks when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your
+  input. A working agent has no pet.
 - Three sessions show three pets, each in its own lane.
 - A click on a pet brings the terminal tab of its session to the front. The demo shows this: a drawn
   pixel cursor moves to a pet and clicks it, the pet dives, and a drawn terminal window appears. The
@@ -88,12 +88,12 @@ you what each scene shows:
 The last card tells you that you can configure much more: labels, sprites, colors, how a click focuses,
 and more. See [Configuration](#configuration).
 
-No hook sets the `blocked` mood. To see it, run `agent-pet preview --mood blocked`.
-
 Press space for the next scene. Space also skips the title card. Press esc to quit. The demo takes
 the keyboard focus when it starts, so these keys do not go to another app. When the demo ends, it gives
 the focus back to the app that had it before. If you click another app during the tour, the demo waits
-and does not take the focus back. Ctrl-C in the terminal or SIGTERM also closes all demo windows and
+and does not take the focus back. The caption then says "click here, then press space". Click any
+demo panel (a caption, a title card or the terminal) to give the keys back to the demo. This click does
+not go to the next scene. Ctrl-C in the terminal or SIGTERM also closes all demo windows and
 stops the demo.
 
 The demo runs in its own process with a cast that exists only in memory. It writes no session record.
@@ -109,7 +109,7 @@ can run it next to real pets. It uses your installed packs. When it runs from a 
 | `agent-pet demo --list` | print each scene with its length, `auto` or `space`, and its caption |
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
-| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption, the click scene, the lanes scene, the states scene and the terminal reveal to DIR |
+| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the lanes scene, the states scene and the terminal reveal to DIR |
 
 ## Configuration
 

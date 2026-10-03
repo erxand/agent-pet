@@ -488,8 +488,9 @@ sprites/<pack-name>/
 ## Demo
 
 `agent-pet demo` is a short tour for people who have never seen a pet. It
-shows only the core flow, then one card that points at Configuration. The `states` scene holds every
-`PetMood` side by side for 9.5 s, and the hidden working state as an empty dashed spot. Each slot has a
+shows only the core flow, then one card that points at Configuration. The `states` scene holds the two
+moods a hook sets (`ready`, `needsInput`) side by side for 9.5 s, and the hidden working state as an
+empty dashed spot. It leaves out `blocked`, because no hook sets it and a user never sees it. Each slot has a
 `DemoStateLabelView` above it in the panel style. The other scenes show lanes, a click and a dive. It does not show groups, nametags or reserved
 sprites, and it uses the pill labels a new user sees. It changes nothing for
 anyone who never runs it, and it never touches real state:
@@ -523,15 +524,24 @@ anyone who never runs it, and it never touches real state:
   through dispatch signal sources: the stage tears down every window, a line is printed, and the exit code is
   128 plus the signal. `handle(key:)` takes a `DemoKey`: space calls `skipToNextScene()`, esc stops the
   demo with exit code 0. A `DemoFocus` takes the focus at start and gets it back at every end (the
-  last scene, esc, SIGINT or SIGTERM).
+  last scene, esc, SIGINT or SIGTERM). At the end it waits for the stage to settle (pets dived, panels
+  faded) for at most 2.5 s, then tears down.
 - Keys: `DemoAppFocus` remembers the frontmost app, activates the demo once, and makes `DemoKeyWindow`
   key. That window is a 1 by 1 clear borderless window that can become key and ignores the mouse, so
   the title card, which has no caption, also gets the keys. A local key-down monitor sends space and esc
   without command, control or option to the playback, and swallows them. Other keys pass. A local
   monitor sees keys only while the demo is the active app, so a demo that lost the focus waits and
   never activates again. At the end, the focus goes back to the remembered app only when the demo is
-  still the active app. At the end it waits for the stage to settle (pets dived, panels faded) for at most
-  2.5 s, then tears down.
+  still the active app.
+- Getting the keys back: `NSApp.activate()` at start can be refused, for example from a background
+  shell, and the user can click another app. Every text panel (caption, title card, state label,
+  terminal) takes mouse clicks. A click calls `DemoAppFocus.reclaimFocus()`, which activates the demo and
+  makes `DemoKeyWindow` key again, and does not change the scene. The demo never activates itself except
+  at start and after such a click. `applicationDidBecomeActive` and `applicationDidResignActive` set
+  `hasFocus` on the stage, and the caption and the title card change their key hint from
+  `DemoScript.focusedKeyHint` ("space: next   esc: quit") to `DemoScript.unfocusedKeyHint` ("click here,
+  then press space"), drawn in the brighter text color. The pets, the cursor and the empty spot still
+  ignore the mouse.
 - The AppKit stage reuses `PetView`, `PetWindow`, `PetAnimator` and `PetSpriteFrames`, so the pets are drawn
   exactly as the daemon draws them. It eases a pet's lane home when the lane count changes. Every panel
   uses one frame (`DemoPanelFrame`): a border, a rim and a fill from `DemoPalette`, cut pixel corners, one

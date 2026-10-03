@@ -9,10 +9,10 @@ final class DemoPanelWindow {
     private(set) var opacity: Double = 0
     private var targetOpacity: Double = 1
 
-    init(view: DemoPanelView) {
+    init(view: DemoPanelView, acceptsClicks: Bool) {
         self.view = view
         window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
-        window.ignoresMouseEvents = true
+        window.ignoresMouseEvents = !acceptsClicks
         window.alphaValue = 0
         window.orderFrontRegardless()
     }
@@ -98,6 +98,17 @@ final class DemoOverlayStage: DemoStage {
     private static let cursorPressSeconds: Double = 0.2
     private static let cursorAimHeightFraction: CGFloat = 0.55
 
+    var onPanelClicked: (() -> Void)?
+
+    var hasFocus = true {
+        didSet {
+            guard hasFocus != oldValue else { return }
+            for panel in titlePanels + captionPanels {
+                (panel.view as? DemoKeyHintShowing)?.hasFocus = hasFocus
+            }
+        }
+    }
+
     private let spriteSheets = DemoSpriteSheets()
     private let spriteFrames = PetSpriteFrames()
     private var presencesByPetKey: [String: PetPresence] = [:]
@@ -127,7 +138,7 @@ final class DemoOverlayStage: DemoStage {
         }
         for panel in titlePanels { panel.fadeOut() }
         guard let title else { return }
-        let panel = DemoPanelWindow(view: DemoTitleView(card: title))
+        let panel = clickablePanel(DemoTitleView(card: title))
         titlePanels.append(panel)
         placeTitle(panel)
     }
@@ -137,7 +148,7 @@ final class DemoOverlayStage: DemoStage {
         guard let caption else { return }
         let screenFrame = OverlayScreenFrames.current().visibleFrame
         let view = DemoCaptionView(caption: caption, maximumWidth: screenFrame.width * DemoOverlayStage.captionWidthFraction)
-        let panel = DemoPanelWindow(view: view)
+        let panel = clickablePanel(view)
         captionPanels.append(panel)
         var bottom = screenFrame.minY + DemoOverlayStage.captionBottomAboveGround
         if let stateLabelsTop {
@@ -153,7 +164,7 @@ final class DemoOverlayStage: DemoStage {
             return
         }
         if cursorPanels.last.map({ panel in panel.isFadingOut }) ?? true {
-            cursorPanels.append(DemoPanelWindow(view: DemoCursorView()))
+            cursorPanels.append(DemoPanelWindow(view: DemoCursorView(), acceptsClicks: false))
             cursorGoal = nil
             cursorHotspot = nil
         }
@@ -166,7 +177,7 @@ final class DemoOverlayStage: DemoStage {
     func present(terminal: DemoTerminalCard?) {
         for panel in terminalPanels { panel.fadeOut() }
         guard let terminal else { return }
-        let panel = DemoPanelWindow(view: DemoTerminalView(card: terminal))
+        let panel = clickablePanel(DemoTerminalView(card: terminal))
         terminalPanels.append(panel)
         let screenFrame = OverlayScreenFrames.current().visibleFrame
         panel.place(
@@ -189,12 +200,12 @@ final class DemoOverlayStage: DemoStage {
         let labelBottom = ground + petsHeight + DemoOverlayStage.stateLabelGap
         for (slotIndex, mark) in states.enumerated() {
             let centerX = LaneLayout.homeHorizontalCenter(laneIndex: slotIndex, laneCount: states.count, screenFrame: screenFrame)
-            let label = DemoPanelWindow(view: DemoStateLabelView(mark: mark, pixelSide: pixelSide))
+            let label = clickablePanel(DemoStateLabelView(mark: mark, pixelSide: pixelSide))
             label.place(centerX: centerX, bottom: labelBottom)
             statePanels.append(label)
             stateLabelsTop = max(stateLabelsTop ?? 0, labelBottom + label.view.preferredSize.height)
             guard mark.sessionId == nil else { continue }
-            let spot = DemoPanelWindow(view: DemoEmptySpotView(sideLength: sideLengths[slotIndex]))
+            let spot = DemoPanelWindow(view: DemoEmptySpotView(sideLength: sideLengths[slotIndex]), acceptsClicks: false)
             spot.place(centerX: centerX, bottom: ground + PetGeometry.spriteBaseline(labelPlacement: .pill))
             statePanels.append(spot)
         }
@@ -272,6 +283,12 @@ final class DemoOverlayStage: DemoStage {
         statePanels.removeAll()
         stateMarks.removeAll()
         stateLabelsTop = nil
+    }
+
+    private func clickablePanel(_ view: DemoPanelView) -> DemoPanelWindow {
+        (view as? DemoKeyHintShowing)?.hasFocus = hasFocus
+        view.onClick = { [weak self] in self?.onPanelClicked?() }
+        return DemoPanelWindow(view: view, acceptsClicks: true)
     }
 
     private func advanceCursor(elapsedSeconds: Double) {
