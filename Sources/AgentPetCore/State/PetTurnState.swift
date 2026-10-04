@@ -138,10 +138,12 @@ package enum PetTurnState {
 
     private static func markVisible(_ record: inout PetSession?, mood: PetMood?, message: String?) {
         guard var session = record, session.enabled else { return }
+        let now = Date().timeIntervalSince1970
         session.visible = true
         session.mood = mood ?? session.mood
         session.message = message
-        session.updatedAt = Date().timeIntervalSince1970
+        session.waitingSince = now
+        session.updatedAt = now
         record = session
     }
 
@@ -160,6 +162,7 @@ package enum PetTurnState {
     private static func markHidden(_ record: inout PetSession?) {
         guard var session = record, session.visible else { return }
         session.visible = false
+        session.waitingSince = nil
         session.updatedAt = Date().timeIntervalSince1970
         record = session
     }

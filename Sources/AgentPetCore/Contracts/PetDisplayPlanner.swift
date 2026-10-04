@@ -18,15 +18,21 @@ package struct PetDisplayPlanner {
 
     private let grouping: PetGrouping
     private let disambiguatesLabels: Bool
+    private let settleSeconds: TimeInterval
 
-    package init(grouping: PetGrouping, disambiguatesLabels: Bool = false) {
+    package init(grouping: PetGrouping, disambiguatesLabels: Bool = false, settleSeconds: TimeInterval = 0) {
         self.grouping = grouping
         self.disambiguatesLabels = disambiguatesLabels
+        self.settleSeconds = settleSeconds
     }
 
+    /// `shownPetKeys` are the pets already up (not diving): the settle delay only holds a pet back from
+    /// coming up, it never takes one down that is already showing.
     package func displayItems(
         records: [PetSession],
-        claudeSessions: [String: ClaudeSessionRecord]
+        claudeSessions: [String: ClaudeSessionRecord],
+        now: TimeInterval = Date().timeIntervalSince1970,
+        shownPetKeys: Set<String> = []
     ) -> [PetDisplayItem] {
         let liveMembers = records
             .filter { record in
@@ -35,12 +41,49 @@ package struct PetDisplayPlanner {
             }
             .sorted { leftRecord, rightRecord in leftRecord.updatedAt < rightRecord.updatedAt }
         let waitingGroups = grouping.groups(of: liveMembers)
+            .map { group in
+                settled(group, claudeSessions: claudeSessions, now: now, isShown: shownPetKeys.contains(group.key))
+            }
             .filter { group in group.isWaiting }
             .sorted { leftGroup, rightGroup in
                 (leftGroup.waitingMembers.first?.updatedAt ?? 0) < (rightGroup.waitingMembers.first?.updatedAt ?? 0)
             }
         let items = waitingGroups.compactMap { group in item(for: group, claudeSessions: claudeSessions) }
         return disambiguatesLabels ? PetDisplayPlanner.disambiguated(items) : items
+    }
+
+    /// The earliest moment a pet the settle delay is holding back becomes due, so the daemon plans again then
+    /// even when no file changed. `nil` when nothing is settling.
+    package func nextSettleDeadline(records: [PetSession], now: TimeInterval = Date().timeIntervalSince1970) -> TimeInterval? {
+        records
+            .compactMap { record -> TimeInterval? in
+                guard record.enabled, record.visible, let waitingSince = record.waitingSince else { return nil }
+                let deadline = waitingSince + settleSeconds
+                return deadline > now ? deadline : nil
+            }
+            .min()
+    }
+
+    private func settled(
+        _ group: PetGroup,
+        claudeSessions: [String: ClaudeSessionRecord],
+        now: TimeInterval,
+        isShown: Bool
+    ) -> PetGroup {
+        let members = group.members.map { member -> PetSession in
+            guard member.visible, let waitingSince = member.waitingSince else { return member }
+            var heldBack = member
+            if member.mood == .ready,
+               claudeSessions[member.sessionId]?.wentBusy(since: waitingSince) == true {
+                heldBack.visible = false
+                heldBack.busy = true
+                return heldBack
+            }
+            guard !isShown, now - waitingSince < settleSeconds else { return member }
+            heldBack.visible = false
+            return heldBack
+        }
+        return PetGroup(key: group.key, members: members)
     }
 
     private func item(for group: PetGroup, claudeSessions: [String: ClaudeSessionRecord]) -> PetDisplayItem? {

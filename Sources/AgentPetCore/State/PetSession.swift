@@ -45,6 +45,9 @@ package struct PetSession: Codable, Equatable {
     package var owner: Bool?
     package var enrolledAt: Double?
     package var busy: Bool?
+    /// When the session last started waiting on the user: every show stamps it, a hide removes it. The daemon
+    /// holds a pet back until the session has waited `settleSeconds`, see "Settling" in DESIGN.md.
+    package var waitingSince: Double?
     package var activeSubagents: [TrackedSubagent]
     package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
@@ -110,6 +113,7 @@ extension PetSession {
         owner = try container.decodeIfPresent(Bool.self, forKey: .owner)
         enrolledAt = try container.decodeIfPresent(Double.self, forKey: .enrolledAt)
         busy = try container.decodeIfPresent(Bool.self, forKey: .busy)
+        waitingSince = try container.decodeIfPresent(Double.self, forKey: .waitingSince)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
@@ -144,6 +148,7 @@ extension PetSession {
             owner: nil,
             enrolledAt: nil,
             busy: nil,
+            waitingSince: nil,
             activeSubagents: [],
             handledHookEvents: nil,
             transcriptPath: nil,

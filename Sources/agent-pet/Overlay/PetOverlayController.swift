@@ -22,6 +22,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var spriteImageCache: [SpriteImageCacheKey: NSImage] = [:]
     private var lastPetSessionsSignature: SessionsDirectorySignature?
     private var lastClaudeSessionsSignature: SessionSourceSignature?
+    private var nextSettleDeadline: TimeInterval?
     private var lastAnimationTimestamp = Date()
     private var timers: [Timer] = []
     private var shutdownCompletion: (() -> Void)?
@@ -136,36 +137,28 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let claudeSessionsChanged = claudeSessionsSignature != lastClaudeSessionsSignature
         lastPetSessionsSignature = petSessionsSignature
         lastClaudeSessionsSignature = claudeSessionsSignature
+        let settleDue = nextSettleDeadline.map { deadline in Date().timeIntervalSince1970 >= deadline } ?? false
 
-        if petSessionsChanged {
+        // A Claude session file changes when its label does, and also when its status does: a `!`
+        // command that makes a settling session busy again has to be seen at once, so it re-plans too.
+        if petSessionsChanged || claudeSessionsChanged || settleDue {
             applyRecords(store.list())
-            return
-        }
-        if claudeSessionsChanged {
-            refreshResolvedLabels()
-        }
-    }
-
-    private func displayItems(records: [PetSession]) -> [PetDisplayItem] {
-        contracts.displayPlanner.displayItems(
-            records: records,
-            claudeSessions: contracts.sessionSource.recordsBySessionId()
-        )
-    }
-
-    private func refreshResolvedLabels() {
-        guard !presencesBySessionId.isEmpty else { return }
-        let screenFrames = OverlayScreenFrames.current()
-        for item in displayItems(records: store.list()) {
-            guard let presence = presencesBySessionId[item.petKey] else { continue }
-            guard item.label != presence.view.petAppearance.label else { continue }
-            presence.view.update(resolvedLabel: item.label)
-            applyGeometry(to: presence, screenFrames: screenFrames)
         }
     }
 
     private func applyRecords(_ records: [PetSession]) {
-        let items = displayItems(records: records)
+        let now = Date().timeIntervalSince1970
+        let planner = contracts.displayPlanner
+        let shownPetKeys = Set(presencesBySessionId.compactMap { petKey, presence in
+            presence.animator.isDiving || presence.animator.isSubmerged ? nil : petKey
+        })
+        let items = planner.displayItems(
+            records: records,
+            claudeSessions: contracts.sessionSource.recordsBySessionId(),
+            now: now,
+            shownPetKeys: shownPetKeys
+        )
+        nextSettleDeadline = planner.nextSettleDeadline(records: records, now: now)
 
         let displayablePetKeys = Set(items.map { item in item.petKey })
         for (petKey, _) in presencesBySessionId where !displayablePetKeys.contains(petKey) {

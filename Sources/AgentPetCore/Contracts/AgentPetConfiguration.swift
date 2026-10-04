@@ -17,6 +17,10 @@ package enum LabelPlacement: String, Equatable {
 
 package struct AgentPetConfiguration: Equatable {
     package static let defaultSessionDirectoryPatterns = ["~/.claude/sessions"]
+    /// How long a session must stay waiting before its pet comes up. A queued message is submitted about
+    /// 0.1 s after the `Stop` that ends the turn before it, so one second covers it with room to spare
+    /// and is still too short to feel late.
+    package static let defaultSettleSeconds: TimeInterval = 1
 
     package static let defaults = AgentPetConfiguration(
         focuser: .tmuxIterm,
@@ -31,6 +35,7 @@ package struct AgentPetConfiguration: Equatable {
     package var disambiguatesLabels: Bool
     package var reservedSprites: [String]
     package var spriteDirectories: [String]
+    package var settleSeconds: TimeInterval
 
     package init(
         focuser: FocuserConfiguration,
@@ -39,7 +44,8 @@ package struct AgentPetConfiguration: Equatable {
         labelPlacement: LabelPlacement = .pill,
         disambiguatesLabels: Bool = false,
         reservedSprites: [String] = [],
-        spriteDirectories: [String] = []
+        spriteDirectories: [String] = [],
+        settleSeconds: TimeInterval = AgentPetConfiguration.defaultSettleSeconds
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -48,6 +54,7 @@ package struct AgentPetConfiguration: Equatable {
         self.disambiguatesLabels = disambiguatesLabels
         self.reservedSprites = reservedSprites
         self.spriteDirectories = spriteDirectories
+        self.settleSeconds = settleSeconds
     }
 }
 
@@ -89,6 +96,9 @@ package enum ConfigurationFile {
         if let disambiguatesLabels = raw.disambiguateLabels { configuration.disambiguatesLabels = disambiguatesLabels }
         if let reservedSprites = raw.reservedSprites { configuration.reservedSprites = reservedSprites }
         if let spriteDirectories = raw.spriteDirectories { configuration.spriteDirectories = spriteDirectories }
+        if let settleSeconds = raw.settleSeconds, settleSeconds.isFinite, settleSeconds >= 0 {
+            configuration.settleSeconds = settleSeconds
+        }
         return configuration
     }
 
@@ -134,6 +144,7 @@ private struct RawConfiguration: Decodable {
     let disambiguateLabels: Bool?
     let reservedSprites: [String]?
     let spriteDirectories: [String]?
+    let settleSeconds: Double?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -143,10 +154,12 @@ private struct RawConfiguration: Decodable {
         case disambiguateLabels
         case reservedSprites
         case spriteDirectories
+        case settleSeconds
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        settleSeconds = try? container.decodeIfPresent(Double.self, forKey: .settleSeconds)
         focuser = try? container.decodeIfPresent(RawFocuser.self, forKey: .focuser)
         sessionDirectories = (try? container.decodeIfPresent([LenientString].self, forKey: .sessionDirectories))?
             .compactMap { entry in entry.value }
