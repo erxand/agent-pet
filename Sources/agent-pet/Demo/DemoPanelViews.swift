@@ -149,7 +149,7 @@ final class DemoTitleView: DemoPanelView, DemoKeyHintShowing {
     private static let unit = DemoPanelFrame.unit
     private static let underlineHeight: CGFloat = 2 * unit
     private static let underlineGap: CGFloat = 4 * unit
-    private static let subtitleGap: CGFloat = 10 * unit
+    private static let subtitleGap: CGFloat = 22 * unit
     private static let hintGap: CGFloat = 8 * unit
 
     let card: DemoTitleCard

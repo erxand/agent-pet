@@ -3,9 +3,7 @@ import Foundation
 package enum DemoSceneName: String, CaseIterable {
     case title
     case states
-    case lanes
     case click
-    case dive
     case finale
 }
 

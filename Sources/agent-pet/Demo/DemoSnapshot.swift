@@ -38,7 +38,6 @@ enum DemoSnapshot {
     private static let margin: CGFloat = 24
     private static let captionProgress = 0.4
     private static let snapshotScreenWidth: CGFloat = 1440
-    private static let lanesMomentInSeconds: Double = 2.5
     private static let statesMomentInSeconds: Double = 3
     private static let stateCellWidth: CGFloat = 288
     private static let stateLabelGap: CGFloat = 12
@@ -52,7 +51,6 @@ enum DemoSnapshot {
         static let caption = "caption.png"
         static let unfocusedCaption = "caption-unfocused.png"
         static let click = "click.png"
-        static let stage = "stage.png"
         static let states = "states.png"
         static let terminal = "terminal.png"
     }
@@ -73,7 +71,7 @@ enum DemoSnapshot {
         let captionScene = scenes.first { scene in scene.caption != nil } ?? DemoScript.scenes.first { scene in scene.caption != nil }
 
         var written: [URL] = []
-        var expectedCount = 4
+        var expectedCount = 3
         if let titleCard {
             expectedCount += 1
             written.append(contentsOf: save(DemoTitleView(card: titleCard), named: FileName.title, in: directory))
@@ -97,7 +95,6 @@ enum DemoSnapshot {
             }
         }
         written.append(contentsOf: save(clickComposite(spriteSheets: spriteSheets), named: FileName.click, in: directory))
-        written.append(contentsOf: save(stageComposite(spriteSheets: spriteSheets), named: FileName.stage, in: directory))
         written.append(contentsOf: save(statesComposite(spriteSheets: spriteSheets), named: FileName.states, in: directory))
         written.append(contentsOf: save(revealComposite(spriteSheets: spriteSheets), named: FileName.terminal, in: directory))
 
@@ -160,22 +157,6 @@ enum DemoSnapshot {
             }
             return view
         }
-    }
-
-    private static func stageComposite(spriteSheets: DemoSpriteSheets) -> NSView {
-        let lanesScene = DemoScript.scene(named: .lanes)
-        let caption = DemoCaptionView(
-            caption: DemoCaption(
-                text: lanesScene?.caption ?? "",
-                sceneNumber: (DemoScript.scenes.firstIndex { scene in scene.name == .lanes } ?? 0) + 1,
-                sceneCount: DemoScript.scenes.count,
-                accent: lanesScene.flatMap { scene in sceneAccent(scene) }
-            ),
-            maximumWidth: snapshotScreenWidth
-        )
-        caption.progress = captionProgress
-        let pets = petViews(from: petsAt(sceneNamed: .lanes, seconds: lanesMomentInSeconds), spriteSheets: spriteSheets)
-        return composite(caption: caption, pets: pets)
     }
 
     private static func statesComposite(spriteSheets: DemoSpriteSheets) -> NSView {

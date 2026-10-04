@@ -491,7 +491,7 @@ sprites/<pack-name>/
 shows only the core flow, then one card that points at Configuration. The `states` scene holds the two
 moods a hook sets (`ready`, `needsInput`) side by side for 9.5 s, and the hidden working state as an
 empty dashed spot. It leaves out `blocked`, because no hook sets it and a user never sees it. Each slot has a
-`DemoStateLabelView` above it in the panel style. The other scenes show lanes, a click and a dive. It does not show groups, nametags or reserved
+`DemoStateLabelView` above it in the panel style. The other scenes are a click and the last card. It does not show lanes, the dive on return, groups, nametags or reserved
 sprites, and it uses the pill labels a new user sees. It changes nothing for
 anyone who never runs it, and it never touches real state:
 
@@ -504,7 +504,7 @@ anyone who never runs it, and it never touches real state:
   show or hide the title card), an optional hold offset, and optional state slots (a label and an actor,
   or no actor for the working state). Only the title has no hold offset.
 - `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
-  real `PetDisplayPlanner` with `SharedKeyGrouping`, so the lanes and moods in the demo are the shipped
+  real `PetDisplayPlanner` with `SharedKeyGrouping`, so the moods in the demo are the shipped
   rules, not a copy. Entering a scene resets the cast, so `--scene` and
   skipping always start clean. The click scene shows a click instead of a description:
   `pointCursor` makes the stage draw `DemoCursorView`, a 12 by 17 pixel arrow at 4 px per pixel in
