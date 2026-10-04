@@ -3,7 +3,7 @@ import Testing
 
 @Suite("hooks installed globally and twice")
 struct HookIdempotencyTests {
-    private let events = ["Stop", "Notification", "UserPromptSubmit", "PreToolUse", "SessionEnd", "SubagentStart", "SubagentStop"]
+    private let events = ["Stop", "Notification", "UserPromptSubmit", "PreToolUse", "SessionEnd", "SessionStart", "SubagentStart", "SubagentStop"]
 
     @Test func everyEventForAnUnenrolledSessionWritesNothingAnywhere() throws {
         let sandbox = try Sandbox()

@@ -4,8 +4,14 @@ enum PetEnrollment {
     static func enroll(sessionId: String, overrides: PetIdentityOverrides, spriteStrategy: SpriteStrategy) -> PetSession {
         let enrolled = PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession in
             var enrolled = overrides.applied(to: record ?? PetSession.newlyEnrolled(sessionId: sessionId))
+            // Re-running `on` on a live pet only changes who it is (a new label, say), so a pet that is
+            // up, or held back, stays that way. A new or a disabled record starts hidden.
+            if record?.enabled != true {
+                enrolled.visible = false
+                enrolled.held = nil
+                enrolled.heldAt = nil
+            }
             enrolled.enabled = true
-            enrolled.visible = false
             if enrolled.sprite == nil {
                 enrolled.sprite = spriteStrategy.spriteName(forNewSessionId: sessionId, group: enrolled.group)
             }
@@ -29,6 +35,8 @@ enum PetEnrollment {
             guard var session = record else { return nil }
             session.enabled = false
             session.visible = false
+            session.held = nil
+            session.heldAt = nil
             session.updatedAt = Date().timeIntervalSince1970
             record = session
             return session

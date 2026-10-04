@@ -3,12 +3,30 @@ import Foundation
 enum TranscriptCompletionEvent: Equatable {
     case finished(String)
     case interim(String)
+    /// A named teammate went idle. It carries the teammate's name, not its agent id: the tracked id
+    /// of a teammate is `a<name>-<16 hex>`, see `TeammateAgentId`.
+    case teammateIdle(String)
 
     var agentId: String {
         switch self {
-        case .finished(let agentId), .interim(let agentId):
+        case .finished(let agentId), .interim(let agentId), .teammateIdle(let agentId):
             return agentId
         }
+    }
+}
+
+/// A named teammate's agent id is `a`, its name, `-`, then 16 hex digits (`afixer-7-d035f68f1e116378`).
+enum TeammateAgentId {
+    private static let prefix = "a"
+    private static let separator = "-"
+    private static let suffixLength = 16
+    private static let hexDigits = CharacterSet(charactersIn: "0123456789abcdef")
+
+    static func belongs(_ agentId: String, toTeammateNamed name: String) -> Bool {
+        let namePrefix = prefix + name + separator
+        guard agentId.hasPrefix(namePrefix) else { return false }
+        let suffix = agentId.dropFirst(namePrefix.count)
+        return suffix.count == suffixLength && suffix.unicodeScalars.allSatisfy { scalar in hexDigits.contains(scalar) }
     }
 }
 
@@ -36,6 +54,8 @@ enum TranscriptCompletionScanner {
     static let interimNoteMarker = "stopped with background work of its own still running"
     static let finalNoteMarker = "stops with no live background children of its own"
     static let handBackMarker = "[Subagent hand-back]"
+    static let teammateIdleMarker = "idle_notification"
+    static let teammateIdleSearchWindowByteCount = 160
 
     private static let taskIdOpeningTag = Data("<task-id>".utf8)
     private static let taskIdClosingTag = Data("</task-id>".utf8)
@@ -48,11 +68,14 @@ enum TranscriptCompletionScanner {
     private static let interimNoteMarkerBytes = Data(interimNoteMarker.utf8)
     private static let finalNoteMarkerBytes = Data(finalNoteMarker.utf8)
     private static let handBackMarkerBytes = Data(handBackMarker.utf8)
+    private static let teammateIdleMarkerBytes = Data(teammateIdleMarker.utf8)
+    private static let teammateSenderKeys = [Data("from\\\":\\\"".utf8), Data("from\":\"".utf8)]
+    private static let teammateSenderTerminators = [Data("\\\"".utf8), Data("\"".utf8)]
     private static let lineFeedByte = UInt8(ascii: "\n")
     private static let taskIdCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
 
     static func completionMatches(in bytes: Data) -> [TranscriptCompletionMatch] {
-        (taskNotificationMatches(in: bytes) + handBackMatches(in: bytes))
+        (taskNotificationMatches(in: bytes) + handBackMatches(in: bytes) + teammateIdleMatches(in: bytes))
             .sorted { earlierMatch, laterMatch in earlierMatch.byteOffset < laterMatch.byteOffset }
     }
 
@@ -111,6 +134,30 @@ enum TranscriptCompletionScanner {
                 byteOffset: byteOffset(of: senderRange.lowerBound, in: bytes),
                 event: .finished(senderMatch.identifier)
             ))
+        }
+        return matches
+    }
+
+    /// `{"type":"idle_notification","from":"NAME",...}`, JSON-escaped inside the transcript line
+    /// (`\"from\":\"NAME\"`) or raw. A teammate whose turn failed (a usage limit) sends this and no
+    /// `SubagentStop`, so it is the one completion signal that always arrives.
+    private static func teammateIdleMatches(in bytes: Data) -> [TranscriptCompletionMatch] {
+        var matches: [TranscriptCompletionMatch] = []
+        var searchStart = bytes.startIndex
+        while let markerRange = bytes.range(of: teammateIdleMarkerBytes, in: searchStart..<bytes.endIndex) {
+            searchStart = markerRange.upperBound
+            let windowEnd = min(bytes.endIndex, markerRange.upperBound + teammateIdleSearchWindowByteCount)
+            for (senderKey, terminator) in zip(teammateSenderKeys, teammateSenderTerminators) {
+                guard let keyRange = bytes.range(of: senderKey, in: markerRange.upperBound..<windowEnd),
+                      let senderMatch = identifier(in: bytes, startingAt: keyRange.upperBound, terminator: terminator) else {
+                    continue
+                }
+                matches.append(TranscriptCompletionMatch(
+                    byteOffset: byteOffset(of: markerRange.lowerBound, in: bytes),
+                    event: .teammateIdle(senderMatch.identifier)
+                ))
+                break
+            }
         }
         return matches
     }

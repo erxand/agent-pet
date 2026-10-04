@@ -97,7 +97,9 @@ struct HookCharacterizationTests {
         try sandbox.hook(RecordFixtures.hookPayload("Notification", extra: ["notification_type": "idle_prompt"]))
 
         #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == false)
-        #expect(sandbox.hookLogLines().last?.hasSuffix("Notification \(RecordFixtures.shortSessionId) - visible=false agents=0") == true)
+        #expect(sandbox.hookLogLines().last?.hasSuffix(
+            "Notification \(RecordFixtures.shortSessionId) - visible=false agents=0 type=idle_prompt"
+        ) == true)
     }
 
     @Test func userPromptSubmitAndPreToolUseHideAndLeaveSubagentsAlone() throws {

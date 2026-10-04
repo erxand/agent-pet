@@ -27,6 +27,11 @@ hooks:
         - type: command
           command: '"$HOME/.local/bin/agent-pet" hook'
           async: false
+  SessionStart:
+    - hooks:
+        - type: command
+          command: '"$HOME/.local/bin/agent-pet" hook'
+          async: false
   SubagentStart:
     - hooks:
         - type: command

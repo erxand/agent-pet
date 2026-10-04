@@ -7,6 +7,7 @@ enum HookEventLog {
     private static let visibleFieldPrefix = "visible="
     private static let activeSubagentCountFieldPrefix = "agents="
     private static let toolNameFieldPrefix = "tool="
+    private static let heldField = "held=true"
     private static let completedSubagentCountFieldPrefix = "completed="
     private static let interimSubagentCountFieldPrefix = "interim="
     private static let expiredSubagentCountFieldPrefix = "expired="
@@ -23,6 +24,7 @@ enum HookEventLog {
         agentId: String?,
         result: PetHookResult,
         toolName: String?,
+        detail: String? = nil,
         reportedCleanup: SubagentCleanupOutcome?
     ) {
         var fields = [
@@ -34,6 +36,12 @@ enum HookEventLog {
         ]
         if let toolName, !toolName.isEmpty {
             fields.append(toolNameFieldPrefix + toolName)
+        }
+        if let detail, !detail.isEmpty {
+            fields.append(detail)
+        }
+        if result.snapshot.held {
+            fields.append(heldField)
         }
         if let reportedCleanup, reportedCleanup.foundAnything {
             fields.append(completedSubagentCountFieldPrefix + String(reportedCleanup.completedSubagentIds.count))

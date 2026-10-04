@@ -3,6 +3,7 @@ import Foundation
 enum ScanTranscriptCommand {
     private static let finishedKindName = "finished"
     private static let interimKindName = "interim"
+    private static let teammateIdleKindName = "idle"
     private static let fieldSeparator = " "
 
     static func run(flags: ParsedFlags) -> Int32 {
@@ -50,6 +51,8 @@ enum ScanTranscriptCommand {
             return finishedKindName
         case .interim:
             return interimKindName
+        case .teammateIdle:
+            return teammateIdleKindName
         }
     }
 }

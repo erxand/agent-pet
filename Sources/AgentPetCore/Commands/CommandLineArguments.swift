@@ -7,6 +7,7 @@ enum CommandName: String, CaseIterable {
     case off
     case show
     case hide
+    case release
     case remove
     case status
     case hook
@@ -37,6 +38,7 @@ enum CommandFlag: String, CaseIterable {
     case pack = "--pack"
     case animation = "--animation"
     case frame = "--frame"
+    case grace = "--grace"
 }
 
 struct ParsedFlags {
@@ -82,6 +84,28 @@ struct ParsedFlags {
 enum ExitCode {
     static let success: Int32 = 0
     static let usage: Int32 = 2
+}
+
+/// The records `hide`, `release` and `remove` act on: `--session`, else every record whose
+/// `focusTarget` is `--focus-target` (what a terminal knows about a pane), else every record whose
+/// `pid` is `--pid` (what knows the process, after a `/clear` changed its session id), else
+/// `$CLAUDE_CODE_SESSION_ID`. Nil when none of them is given.
+enum RecordSelection {
+    static func sessionIds(flags: ParsedFlags, store: PetSessionStore = PetSessionStore()) -> [String]? {
+        if let explicit = flags.value(for: .session) { return [explicit] }
+        if let focusTarget = flags.value(for: .focusTarget) {
+            return store.list()
+                .filter { record in record.focusTarget == focusTarget }
+                .map { record in record.sessionId }
+        }
+        if let rawProcessIdentifier = flags.value(for: .pid) {
+            guard let processIdentifier = Int32(rawProcessIdentifier) else { return [] }
+            return store.list()
+                .filter { record in record.pid == processIdentifier }
+                .map { record in record.sessionId }
+        }
+        return SessionIdentifierResolver.resolve(flags: flags).map { sessionId in [sessionId] }
+    }
 }
 
 enum SessionIdentifierResolver {

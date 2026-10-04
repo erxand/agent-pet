@@ -6,13 +6,18 @@ enum HookEventName: String {
     case userPromptSubmit = "UserPromptSubmit"
     case preToolUse = "PreToolUse"
     case sessionEnd = "SessionEnd"
+    case sessionStart = "SessionStart"
     case subagentStart = "SubagentStart"
     case subagentStop = "SubagentStop"
 }
 
 enum HookNotificationType: String {
     case permissionPrompt = "permission_prompt"
+    case workerPermissionPrompt = "worker_permission_prompt"
     case agentNeedsInput = "agent_needs_input"
+    case elicitationDialog = "elicitation_dialog"
+    case elicitationUrlDialog = "elicitation_url_dialog"
+    case idlePrompt = "idle_prompt"
 }
 
 struct HookPayload: Codable {
@@ -23,6 +28,8 @@ struct HookPayload: Codable {
     let lastAssistantMessage: String?
     let transcriptPath: String?
     let toolName: String?
+    let reason: String?
+    let source: String?
 
     enum CodingKeys: String, CodingKey {
         case hookEventName = "hook_event_name"
@@ -32,12 +39,17 @@ struct HookPayload: Codable {
         case lastAssistantMessage = "last_assistant_message"
         case transcriptPath = "transcript_path"
         case toolName = "tool_name"
+        case reason
+        case source
     }
 }
 
 enum HookCommand {
     private static let messageCharacterLimit = 80
     private static let lineSeparator: Character = "\n"
+    private static let notificationTypeFieldPrefix = "type="
+    private static let reasonFieldPrefix = "reason="
+    private static let sourceFieldPrefix = "source="
 
     static func run(flags: ParsedFlags) -> Int32 {
         let standardInputData = FileHandle.standardInput.readDataToEndOfFile()
@@ -45,6 +57,9 @@ enum HookCommand {
         guard let rawEventName = payload.hookEventName,
               let eventName = HookEventName(rawValue: rawEventName) else { return ExitCode.success }
         guard let sessionId = resolveSessionId(payload: payload, flags: flags) else { return ExitCode.success }
+        if eventName == .sessionStart {
+            return handleSessionStart(payload: payload, sessionId: sessionId)
+        }
         guard PetSessionStore().hasRecord(sessionId: sessionId) else { return ExitCode.success }
 
         if let transcriptPath = payload.transcriptPath, !transcriptPath.isEmpty {
@@ -63,7 +78,30 @@ enum HookCommand {
             agentId: payload.agentId,
             result: result,
             toolName: reportedToolName(eventName: eventName, payload: payload),
+            detail: reportedDetail(eventName: eventName, payload: payload),
             reportedCleanup: reportedCleanup(eventName: eventName, result: result)
+        )
+        return ExitCode.success
+    }
+
+    /// The one event that may act for a session with no record: a `/clear` or `/resume` gives the
+    /// running process a new session id, and the process's pet moves to it. Anything else, and a
+    /// process with no pet, ends here with nothing written, like every other unenrolled event.
+    private static func handleSessionStart(payload: HookPayload, sessionId: String) -> Int32 {
+        guard let rawSource = payload.source,
+              let source = SessionStartSource(rawValue: rawSource),
+              source.takesOverTheProcessPet,
+              let handedOver = PetSessionHandover.takeOver(newSessionId: sessionId) else {
+            return ExitCode.success
+        }
+        HookEventLog.append(
+            event: .sessionStart,
+            sessionId: sessionId,
+            agentId: nil,
+            result: PetHookResult(record: handedOver),
+            toolName: nil,
+            detail: sourceFieldPrefix + rawSource,
+            reportedCleanup: nil
         )
         return ExitCode.success
     }
@@ -89,10 +127,20 @@ enum HookCommand {
                 sessionId: sessionId,
                 identity: subagentIdentity(in: payload, payloadData: payloadData)
             )
-        case .userPromptSubmit, .preToolUse:
+        case .userPromptSubmit:
             return PetHookResult(snapshot: PetTurnState.hideAndMarkWorking(sessionId: sessionId))
+        case .preToolUse:
+            return PetHookResult(snapshot: PetTurnState.hideAndMarkWorking(
+                sessionId: sessionId,
+                keepsNeedsInput: isFromSubagent(payload)
+            ))
         case .sessionEnd:
-            return PetHookResult(snapshot: PetTurnState.remove(sessionId: sessionId))
+            return PetHookResult(snapshot: PetTurnState.end(
+                sessionId: sessionId,
+                reason: payload.reason.flatMap { rawReason in SessionEndReason(rawValue: rawReason) }
+            ))
+        case .sessionStart:
+            return PetHookResult(snapshot: PetTurnState.snapshot(sessionId: sessionId))
         }
     }
 
@@ -112,10 +160,12 @@ enum HookCommand {
             return PetTurnState.snapshot(sessionId: sessionId)
         }
         switch notificationType {
-        case .permissionPrompt, .agentNeedsInput:
-            let snapshot = PetTurnState.show(sessionId: sessionId, mood: .needsInput, message: nil)
+        case .permissionPrompt, .workerPermissionPrompt, .agentNeedsInput, .elicitationDialog, .elicitationUrlDialog:
+            let snapshot = PetTurnState.showUnlessInFront(sessionId: sessionId, mood: .needsInput, message: nil)
             ensureDaemonWhenVisible(snapshot: snapshot)
             return snapshot
+        case .idlePrompt:
+            return PetTurnState.markIdle(sessionId: sessionId)
         }
     }
 
@@ -135,16 +185,34 @@ enum HookCommand {
         switch eventName {
         case .preToolUse:
             return payload.toolName
-        case .stop, .notification, .userPromptSubmit, .sessionEnd, .subagentStart, .subagentStop:
+        case .stop, .notification, .userPromptSubmit, .sessionEnd, .sessionStart, .subagentStart, .subagentStop:
             return nil
         }
+    }
+
+    private static func reportedDetail(eventName: HookEventName, payload: HookPayload) -> String? {
+        switch eventName {
+        case .notification:
+            return payload.notificationType.map { notificationType in notificationTypeFieldPrefix + notificationType }
+        case .sessionEnd:
+            return payload.reason.map { reason in reasonFieldPrefix + reason }
+        case .sessionStart:
+            return payload.source.map { source in sourceFieldPrefix + source }
+        case .stop, .userPromptSubmit, .preToolUse, .subagentStart, .subagentStop:
+            return nil
+        }
+    }
+
+    private static func isFromSubagent(_ payload: HookPayload) -> Bool {
+        guard let agentId = payload.agentId else { return false }
+        return !agentId.isEmpty
     }
 
     private static func reportedCleanup(eventName: HookEventName, result: PetHookResult) -> SubagentCleanupOutcome? {
         switch eventName {
         case .stop:
             return result.cleanup
-        case .notification, .userPromptSubmit, .preToolUse, .sessionEnd, .subagentStart, .subagentStop:
+        case .notification, .userPromptSubmit, .preToolUse, .sessionEnd, .sessionStart, .subagentStart, .subagentStop:
             return nil
         }
     }

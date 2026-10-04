@@ -22,31 +22,52 @@ private struct TranscriptScanResult {
     static let unavailable = TranscriptScanResult(
         finishedTaskIds: [],
         interimTaskIds: [],
+        idleTeammateNames: [],
         skippedByteCount: TranscriptTail.noBytes
     )
 
     let finishedTaskIds: Set<String>
     let interimTaskIds: Set<String>
+    let idleTeammateNames: Set<String>
     let skippedByteCount: Int
 
-    init(finishedTaskIds: Set<String>, interimTaskIds: Set<String>, skippedByteCount: Int) {
+    init(finishedTaskIds: Set<String>, interimTaskIds: Set<String>, idleTeammateNames: Set<String>, skippedByteCount: Int) {
         self.finishedTaskIds = finishedTaskIds
         self.interimTaskIds = interimTaskIds
+        self.idleTeammateNames = idleTeammateNames
         self.skippedByteCount = skippedByteCount
     }
 
     init(events: [TranscriptCompletionEvent], skippedByteCount: Int) {
         var finishedTaskIds: Set<String> = []
         var interimTaskIds: Set<String> = []
+        var idleTeammateNames: Set<String> = []
         for event in events {
             switch event {
             case .finished(let agentId):
                 finishedTaskIds.insert(agentId)
             case .interim(let agentId):
                 interimTaskIds.insert(agentId)
+            case .teammateIdle(let name):
+                idleTeammateNames.insert(name)
             }
         }
-        self.init(finishedTaskIds: finishedTaskIds, interimTaskIds: interimTaskIds, skippedByteCount: skippedByteCount)
+        self.init(
+            finishedTaskIds: finishedTaskIds,
+            interimTaskIds: interimTaskIds,
+            idleTeammateNames: idleTeammateNames,
+            skippedByteCount: skippedByteCount
+        )
+    }
+
+    func finishedIds(among trackedIds: [String]) -> Set<String> {
+        var finished = finishedTaskIds
+        for trackedId in trackedIds where idleTeammateNames.contains(where: { name in
+            TeammateAgentId.belongs(trackedId, toTeammateNamed: name)
+        }) {
+            finished.insert(trackedId)
+        }
+        return finished
     }
 }
 
@@ -58,7 +79,8 @@ enum SubagentCleanup {
     static func apply(to record: inout PetSession?, now: TimeInterval) -> SubagentCleanupOutcome {
         guard var session = record else { return .nothingFound }
         let transcriptScan = scanTranscript(of: &session)
-        let completedSubagentIds = removeSubagents(withIds: transcriptScan.finishedTaskIds, from: &session)
+        let finishedIds = transcriptScan.finishedIds(among: session.activeSubagents.map { trackedSubagent in trackedSubagent.id })
+        let completedSubagentIds = removeSubagents(withIds: finishedIds, from: &session)
         let interimSubagentIds = trackedSubagentIds(in: session, matching: transcriptScan.interimTaskIds)
         let expiredSubagents = removeExpiredSubagents(from: &session, now: now)
         record = session
