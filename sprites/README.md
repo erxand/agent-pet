@@ -24,6 +24,21 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
   a color and its shade, but that is convention, not a rule.
 - To use a pack, copy its directory to `~/.agent-pet/sprites/<name>/`. Every installed pack is in
   the pool that `/pet` draws from, and `agent-pet preview --sprite <name>` shows one on demand.
+- Packs can also live outside `~/.agent-pet/sprites/`, for packs you do not want in this repo
+  (prototypes, personal creatures, a folder synced through iCloud Drive). List the folders that
+  hold them in `spriteDirectories` in `~/.agent-pet/config.json`:
+
+  ```json
+  { "spriteDirectories": ["~/pets/prototypes", "~/Library/Mobile Documents/com~apple~CloudDocs/pets"] }
+  ```
+
+  Each folder holds pack directories exactly like `~/.agent-pet/sprites/`. Their packs join the
+  random pool and work with `packs`, `render --pack`, `preview --sprite` and `on --sprite`, and
+  `reservedSprites` applies to them too. The daemon notices a pack added or removed there within
+  a second, with no restart. When two folders hold a pack with the same name,
+  `~/.agent-pet/sprites/` wins, then the folders in the order listed; the ignored pack is logged
+  once in `~/.agent-pet/daemon.log`. A missing or unreadable folder is logged once and skipped, and
+  a pack that fails to load is skipped like a broken installed pack.
 - `install.sh` refreshes every shipped pack on each install: it deletes the installed copy of
   that name and copies the shipped one again. To customize a shipped pack, copy it under a new
   name and edit the copy. Packs with names that are not shipped are left alone.

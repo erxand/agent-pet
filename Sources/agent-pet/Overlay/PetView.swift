@@ -1,3 +1,4 @@
+import AgentPetCore
 import AppKit
 
 struct PetAppearance {
@@ -5,6 +6,8 @@ struct PetAppearance {
     let accent: AccentColor
     let mood: PetMood
     let message: String?
+    let bubbleCaption: String?
+    let labelPlacement: LabelPlacement
     let spriteSideLength: CGFloat
 
     func withResolvedLabel(_ resolvedLabel: String) -> PetAppearance {
@@ -13,6 +16,8 @@ struct PetAppearance {
             accent: accent,
             mood: mood,
             message: message,
+            bubbleCaption: bubbleCaption,
+            labelPlacement: labelPlacement,
             spriteSideLength: spriteSideLength
         )
     }
@@ -34,6 +39,10 @@ final class PetView: NSView {
     private static let bubbleFont = monospacedFont(
         ofSize: PetGeometry.bubbleFontSize,
         fallbackWeight: .black
+    )
+    private static let nametagFallbackFont = monospacedFont(
+        ofSize: PetGeometry.nametagFallbackFontSize,
+        fallbackWeight: .bold
     )
 
     let sessionId: String
@@ -107,10 +116,18 @@ final class PetView: NSView {
     }
 
     static func size(for petAppearance: PetAppearance) -> CGSize {
-        let pillWidth = labelPillWidth(for: petAppearance.label)
+        let labelWidth: CGFloat
+        switch petAppearance.labelPlacement {
+        case .pill: labelWidth = labelPillWidth(for: petAppearance.label)
+        case .nametag: labelWidth = nametagWidth(for: petAppearance.label)
+        }
+        let bubbleWidth = bubbleWidth(symbol: PetBubbleSymbol.forMood(petAppearance.mood), caption: petAppearance.bubbleCaption)
         return CGSize(
-            width: ceil(max(petAppearance.spriteSideLength, pillWidth)),
-            height: ceil(PetGeometry.totalHeight(spriteSideLength: petAppearance.spriteSideLength))
+            width: ceil(max(petAppearance.spriteSideLength, labelWidth, bubbleWidth)),
+            height: ceil(PetGeometry.totalHeight(
+                spriteSideLength: petAppearance.spriteSideLength,
+                labelPlacement: petAppearance.labelPlacement
+            ))
         )
     }
 
@@ -118,10 +135,10 @@ final class PetView: NSView {
         guard let spriteImage, let graphicsContext = NSGraphicsContext.current else { return }
         let sideLength = petAppearance.spriteSideLength
         let groundOffset = groundOffsetFraction
-            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength)
+            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, labelPlacement: petAppearance.labelPlacement)
         let spriteRect = CGRect(
             x: (bounds.width - sideLength) / 2,
-            y: PetGeometry.spriteBaseline - groundOffset,
+            y: PetGeometry.spriteBaseline(labelPlacement: petAppearance.labelPlacement) - groundOffset,
             width: sideLength,
             height: sideLength
         )
@@ -136,9 +153,13 @@ final class PetView: NSView {
         guard chromeOpacity > 0, let graphicsContext = NSGraphicsContext.current else { return }
         graphicsContext.saveGraphicsState()
         graphicsContext.cgContext.setAlpha(min(chromeOpacity, 1))
-        drawLabelPill()
-        if let bubbleSymbol = PetBubbleSymbol.forMood(petAppearance.mood) {
-            drawBubble(symbol: bubbleSymbol)
+        switch petAppearance.labelPlacement {
+        case .pill: drawLabelPill()
+        case .nametag: drawNametag()
+        }
+        let bubbleSymbol = PetBubbleSymbol.forMood(petAppearance.mood)
+        if bubbleSymbol != nil || petAppearance.bubbleCaption != nil {
+            drawBubble(symbol: bubbleSymbol, caption: petAppearance.bubbleCaption)
         }
         graphicsContext.restoreGraphicsState()
     }
@@ -183,15 +204,58 @@ final class PetView: NSView {
         )
     }
 
-    private func drawBubble(symbol: PetBubbleSymbol) {
-        let bubbleBaseline = PetGeometry.labelPillHeight
-            + PetGeometry.verticalGap
-            + petAppearance.spriteSideLength
-            + PetGeometry.verticalGap
+    private func drawNametag() {
+        let label = PetView.clippedLabel(petAppearance.label)
+        let tagWidth = PetView.nametagWidth(for: label)
+        let tagRect = CGRect(
+            x: ((bounds.width - tagWidth) / 2).rounded(),
+            y: PetGeometry.nametagBaseline(spriteSideLength: petAppearance.spriteSideLength),
+            width: tagWidth,
+            height: PetGeometry.nametagHeight
+        )
+        PetGeometry.labelPillBackgroundColor.setFill()
+        tagRect.fill()
+        petAppearance.accent.color.setFill()
+        CGRect(x: tagRect.minX, y: tagRect.minY, width: tagRect.width, height: PetGeometry.nametagAccentStripeHeight).fill()
+
+        let textOrigin = CGPoint(
+            x: tagRect.minX + PetGeometry.nametagHorizontalPadding,
+            y: tagRect.minY + PetGeometry.nametagAccentStripeHeight + PetGeometry.nametagVerticalPadding
+        )
+        guard let glyphRows = PixelFont.rows(for: label) else {
+            drawFallbackNametagText(label, origin: textOrigin)
+            return
+        }
+        PetGeometry.labelTextColor.setFill()
+        let pixelSide = PetGeometry.nametagPixelScale
+        for (rowIndex, row) in glyphRows.enumerated() {
+            let rowY = textOrigin.y + CGFloat(glyphRows.count - 1 - rowIndex) * pixelSide
+            for (columnIndex, character) in row.enumerated() where PixelFont.isInk(character) {
+                CGRect(x: textOrigin.x + CGFloat(columnIndex) * pixelSide, y: rowY, width: pixelSide, height: pixelSide).fill()
+            }
+        }
+    }
+
+    private func drawFallbackNametagText(_ label: String, origin: CGPoint) {
+        guard let graphicsContext = NSGraphicsContext.current else { return }
+        let attributedText = PetView.attributedNametagFallback(for: label)
+        let textHeight = CGFloat(PixelFont.glyphHeight) * PetGeometry.nametagPixelScale
+        graphicsContext.saveGraphicsState()
+        graphicsContext.shouldAntialias = false
+        attributedText.draw(at: CGPoint(x: origin.x, y: origin.y + (textHeight - attributedText.size().height) / 2))
+        graphicsContext.restoreGraphicsState()
+    }
+
+    private func drawBubble(symbol: PetBubbleSymbol?, caption: String?) {
+        let bubbleBaseline = PetGeometry.bubbleBaseline(
+            spriteSideLength: petAppearance.spriteSideLength,
+            labelPlacement: petAppearance.labelPlacement
+        )
+        let bubbleWidth = PetView.bubbleWidth(symbol: symbol, caption: caption)
         let bubbleRect = CGRect(
-            x: (bounds.width - PetGeometry.bubbleSideLength) / 2,
+            x: (bounds.width - bubbleWidth) / 2,
             y: bubbleBaseline + bubbleVerticalOffset,
-            width: PetGeometry.bubbleSideLength,
+            width: bubbleWidth,
             height: PetGeometry.bubbleSideLength
         )
         let bubblePath = NSBezierPath(
@@ -205,13 +269,67 @@ final class PetView: NSView {
         bubblePath.lineWidth = PetGeometry.bubbleBorderWidth
         bubblePath.stroke()
 
-        let attributedSymbol = PetView.attributedBubbleSymbol(symbol)
-        let symbolSize = attributedSymbol.size()
-        attributedSymbol.draw(
-            at: CGPoint(
-                x: bubbleRect.midX - symbolSize.width / 2,
-                y: bubbleRect.midY - symbolSize.height / 2
+        guard let caption else {
+            guard let symbol else { return }
+            let attributedSymbol = PetView.attributedBubbleSymbol(symbol)
+            let symbolSize = attributedSymbol.size()
+            attributedSymbol.draw(
+                at: CGPoint(
+                    x: bubbleRect.midX - symbolSize.width / 2,
+                    y: bubbleRect.midY - symbolSize.height / 2
+                )
             )
+            return
+        }
+        var cursor = bubbleRect.minX + PetGeometry.bubbleCaptionPadding
+        if let symbol {
+            let attributedSymbol = PetView.attributedBubbleSymbol(symbol)
+            let symbolSize = attributedSymbol.size()
+            attributedSymbol.draw(at: CGPoint(x: cursor, y: bubbleRect.midY - symbolSize.height / 2))
+            cursor += symbolSize.width + PetGeometry.bubbleCaptionGap
+        }
+        let attributedCaption = PetView.attributedCaption(caption)
+        attributedCaption.draw(at: CGPoint(x: cursor, y: bubbleRect.midY - attributedCaption.size().height / 2))
+    }
+
+    private static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
+        guard let caption else { return PetGeometry.bubbleSideLength }
+        var contentWidth = attributedCaption(caption).size().width
+        if let symbol {
+            contentWidth += attributedBubbleSymbol(symbol).size().width + PetGeometry.bubbleCaptionGap
+        }
+        return max(PetGeometry.bubbleSideLength, contentWidth + PetGeometry.bubbleCaptionPadding * 2)
+    }
+
+    private static func clippedLabel(_ label: String) -> String {
+        String(label.prefix(PetGeometry.labelCharacterLimit))
+    }
+
+    private static func nametagWidth(for label: String) -> CGFloat {
+        let clipped = clippedLabel(label)
+        let textWidth = PixelFont.canRender(clipped)
+            ? CGFloat(PixelFont.width(of: clipped)) * PetGeometry.nametagPixelScale
+            : ceil(attributedNametagFallback(for: clipped).size().width)
+        return textWidth + PetGeometry.nametagHorizontalPadding * 2
+    }
+
+    private static func attributedNametagFallback(for label: String) -> NSAttributedString {
+        NSAttributedString(
+            string: label,
+            attributes: [
+                .font: nametagFallbackFont,
+                .foregroundColor: PetGeometry.labelTextColor
+            ]
+        )
+    }
+
+    private static func attributedCaption(_ caption: String) -> NSAttributedString {
+        NSAttributedString(
+            string: clippedLabel(caption),
+            attributes: [
+                .font: labelFont,
+                .foregroundColor: SpritePalette.outline
+            ]
         )
     }
 

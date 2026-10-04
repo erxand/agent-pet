@@ -1,3 +1,4 @@
+import AgentPetCore
 import AppKit
 
 final class PetOverlayController: NSObject, PetViewInteractionHandler {
@@ -8,31 +9,52 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private static let substituteGroundFrameIndex = 0
 
     private let store = PetSessionStore()
-    private let claudeSessionDirectory = ClaudeSessionDirectory()
     private let spritePackRegistry = SpritePackRegistry()
+    private let configurationFile = ConfigurationFile.path()
+
+    private var contracts = AgentPetContracts.loaded(focusCompletion: .detaches)
+    private var lastConfigurationModification: Date?
 
     private var presencesBySessionId: [String: PetPresence] = [:]
     private var spriteImageCache: [SpriteImageCacheKey: NSImage] = [:]
     private var lastPetSessionsSignature: SessionsDirectorySignature?
-    private var lastClaudeSessionsSignature: SessionsDirectorySignature?
+    private var lastClaudeSessionsSignature: SessionSourceSignature?
     private var lastAnimationTimestamp = Date()
     private var timers: [Timer] = []
 
     func start() {
         PetPaths.createStateDirectoriesIfNeeded()
+        lastConfigurationModification = ConfigurationFile.modificationDate(of: configurationFile)
         reconcile(forceReload: true)
         scheduleTimers()
     }
 
-    func petViewDidReceiveLeftClick(sessionId: String) {
-        SessionFocuser.focus(tmuxTarget: presencesBySessionId[sessionId]?.tmuxTarget)
-        PetTurnState.hide(sessionId: sessionId)
-        beginDive(sessionId: sessionId)
+    func petViewDidReceiveLeftClick(sessionId petKey: String) {
+        if let focusRequest = presencesBySessionId[petKey]?.focusRequest {
+            contracts.focuser.focus(focusRequest)
+        }
+        hideSession(forPetKey: petKey)
+        beginDive(sessionId: petKey)
     }
 
-    func petViewDidReceiveRightClick(sessionId: String) {
-        PetTurnState.hide(sessionId: sessionId)
-        beginDive(sessionId: sessionId)
+    func petViewDidReceiveRightClick(sessionId petKey: String) {
+        hideSession(forPetKey: petKey)
+        beginDive(sessionId: petKey)
+    }
+
+    private func hideSession(forPetKey petKey: String) {
+        let memberSessionIds = presencesBySessionId[petKey]?.memberSessionIds ?? [petKey]
+        for memberSessionId in memberSessionIds {
+            PetTurnState.hide(sessionId: memberSessionId)
+        }
+    }
+
+    private func reloadConfigurationIfChanged() -> Bool {
+        let modification = ConfigurationFile.modificationDate(of: configurationFile)
+        guard modification != lastConfigurationModification else { return false }
+        lastConfigurationModification = modification
+        contracts = AgentPetContracts.loaded(focusCompletion: .detaches)
+        return true
     }
 
     private func scheduleTimers() {
@@ -62,14 +84,16 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func reconcile(forceReload: Bool) {
-        if spritePackRegistry.reloadChangedPacks() {
+        let configurationChanged = reloadConfigurationIfChanged()
+        let replacementLoader = configurationChanged || forceReload ? contracts.spritePackLoader : nil
+        if spritePackRegistry.reloadChangedPacks(using: replacementLoader) {
             spriteImageCache.removeAll()
         }
         let petSessionsSignature = SessionsDirectorySignature.current(directory: PetPaths.sessionsDirectory)
-        let claudeSessionsSignature = SessionsDirectorySignature.current(
-            directory: PetPaths.claudeSessionsDirectory
-        )
-        let petSessionsChanged = forceReload || petSessionsSignature != lastPetSessionsSignature
+        let claudeSessionsSignature = contracts.sessionSource.signature()
+        let petSessionsChanged = forceReload
+            || configurationChanged
+            || petSessionsSignature != lastPetSessionsSignature
         let claudeSessionsChanged = claudeSessionsSignature != lastClaudeSessionsSignature
         lastPetSessionsSignature = petSessionsSignature
         lastClaudeSessionsSignature = claudeSessionsSignature
@@ -83,52 +107,49 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
     }
 
+    private func displayItems(records: [PetSession]) -> [PetDisplayItem] {
+        contracts.displayPlanner.displayItems(
+            records: records,
+            claudeSessions: contracts.sessionSource.recordsBySessionId()
+        )
+    }
+
     private func refreshResolvedLabels() {
         guard !presencesBySessionId.isEmpty else { return }
-        let claudeSessions = claudeSessionDirectory.recordsBySessionId()
         let screenFrames = OverlayScreenFrames.current()
-        for record in store.list() {
-            guard let presence = presencesBySessionId[record.sessionId] else { continue }
-            let resolvedLabel = PetLabel.resolve(
-                session: record,
-                claudeSession: claudeSessions[record.sessionId]
-            )
-            guard resolvedLabel != presence.view.petAppearance.label else { continue }
-            presence.view.update(resolvedLabel: resolvedLabel)
+        for item in displayItems(records: store.list()) {
+            guard let presence = presencesBySessionId[item.petKey] else { continue }
+            guard item.label != presence.view.petAppearance.label else { continue }
+            presence.view.update(resolvedLabel: item.label)
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
     }
 
     private func applyRecords(_ records: [PetSession]) {
-        let claudeSessions = claudeSessionDirectory.recordsBySessionId()
-        let displayableRecords = records
-            .filter { record in
-                record.enabled
-                    && record.visible
-                    && ProcessLiveness.isAlive(session: record, claudeSession: claudeSessions[record.sessionId])
-            }
-            .sorted { leftRecord, rightRecord in leftRecord.updatedAt < rightRecord.updatedAt }
+        let items = displayItems(records: records)
 
-        let displayableSessionIds = Set(displayableRecords.map { record in record.sessionId })
-        for (sessionId, _) in presencesBySessionId where !displayableSessionIds.contains(sessionId) {
-            beginDive(sessionId: sessionId)
+        let displayablePetKeys = Set(items.map { item in item.petKey })
+        for (petKey, _) in presencesBySessionId where !displayablePetKeys.contains(petKey) {
+            beginDive(sessionId: petKey)
         }
 
         let screenFrames = OverlayScreenFrames.current()
-        for (laneIndex, record) in displayableRecords.enumerated() {
-            let claudeSession = claudeSessions[record.sessionId]
+        for (laneIndex, item) in items.enumerated() {
+            let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
             let spriteSheet = spritePackRegistry.sheet(forPackNamed: packName)
             let petAppearance = PetAppearance(
-                label: PetLabel.resolve(session: record, claudeSession: claudeSession),
+                label: item.label,
                 accent: record.resolvedAccent,
-                mood: record.mood,
-                message: record.message,
+                mood: item.mood,
+                message: item.message,
+                bubbleCaption: item.bubbleCaption,
+                labelPlacement: contracts.configuration.labelPlacement,
                 spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize)
             )
-            let presence = presencesBySessionId[record.sessionId]
+            let presence = presencesBySessionId[item.petKey]
                 ?? makePresence(
-                    sessionId: record.sessionId,
+                    sessionId: item.petKey,
                     petAppearance: petAppearance,
                     packName: packName,
                     spriteSheet: spriteSheet
@@ -137,15 +158,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             presence.view.update(petAppearance: petAppearance)
             presence.spritePackName = packName
             presence.spriteSheet = spriteSheet
-            presence.tmuxTarget = record.parsedTmuxTarget ?? claudeSession?.tmux.flatMap { rawTarget in
-                TmuxTarget(rawValue: rawTarget)
-            }
+            presence.focusRequest = item.focusRequest
+            presence.memberSessionIds = item.memberSessionIds
             presence.homeHorizontalCenter = LaneLayout.homeHorizontalCenter(
                 laneIndex: laneIndex,
-                laneCount: displayableRecords.count,
+                laneCount: items.count,
                 screenFrame: screenFrames.visibleFrame
             )
-            presencesBySessionId[record.sessionId] = presence
+            presencesBySessionId[item.petKey] = presence
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
     }
@@ -183,7 +203,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func sweepDeadSessions() {
-        let claudeSessions = claudeSessionDirectory.recordsBySessionId()
+        let claudeSessions = contracts.sessionSource.recordsBySessionId()
         for record in store.list() {
             let claudeSession = claudeSessions[record.sessionId]
             guard !ProcessLiveness.isAlive(session: record, claudeSession: claudeSession) else { continue }

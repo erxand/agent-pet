@@ -3,20 +3,26 @@
 A macOS overlay pet that appears along the bottom of the screen only when an enrolled coding
 agent session has finished its turn and is waiting on the user. Sessions opt in one at a time, with
 the `/pet` skill in Claude Code or the `/pet` command in pi. Nothing is global: a session that
-never ran `/pet` has no hooks, no state and no pet.
+never enrolled has no state and no pet, even when the hooks are installed for every session (see
+"`hook` dispatch"). With no config file, everything below is the default behavior; a config file
+only swaps in the alternatives listed under "Contracts".
 
 ## Layout
 
 ```
 agent-pet/
   DESIGN.md, README.md         this contract, and install + usage
-  Package.swift                swift-tools 5.9, one executable target `agent-pet`, macOS 14+
+  Package.swift                swift-tools 5.9, macOS 14+: library `AgentPetCore`, executable `agent-pet`, tests `AgentPetTests`
+  Sources/AgentPetCore/
+    Commands/                  one file per subcommand, plus flag parsing and feedback; AgentPetCommandLine is the entry point
+    Contracts/                 AgentPetConfiguration, ConfigurationFile, the contract protocols and their implementations, PetDisplayPlanner
+    Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
+    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking
+    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, PixelFont (nametag glyphs), TerminalSpriteRenderer
   Sources/agent-pet/
-    main.swift                 argv dispatch to the commands below
-    Commands/                  one file per subcommand, plus flag parsing and feedback
-    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run + color sync
+    main.swift                 hands argv and the overlay to AgentPetCommandLine
     Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
-    Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver
+  Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
   sprites/<pack>/              shipped sprite packs, see "Sprite packs"
@@ -30,6 +36,7 @@ agent-pet/
   sessions/<session_id>.json   one PetSession record per enrolled session
   sessions/<session_id>.lock   the flock file that serializes writers of that record
   sprites/<pack>/              installed sprite packs
+  config.json                  optional, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon stderr
   hooks.log                    one line per handled hook event
@@ -44,7 +51,7 @@ file on every write (temp file in the same dir, then rename).
 {"sessionId":"1dd88945-2a6c-4903-88f8-c8837c6cd8d3","enabled":true,"visible":false,
  "nickname":"evidence set","label":"evidence set pipelines","accent":"cyan","mood":"ready",
  "message":"MR ready for review","agent":"claude-code","tmuxTarget":"par:@1.%1","pid":71481,
- "sprite":"claude","activeSubagents":[{"id":"a184a0c2d9e1f3b47","startedAt":1790014201.4}],
+ "sprite":"claude","focusTarget":"pane:42","activeSubagents":[{"id":"a184a0c2d9e1f3b47","startedAt":1790014201.4}],
  "transcriptPath":"/Users/me/.claude/projects/-Users-me-repo/1dd88945-2a6c-4903-88f8-c8837c6cd8d3.jsonl",
  "transcriptScanOffset":2702079,"updatedAt":1790014288.12}
 ```
@@ -63,7 +70,13 @@ file on every write (temp file in the same dir, then rename).
   as alive until its `updatedAt` is 30 s old, so enrollment cannot lose a race with Claude Code writing the file.
   Absent on any other agent: treat as alive. `mood` is one of `ready`, `needsInput`, `blocked`.
 - `visible: true` is the only thing that makes a pet appear, `enabled: false` makes `show` a no-op, and deleting the
-  file removes the pet.
+  file removes the pet. In a group of several sessions, a visible `ready` member can still be held back while
+  another member works, see "Groups".
+- `busy` is optional and present only as `true`: the session is in the middle of a turn. `UserPromptSubmit`,
+  `PreToolUse` and `SubagentStart` set it, and a `Stop` with no active subagents left removes it. A record without
+  it, including every record from before this field, is not busy. A session is working while it is `busy` or
+  tracks any subagent. `busy` and `visible` are separate on purpose: a click or `hide` clears `visible` and leaves
+  `busy` alone, so a dismissed session that had finished counts as done, not as working.
 - `activeSubagents` holds one `TrackedSubagent` (`id`, the `agent_id`, and `startedAt`) for every background
   subagent the session has started and not yet finished. It defaults to empty when absent. A record from before
   this field still decodes: a legacy `activeSubagentIds` string array becomes entries whose `startedAt` is the
@@ -73,6 +86,15 @@ file on every write (temp file in the same dir, then rename).
   tracked under the synthetic id `unknown-<n>`, where `n` is the lowest number not already in the set: a start adds
   one, and a stop removes the most recently added `unknown-` id. A missing field therefore degrades to a counter
   instead of to no tracking at all.
+- `group`, `owner` and `enrolledAt` are optional and absent unless `--group` or `--owner` was passed. `group`
+  is the key of the pet the session belongs to; absent means the session id, which is the one pet per
+  session model. `owner` is `true` on the member flagged with `--owner`. `enrolledAt` is stamped once,
+  when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
+- `focusTarget` is optional and opaque: `--focus-target` stores it and the command focuser hands it on as
+  `AGENT_PET_FOCUS_TARGET`. agent-pet never interprets it.
+- `handledHookEvents` is optional and present only after a `SubagentStart` or `SubagentStop` without an
+  `agent_id`: one `{fingerprint, handledAt}` per such payload in the last 30 s, at most 16, so the same event
+  delivered twice is applied once. See "`hook` dispatch".
 - `transcriptPath` is the last `transcript_path` a hook payload carried, and `transcriptScanOffset` (default 0) is the
   byte offset in that file up to which task notifications were already read. Storing a different path resets the
   offset to 0.
@@ -100,7 +122,9 @@ about to be re-invoked, and its own `Stop` decides.
 Claude Code writes `~/.claude/sessions/<pid>.json` for every live session, carrying `pid`,
 `sessionId`, `cwd`, `name`, `nameSource`, `status`, `tmux` and `messagingSocketPath`.
 `ClaudeSessionDirectory` matches PetSession.sessionId to one of these by `sessionId` to fill in a
-missing label or tmux target. Never trust `status`, it goes stale.
+missing label or tmux target. Never trust `status`, it goes stale. Which directories are read is the
+SessionSource contract: by default only `~/.claude/sessions/`, and `sessionDirectories` in the config
+adds others, such as the `sessions/` directory of a second Claude config root.
 
 `ProcessLiveness.isAlive(session:claudeSession:)` is the one liveness rule, and the daemon sweep and
 the `status` table both call it, so they cannot disagree. A `preview-` record is always alive. A
@@ -119,19 +143,29 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    Resolution order: `--accent`, then the pack's declared `accent`, then the pack's dominant
    color, then `AccentColor.allCases[fnv1a(sessionId) % count]` when there is no installed pack.
 3. **Label** under the sprite: the resolved label, in a small bold monospaced font on a dark
-   rounded pill, with an accent-colored dot at the left.
+   rounded pill, with an accent-colored dot at the left. With `labelPlacement` `nametag` it sits
+   over the head instead, on a square dark tag with a 2 pt accent stripe along its bottom, in
+   `PixelFont`, a 3 by 5 pixel font drawn at 2 pt per pixel so it matches the sprite art. A label
+   with a character the font lacks is drawn in unantialiased 9 pt Menlo Bold on the same tag. With
+   `disambiguateLabels` on, two visible pets whose labels read the same (after the 28 character cut)
+   both get a space and the last 4 characters of their owner's session id, recomputed on every
+   redraw, so the suffix goes away when one of them hides.
 4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
    gets home x at `(i + 1) / (n + 1)` of the screen width and wanders within +/-120 px of home.
 
 ### Sprite assignment
 
 `SpritePackAssignment` runs inside `on` and `preview` whenever the record would otherwise have no
-`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/`), counts how many other enabled,
-alive records use each one, keeps the packs with the lowest count, and picks one of those at
-random. With fewer live sessions than packs every session gets a different pet; past that the
+`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/` plus the packs in the config's
+`spriteDirectories`) minus the `reservedSprites` of
+the config, counts how many other live pets use each one (a pet's sprite is its owner's, so a group
+counts once), keeps the packs with the lowest count, and picks one of those at random. A session
+that joins a group whose live owner already has a sprite takes that sprite instead, so the pet looks
+the same whichever member ends up owning it. A reserved pack is never picked at random, and with
+every pack reserved the record stays without `sprite`. With fewer live sessions than packs every session gets a different pet; past that the
 duplicates spread evenly. The pick is written into the record once, so a session keeps its pet
 across `show` and `hide`, and `/pet` on an already enrolled session keeps the pet it has. An
-explicit `--sprite` always wins, and with no packs installed the record stays without `sprite`
+explicit `--sprite` always wins, reserved or not, and with no packs installed the record stays without `sprite`
 and the daemon draws the compiled-in art.
 
 Right after the sprite is assigned or confirmed, `on` and `preview` fill the record's `accent`
@@ -170,38 +204,57 @@ eye `#1A1A1A`, highlight `#F5D0BF`, scarf `#2EE6D6`, scarfShade `#20A196`.
 ## CLI, one binary `agent-pet`
 
 All session-taking commands default `--session` to `$CLAUDE_CODE_SESSION_ID` and fail with exit 2
-and a one-line stderr message if neither is set. The identity flags `--nickname`, `--label`,
-`--accent`, `--agent`, `--tmux`, `--pid` and `--sprite` work on `on`, `show` and `preview` alike.
+and a one-line stderr message if neither is set. `--session` works from any shell; the tmux target is
+still resolved from the caller's `$TMUX_PANE` unless `--tmux` is passed. The identity flags
+`--nickname`, `--label`, `--accent`, `--agent`, `--tmux`, `--pid`, `--sprite`, `--focus-target`, `--group KEY`
+and the `--owner` switch work on `on`, `show` and `preview` alike. `--group` puts the session in the pet named
+KEY, and `--owner` makes it that pet's owner and clears `owner` on every other record of the group, see
+"Groups".
 
 | command | effect |
 |---|---|
 | `daemon` | run the overlay in the foreground (accessory app, no dock icon) |
 | `ensure-daemon` | kickstart the launchd agent when its plist exists, otherwise start `daemon` detached if `daemon.pid` is missing or dead; idempotent, see "Daemon lifecycle" |
-| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color |
+| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, visible false, `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID]` | visible false |
 | `remove [--session ID]` | delete the record |
-| `status` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid |
+| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
-| `focus [--session ID] [--no-client-switch]` | run the same `SessionFocuser.focus` a left click runs, so focusing can be tested from a shell; exit 2 when the record is missing or has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client |
+| `focus [--session ID] [--no-client-switch]` | run the configured Focuser the way a left click does, so focusing can be tested from a shell; exit 2 when the record is missing, or, with the `tmux-iterm` focuser, when it has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client. The CLI waits for a command focuser to finish |
 | `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
+| `render --pack NAME [--animation idle] [--frame N]` | print one frame to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, or N is not a frame of it |
+| `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 
 ## `hook` dispatch on `hook_event_name`
 
+Before anything else, a session with no record ends the hook: exit 0, no lock taken, no lock file, no
+`hooks.log` line, no state directory created. That is what makes it safe to install these hooks for every
+session in `settings.json`, beside or instead of the `/pet` skill hooks. A disabled record still counts as
+enrolled and goes through the table below.
+
 | event | action |
 |---|---|
 | any event whose payload has `transcript_path` | first store it as the record's `transcriptPath`, in its own locked write; a missing record is left alone |
-| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present); any left means `hide`, and do not ensure the daemon |
+| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means clear `busy` and `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present); any left means `hide` and keep `busy`, and do not ensure the daemon |
 | `Notification` with `notification_type` in `permission_prompt`, `agent_needs_input` | `show --mood needsInput`, whatever the subagent set holds |
-| `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id and hides, in one locked write |
+| `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id, sets `busy` and hides, in one locked write |
 | `SubagentStop` | scan and expire, then `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
-| `UserPromptSubmit` | `hide` only. The subagent set is left as it is, because a new prompt does not end a running subagent |
-| `PreToolUse` | `hide` |
+| `UserPromptSubmit` | set `busy` and `hide`, in one locked write. The subagent set is left as it is, because a new prompt does not end a running subagent |
+| `PreToolUse` | set `busy` and `hide` |
 | `SessionEnd` | `remove` |
 | anything else | nothing |
+
+A session that has both global hooks and `/pet` skill hooks sees every event twice. Every action above is
+idempotent for a repeated payload: show and hide land on the same state, a second `Stop` scans an already
+scanned transcript, and a `SubagentStart` or `SubagentStop` with an `agent_id` touches the same entry. The one
+exception was a subagent event without an `agent_id`, which counts with a synthetic `unknown-<n>` id. Such an
+event is fingerprinted (FNV-1a over the payload re-serialized with sorted keys) under the record lock, and a
+fingerprint already in `handledHookEvents` from the last 30 s changes nothing. Two different subagents
+without ids still count twice, because their payloads differ.
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
@@ -315,13 +368,50 @@ crash left every later hook updating records that nothing drew.
   leftward travel), random idle pauses of 1 to 3 s.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
-- Left click: focus the session, then hide. Right click: hide only. Focus is `SessionFocuser.focus`,
+- Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
   described under "Focusing a session".
+- What is on screen comes from `PetDisplayPlanner`: enabled, live records, oldest `updatedAt` first,
+  passed through the Grouping contract, keeping each group with at least one waiting member (see "Groups"). Each item
+  carries the owner (for sprite, accent and label), the mood, the waiting member's message, the bubble
+  caption, every member's session id, and the FocusRequest a click hands the Focuser. Without `group`
+  on any record every group is one session, so this is exactly one pet per visible session.
+- A click (either button) hides every member of the pet, not only the one that was focused.
 - The daemon polls `~/.agent-pet/sessions/` every 300 ms (mtime of the dir, then file contents on
   change) and reconciles windows to records. Liveness check every 5 s.
-- The same poll signs `~/.claude/sessions/` the same way. On change the daemon re-resolves every
+- The same poll signs every SessionSource directory the same way. On change the daemon re-resolves every
   visible pet's label and pushes it into the existing `PetView`, so a `/rename` shows up within one
   poll interval without recreating the window or restarting the animation.
+- The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
+  and reconciles every record again, so no restart is needed after editing it.
+
+### Groups
+
+Sessions that share a `group` share one pet. `SharedKeyGrouping` keys each record by `group`, else its
+session id, and the planner applies these rules to the live members of each key:
+
+- A group with no live member has no pet, and the 5 s sweep deletes dead records as before.
+- A visible `needsInput` or `blocked` member is waiting at once, whatever the other members are doing.
+- A visible `ready` member is waiting only when no live member is working, that is, no member is `busy`
+  and no member tracks a subagent. Until then the ready member stays visible in its record and the pet
+  stays hidden, so a ticket's dev, review and QA tabs do not interrupt while any of them is still at work.
+  When the last one finishes, the pet appears with the held `ready`. A member the user dismissed is not
+  visible and not `busy`, so it counts as done.
+- The pet is visible while any live member is waiting. The mood is the strongest among the waiting
+  members: `needsInput`, then `blocked`, then `ready`.
+- A group of one live member ignores the working rule and shows whenever it is visible, exactly as
+  before groups existed. Hooks never leave a lone session visible and working, so the rule would change
+  nothing there, and the exception makes that a guarantee for any record.
+- When the group has more than one live member, the bubble names the most recently updated waiting
+  member: its nickname, its label, its Claude session name, or else `#` and the last 4 characters of its
+  session id. The bubble then widens to hold the caption, and shows even for `ready`, which otherwise
+  has no bubble.
+- A click focuses the most recently updated waiting member, else the owner. `FocusRequest.group` and
+  so `AGENT_PET_GROUP` are the group key.
+- The owner is the live member flagged `owner`, else the live member with the earliest `enrolledAt`
+  (falling back to `updatedAt` for a record without it). The pet's sprite, accent and label come from
+  the owner, so when the owner exits the next member takes over on the next poll.
+- Subagent tracking stays per session: a member's running subagents hide that member, and they hold
+  back the `ready` of the others through the working rule above, never their `needsInput`.
 
 ### Emerge and dive
 
@@ -386,8 +476,10 @@ sprites/<pack-name>/
   with a shipped name is deleted and copied fresh, and an installed pack whose name is not shipped is left alone.
   To customize a shipped pack, copy it under a new name. Every installed pack is in the assignment pool, so adding
   a pet is adding a directory.
-- The daemon loads packs from `~/.agent-pet/sprites/<name>/` at startup and re-reads a pack when
-  its directory mtime changes. A pack that fails to parse logs one line and falls back to
+- The daemon loads packs from `~/.agent-pet/sprites/<name>/` and the config's `spriteDirectories` at
+  startup. Every reconcile tick (0.3 s) it lists those folders again, loads a pack that appeared, drops
+  one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
+  different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
@@ -395,7 +487,11 @@ sprites/<pack-name>/
 
 ## Focusing a session
 
-A left click on a pet, and the `focus` command, run the same `SessionFocuser.focus`.
+A left click on a pet, and the `focus` command, build a `FocusRequest` (session id, pid, focus target,
+group, agent, tmux target, and whether a client switch is allowed) and hand it to the configured Focuser.
+The click takes the tmux target from the record or else from the Claude session file; the `focus`
+command reads the record only. The default focuser is `tmux-iterm`, `TmuxItermFocuser`, which takes its
+tmux and terminal calls through two small protocols so tests can record them:
 
 1. `tmux select-window -t SESSION:@WINDOW`, then `tmux select-pane -t %PANE`.
 2. `tmux list-clients -F '#{client_tty}\t#{session_name}\t#{client_activity}'`, parsed into one record
@@ -419,6 +515,17 @@ selection in steps 1 to 3 already happened.
 
 Every tmux and osascript failure is ignored.
 
+### Command focuser
+
+With `"focuser": {"kind": "command", "command": [ARGV]}` a click runs ARGV instead, with no tmux and no
+AppleScript. The child inherits the daemon's environment plus `AGENT_PET_SESSION_ID`, `AGENT_PET_PID` (the
+record's pid, else the Claude session file's, else empty), `AGENT_PET_FOCUS_TARGET` (empty when unset),
+`AGENT_PET_GROUP` (the session id until grouping exists) and `AGENT_PET_AGENT`. Stdin, stdout and stderr are
+`/dev/null`. After 5 seconds it is terminated. The exit status is ignored except for one stderr line
+(`daemon.log` for a click) when it is not 0, when it timed out, or when it could not start. The daemon
+supervises the child on a background thread, so a slow command never stalls the animation; the `focus`
+command waits for it.
+
 ### Finding the tmux binary
 
 The daemon runs under launchd with a minimal `PATH`, so `/usr/bin/env tmux` failed for every call the
@@ -429,6 +536,9 @@ first `tmux` on `PATH`. When none of those exists every tmux call is a silent no
 `$TMUX_EXECUTABLE` also lets a test point the tool at a stub binary.
 
 ## Prompt bar color sync
+
+This is the ColorSync contract's default, `tmux-color`. `"colorSync": "none"` in the config turns every
+part of it off, for `on` and `off` alike.
 
 Claude Code has a per-session prompt bar color, set by
 `/color [red|blue|green|yellow|purple|orange|pink|cyan|default]` (binary 2.1.278 marks it
@@ -480,6 +590,74 @@ it makes no CLI calls at all. It enrolls with `--agent pi`, `--label` from the p
 auto-compaction or queued follow-up is left, and the pet stays hidden while tools and subagents run.
 `ui_prompt_start` and `ui_prompt_end` bracket blocking prompts, pi's closest thing to a permission prompt. Every call
 is fire and forget with a two second timeout, and failures log one `[agent-pet]` line without interrupting the turn.
+
+## Contracts
+
+Each contract is a protocol in `AgentPetCore` with today's behavior as the default implementation.
+`AgentPetContracts` builds the set from an `AgentPetConfiguration`, so a missing config file always gives
+the defaults.
+
+| contract | default | alternative | config key |
+|---|---|---|---|
+| Focuser | `tmux-iterm`, `TmuxItermFocuser` | `command`, `CommandFocuser` | `focuser` |
+| SessionSource | `~/.claude/sessions` | any list of directories | `sessionDirectories` |
+| ColorSync | `tmux-color`, `TmuxPromptBarColorSync` | `none`, `DisabledColorSync` | `colorSync` |
+| SpriteStrategy | least used at random, `LeastUsedSpriteStrategy` | the same with a reserved set left out of the random pick; `--sprite` is the explicit choice | `reservedSprites` |
+| Sprite pack folders | `~/.agent-pet/sprites` | that folder plus any list of folders searched after it | `spriteDirectories` |
+| PetGrouping | `SharedKeyGrouping`: one pet per session unless sessions name a `group` | `OnePetPerSessionGrouping` stays for comparison in tests | `--group` on the session, not config |
+| LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
+| LabelDisambiguation | off | last 4 of the owner's session id on duplicate labels | `disambiguateLabels` |
+
+Accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
+the placement and the disambiguation are decided in `AgentPetCore`, so they are testable without AppKit.
+
+## Configuration
+
+`~/.agent-pet/config.json`, or the file `AGENT_PET_CONFIG` names. It is read by every command that
+needs a contract and by the daemon, which reloads it on change. A missing file, unreadable JSON, a
+missing key, an unknown key and a bad value all mean the default for that key, never an error:
+
+```json
+{
+  "focuser": { "kind": "command", "command": ["/abs/path/focus-script"] },
+  "sessionDirectories": ["~/.claude/sessions", "~/.claude-*/sessions"],
+  "colorSync": "none",
+  "labelPlacement": "nametag",
+  "disambiguateLabels": true,
+  "reservedSprites": ["claude"],
+  "spriteDirectories": ["~/pets/prototypes"]
+}
+```
+
+- `focuser.kind` is `tmux-iterm` or `command`. `command` needs a non-empty `command` array whose first
+  entry is an absolute path, because launchd gives the daemon a minimal `PATH`.
+- `sessionDirectories` is a list of directories holding Claude Code session files. A leading `~`
+  expands to the home directory and `*`, `?` and `[...]` match within one path component. Later
+  directories never override a session id an earlier one already had. An empty list means the default.
+- `colorSync` is `tmux-color` or `none`.
+- `labelPlacement` is `pill` or `nametag`.
+- `disambiguateLabels` is a boolean, default `false`.
+- `reservedSprites` is a list of pack names never chosen by random assignment. Non-string and empty
+  entries are dropped.
+- `spriteDirectories` is a list of extra folders of sprite packs, each laid out like
+  `~/.agent-pet/sprites/`. `~` and the wildcards expand as in `sessionDirectories`. `SpritePackLoader`
+  searches `~/.agent-pet/sprites/` first and then these folders in order, and the first folder holding
+  a pack name wins, so an installed pack always beats one of the same name here. Its packs are
+  installed packs for every purpose: the random pool, `reservedSprites`, `packs`, `render --pack`,
+  `preview --sprite` and `on --sprite`. A folder that is missing, unreadable or not an absolute path
+  after expansion is skipped, and so is a clashing pack. The daemon logs each such problem once to
+  `daemon.log` and again only if it goes away and comes back. Non-string and empty entries are dropped.
+
+## Tests
+
+`swift test` runs `AgentPetTests`. The characterization tests run the built `agent-pet` binary in a
+temporary home (`HOME` and `CFFIXED_USER_HOME`, since `NSHomeDirectory` ignores `HOME`), with
+`TMUX_EXECUTABLE` pointing at a stub that records its arguments and a `daemon.pid` naming the test process,
+so no test reads or writes `~/.agent-pet` or `~/.claude`, calls `launchctl` or starts a daemon. The three
+tests that run a real `focus` with a client switch skip themselves while iTerm2, Terminal or Ghostty is
+running, so they can never move a real terminal. The contract tests drive the protocols in process with
+recording fakes. They were written against the code before the split into `AgentPetCore` and passed there
+first.
 
 ## Code rules for every file
 

@@ -1,3 +1,4 @@
+import AgentPetCore
 import AppKit
 
 final class PetWindow: NSWindow {

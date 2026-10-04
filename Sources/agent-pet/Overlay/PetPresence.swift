@@ -1,3 +1,4 @@
+import AgentPetCore
 import AppKit
 
 final class PetPresence {
@@ -7,7 +8,8 @@ final class PetPresence {
     let animator = PetAnimator()
 
     var homeHorizontalCenter: CGFloat = 0
-    var tmuxTarget: TmuxTarget?
+    var focusRequest: FocusRequest?
+    var memberSessionIds: [String] = []
     var spritePackName: String
     var spriteSheet: SpriteSheet
 
