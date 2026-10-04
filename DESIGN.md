@@ -83,6 +83,9 @@ file on every write (temp file in the same dir, then rename).
 - `held` is optional and present only as `true`, with `heldAt` (seconds since 1970) beside it: a hook wanted
   to show the pet but its pane was the one in front, so the pet stayed down. `release` decides later whether it
   comes up. Any hide, `off` and the start of a new turn drop it. See "Held back".
+- `waitingSince` is optional: when the session last started waiting on the user. Every show (`Stop`, a
+  `needsInput` notification, `show`) and every hold stamps it, a `release` keeps it, and a hide removes it. A record without it, including every
+  record from before this field and every `preview`, shows at once. See "Settling".
 - `activeSubagents` holds one `TrackedSubagent` (`id`, the `agent_id`, and `startedAt`) for every background
   subagent the session has started and not yet finished. It defaults to empty when absent. A record from before
   this field still decodes: a legacy `activeSubagentIds` string array becomes entries whose `startedAt` is the
@@ -128,7 +131,8 @@ about to be re-invoked, and its own `Stop` decides.
 Claude Code writes `~/.claude/sessions/<pid>.json` for every live session, carrying `pid`,
 `sessionId`, `cwd`, `name`, `nameSource`, `status`, `tmux` and `messagingSocketPath`.
 `ClaudeSessionDirectory` matches PetSession.sessionId to one of these by `sessionId` to fill in a
-missing label or tmux target. Never trust `status`, it goes stale. Which directories are read is the
+missing label or tmux target. Never trust `status` on its own, it goes stale. The one use of it is a
+`busy` written after a pet's `waitingSince`, which is fresh by definition, see "Settling". Which directories are read is the
 SessionSource contract: by default only `~/.claude/sessions/`, and `sessionDirectories` in the config
 adds others, such as the `sessions/` directory of a second Claude config root.
 
@@ -419,9 +423,10 @@ crash left every later hook updating records that nothing drew.
 - A click (either button) hides every member of the pet, not only the one that was focused.
 - The daemon polls `~/.agent-pet/sessions/` every 300 ms (mtime of the dir, then file contents on
   change) and reconciles windows to records. Liveness check every 5 s.
-- The same poll signs every SessionSource directory the same way. On change the daemon re-resolves every
-  visible pet's label and pushes it into the existing `PetView`, so a `/rename` shows up within one
-  poll interval without recreating the window or restarting the animation.
+- The same poll signs every SessionSource directory the same way. On change the daemon reconciles every
+  record again, which re-resolves every visible pet's label and pushes it into the existing `PetView`, so a
+  `/rename` shows up within one poll interval without recreating the window or restarting the animation, and
+  a session that went `busy` is seen as well (see "Settling").
 - The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
   and reconciles every record again, so no restart is needed after editing it.
 
@@ -440,6 +445,9 @@ record's `focusTarget` is the one in front, the record keeps the new mood and me
 (enabled, not busy, no subagents) gets its pet; past S, staying on the pane counted as seeing it, so the hold is
 dropped and nothing comes up for that turn. A prompt in between (`UserPromptSubmit` hides, and so drops the
 hold) also keeps it down. The `show` command never holds back: it is a direct request.
+
+A hold stamps `waitingSince` like a show does, and a release keeps it, so a released pet still settles from the
+moment its session started waiting and a `!` command since then still keeps it down (see "Settling").
 
 Because the integration writes the file before it runs `release`, a hook deciding at the same moment either
 still sees the old pane and holds (which the `release` then answers) or already sees the new one and shows.
@@ -472,6 +480,33 @@ session id, and the planner applies these rules to the live members of each key:
   the owner, so when the owner exits the next member takes over on the next poll.
 - Subagent tracking stays per session: a member's running subagents hide that member, and they hold
   back the `ready` of the others through the working rule above, never their `needsInput`.
+
+### Settling
+
+A session that has just started waiting often stops again within a moment: a message queued while Claude worked
+is submitted about 0.1 s after the `Stop` that ends the turn (a `UserPromptSubmit` follows), and a `!` command
+queued the same way runs right after it. So the planner holds a pet back until its session has stayed waiting for
+`settleSeconds` (default 1 s, `AgentPetConfiguration.defaultSettleSeconds`, config key `settleSeconds`), and one
+that stops waiting inside that time never comes up at all. The hooks stay instant and nothing sleeps: the hook
+only stamps `waitingSince`, and the daemon decides.
+
+- A visible member whose `waitingSince` is less than `settleSeconds` old is treated as not visible, unless its pet
+  is already up (emerging or grounded, not diving). The delay only keeps a pet from coming up; it never takes one
+  down. A pet that is diving is not up, so a `Stop` during a dive waits out the delay too.
+- `needsInput` settles the same way. A permission prompt is answered by a person, which takes longer than a
+  second, so the delay costs it nothing, and a prompt that a hook or an auto mode answers at once never flashes a
+  pet. One rule for every mood is also easier to reason about.
+- A `!` command (Claude Code's bash mode) fires no hook at all, typed or queued: `hooks.log` shows the `Stop`
+  before it and the `Stop` after Claude's reply, nothing between. Claude Code does write `status: "busy"` to its
+  own session file within about 0.1 s of the command starting, and `idle` when it is done. So a visible `ready`
+  member whose Claude session file says `busy` with a `statusUpdatedAt` at or after its `waitingSince` is treated
+  as not visible and as working, whether its pet is up or not: it holds back the `ready` of its group and an
+  up pet dives. A `busy` written before `waitingSince` is the turn that just ended and is ignored. `needsInput`
+  is exempt, because a subagent's permission prompt arrives while the main turn is still `busy`.
+- The daemon re-plans on any change to the pet records, to a Claude session file (so a `busy` is seen within one
+  poll), and once the earliest settling pet is due (`nextSettleDeadline`), so a pet comes up between
+  `settleSeconds` and `settleSeconds` plus one poll interval after its `Stop`.
+- `settleSeconds` 0 turns the delay off. The `busy` rule still applies.
 
 ### Emerge and dive
 
@@ -679,6 +714,7 @@ the defaults.
 | PetGrouping | `SharedKeyGrouping`: one pet per session unless sessions name a `group` | `OnePetPerSessionGrouping` stays for comparison in tests | `--group` on the session, not config |
 | LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
 | LabelDisambiguation | off | last 4 of the owner's session id on duplicate labels | `disambiguateLabels` |
+| Settle delay | 1 s | any number of seconds, 0 for none | `settleSeconds` |
 
 Accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
 the placement and the disambiguation are decided in `AgentPetCore`, so they are testable without AppKit.
@@ -697,7 +733,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "labelPlacement": "nametag",
   "disambiguateLabels": true,
   "reservedSprites": ["claude"],
-  "spriteDirectories": ["~/pets/prototypes"]
+  "spriteDirectories": ["~/pets/prototypes"],
+  "settleSeconds": 1
 }
 ```
 
@@ -719,6 +756,9 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   `preview --sprite` and `on --sprite`. A folder that is missing, unreadable or not an absolute path
   after expansion is skipped, and so is a clashing pack. The daemon logs each such problem once to
   `daemon.log` and again only if it goes away and comes back. Non-string and empty entries are dropped.
+
+- `settleSeconds` is a number of seconds, default `1`: how long a session must stay waiting before its pet
+  comes up, see "Settling". `0` turns the delay off. A negative or non-number value means the default.
 
 ## Tests
 

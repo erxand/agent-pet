@@ -85,7 +85,8 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "labelPlacement": "nametag",
   "disambiguateLabels": true,
   "reservedSprites": ["claude"],
-  "spriteDirectories": ["~/Library/Mobile Documents/com~apple~CloudDocs/pets"]
+  "spriteDirectories": ["~/Library/Mobile Documents/com~apple~CloudDocs/pets"],
+  "settleSeconds": 1
 }
 ```
 
@@ -98,6 +99,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id |
 | `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
 | `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
+| `settleSeconds` | `1` | how long a session must stay waiting before its pet comes up, so a queued message or `!` command that starts right after Claude finishes never flashes a pet. `0` shows at once |
 
 The daemon rereads the file when it changes, so there is nothing to restart.
 

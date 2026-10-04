@@ -87,6 +87,22 @@ struct PetLifecycleTests {
         #expect(heldAt >= before - 1)
     }
 
+    @Test func aReleasedPetSettlesFromWhenItsSessionStartedWaiting() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(enrolledOnPane())
+        try writeFocus(sandbox, target: paneTarget)
+        try sandbox.hook(RecordFixtures.hookPayload("Stop"))
+        let held = try #require(sandbox.record(RecordFixtures.sessionId))
+        let waitingSince = try #require(held["waitingSince"] as? Double)
+        #expect(held["heldAt"] as? Double == waitingSince)
+
+        try writeFocus(sandbox, target: otherPaneTarget)
+        try sandbox.run(["release", "--focus-target", paneTarget, "--grace", "10"])
+        let released = try #require(sandbox.record(RecordFixtures.sessionId))
+        #expect(released["visible"] as? Bool == true)
+        #expect(released["waitingSince"] as? Double == waitingSince)
+    }
+
     @Test func leavingWithinTheGraceReleasesThePet() throws {
         let sandbox = try Sandbox()
         try sandbox.writeRecord(enrolledOnPane(["held": true, "heldAt": Date().timeIntervalSince1970 - 3]))

@@ -111,6 +111,7 @@ struct GroupCommandTests {
             outputs.append(run.standardOutput)
             var record = try #require(sandbox.record(RecordFixtures.sessionId))
             record.removeValue(forKey: "updatedAt")
+            #expect(record.removeValue(forKey: "waitingSince") is Double)
             records.append(record)
             let status = try statusEntries(sandbox)[RecordFixtures.sessionId]
             #expect(status?["group"] as? String == RecordFixtures.sessionId)

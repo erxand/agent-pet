@@ -41,7 +41,11 @@ package struct AgentPetContracts {
     }
 
     package var displayPlanner: PetDisplayPlanner {
-        PetDisplayPlanner(grouping: grouping, disambiguatesLabels: configuration.disambiguatesLabels)
+        PetDisplayPlanner(
+            grouping: grouping,
+            disambiguatesLabels: configuration.disambiguatesLabels,
+            settleSeconds: configuration.settleSeconds
+        )
     }
 
     package static func loaded(focusCompletion: FocusCompletion = .waits) -> AgentPetContracts {
