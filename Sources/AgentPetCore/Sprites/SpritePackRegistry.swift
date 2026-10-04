@@ -1,12 +1,18 @@
 import Foundation
 
 package final class SpritePackRegistry {
-    private let loader: SpritePackLoader
+    private var loader: SpritePackLoader
     private let fallbackSheet: SpriteSheet
     private let reportFailure: (String) -> Void
 
     private var sheetsByPackName: [String: SpriteSheet] = [:]
-    private var directoryModificationByPackName: [String: Date] = [:]
+    private var packDirectoryStateByPackName: [String: PackDirectoryState] = [:]
+    private var reportedDirectoryIssues: Set<String> = []
+
+    private struct PackDirectoryState: Equatable {
+        let path: String
+        let modification: Date?
+    }
 
     package init(
         loader: SpritePackLoader = SpritePackLoader(),
@@ -23,30 +29,38 @@ package final class SpritePackRegistry {
         return sheetsByPackName[resolvedName] ?? fallbackSheet
     }
 
-    package func reloadChangedPacks() -> Bool {
+    /// Rescans every pack folder and reloads the packs whose directory moved or changed. Pass a
+    /// loader when the configuration changed, so new `spriteDirectories` take effect at once.
+    package func reloadChangedPacks(using replacementLoader: SpritePackLoader? = nil) -> Bool {
+        if let replacementLoader { loader = replacementLoader }
+        reportNewDirectoryIssues()
         var anythingChanged = false
         var seenPackNames: Set<String> = []
-        for packName in loader.availablePackNames() {
+        for (packName, packDirectory) in loader.packDirectoriesByName() {
             seenPackNames.insert(packName)
-            let currentModification = loader.directoryModification(forPackNamed: packName)
-            if let knownModification = directoryModificationByPackName[packName],
-               knownModification == currentModification {
-                continue
-            }
-            if let currentModification {
-                directoryModificationByPackName[packName] = currentModification
-            } else {
-                directoryModificationByPackName.removeValue(forKey: packName)
-            }
+            let currentState = PackDirectoryState(
+                path: packDirectory.standardizedFileURL.path,
+                modification: SpritePackLoader.modification(of: packDirectory)
+            )
+            if packDirectoryStateByPackName[packName] == currentState { continue }
+            packDirectoryStateByPackName[packName] = currentState
             applyOutcome(loader.load(packNamed: packName), packName: packName)
             anythingChanged = true
         }
-        for knownPackName in sheetsByPackName.keys where !seenPackNames.contains(knownPackName) {
-            sheetsByPackName.removeValue(forKey: knownPackName)
-            directoryModificationByPackName.removeValue(forKey: knownPackName)
-            anythingChanged = true
+        for knownPackName in Set(sheetsByPackName.keys).union(packDirectoryStateByPackName.keys)
+        where !seenPackNames.contains(knownPackName) {
+            if sheetsByPackName.removeValue(forKey: knownPackName) != nil { anythingChanged = true }
+            packDirectoryStateByPackName.removeValue(forKey: knownPackName)
         }
         return anythingChanged
+    }
+
+    private func reportNewDirectoryIssues() {
+        let currentIssues = loader.directoryIssues()
+        for issue in currentIssues where !reportedDirectoryIssues.contains(issue) {
+            reportFailure(issue)
+        }
+        reportedDirectoryIssues = Set(currentIssues)
     }
 
     private func applyOutcome(_ outcome: SpritePackLoader.LoadOutcome, packName: String) {

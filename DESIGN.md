@@ -156,7 +156,8 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
 ### Sprite assignment
 
 `SpritePackAssignment` runs inside `on` and `preview` whenever the record would otherwise have no
-`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/`) minus the `reservedSprites` of
+`sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/` plus the packs in the config's
+`spriteDirectories`) minus the `reservedSprites` of
 the config, counts how many other live pets use each one (a pet's sprite is its owner's, so a group
 counts once), keeps the packs with the lowest count, and picks one of those at random. A session
 that joins a group whose live owner already has a sprite takes that sprite instead, so the pet looks
@@ -475,8 +476,10 @@ sprites/<pack-name>/
   with a shipped name is deleted and copied fresh, and an installed pack whose name is not shipped is left alone.
   To customize a shipped pack, copy it under a new name. Every installed pack is in the assignment pool, so adding
   a pet is adding a directory.
-- The daemon loads packs from `~/.agent-pet/sprites/<name>/` at startup and re-reads a pack when
-  its directory mtime changes. A pack that fails to parse logs one line and falls back to
+- The daemon loads packs from `~/.agent-pet/sprites/<name>/` and the config's `spriteDirectories` at
+  startup. Every reconcile tick (0.3 s) it lists those folders again, loads a pack that appeared, drops
+  one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
+  different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
@@ -600,6 +603,7 @@ the defaults.
 | SessionSource | `~/.claude/sessions` | any list of directories | `sessionDirectories` |
 | ColorSync | `tmux-color`, `TmuxPromptBarColorSync` | `none`, `DisabledColorSync` | `colorSync` |
 | SpriteStrategy | least used at random, `LeastUsedSpriteStrategy` | the same with a reserved set left out of the random pick; `--sprite` is the explicit choice | `reservedSprites` |
+| Sprite pack folders | `~/.agent-pet/sprites` | that folder plus any list of folders searched after it | `spriteDirectories` |
 | PetGrouping | `SharedKeyGrouping`: one pet per session unless sessions name a `group` | `OnePetPerSessionGrouping` stays for comparison in tests | `--group` on the session, not config |
 | LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
 | LabelDisambiguation | off | last 4 of the owner's session id on duplicate labels | `disambiguateLabels` |
@@ -620,7 +624,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "colorSync": "none",
   "labelPlacement": "nametag",
   "disambiguateLabels": true,
-  "reservedSprites": ["claude"]
+  "reservedSprites": ["claude"],
+  "spriteDirectories": ["~/pets/prototypes"]
 }
 ```
 
@@ -634,6 +639,14 @@ missing key, an unknown key and a bad value all mean the default for that key, n
 - `disambiguateLabels` is a boolean, default `false`.
 - `reservedSprites` is a list of pack names never chosen by random assignment. Non-string and empty
   entries are dropped.
+- `spriteDirectories` is a list of extra folders of sprite packs, each laid out like
+  `~/.agent-pet/sprites/`. `~` and the wildcards expand as in `sessionDirectories`. `SpritePackLoader`
+  searches `~/.agent-pet/sprites/` first and then these folders in order, and the first folder holding
+  a pack name wins, so an installed pack always beats one of the same name here. Its packs are
+  installed packs for every purpose: the random pool, `reservedSprites`, `packs`, `render --pack`,
+  `preview --sprite` and `on --sprite`. A folder that is missing, unreadable or not an absolute path
+  after expansion is skipped, and so is a clashing pack. The daemon logs each such problem once to
+  `daemon.log` and again only if it goes away and comes back. Non-string and empty entries are dropped.
 
 ## Tests
 

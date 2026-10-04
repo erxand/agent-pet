@@ -83,7 +83,8 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "colorSync": "none",
   "labelPlacement": "nametag",
   "disambiguateLabels": true,
-  "reservedSprites": ["claude"]
+  "reservedSprites": ["claude"],
+  "spriteDirectories": ["~/Library/Mobile Documents/com~apple~CloudDocs/pets"]
 }
 ```
 
@@ -95,6 +96,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `labelPlacement` | `"pill"` | `nametag` puts the label over the pet's head on a dark tag in a pixel font, readable on any desktop |
 | `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id |
 | `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
+| `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
 
 The daemon rereads the file when it changes, so there is nothing to restart.
 
@@ -267,6 +269,11 @@ each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling
 `seon` or `tinowl` are overwritten. To customize a shipped pack, copy it under a new name and
 edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
 random pool, so dropping a new directory in is all it takes to add a pet.
+
+To keep packs somewhere else (prototypes, your own creatures, a folder synced through iCloud
+Drive), name the folder in `spriteDirectories` in the config. Its packs count as installed
+everywhere, and a pack added there later is picked up without a restart. When two folders hold
+a pack with the same name, `~/.agent-pet/sprites/` wins, then the folders in the order listed.
 
 ## Troubleshooting
 

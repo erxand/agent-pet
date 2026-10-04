@@ -30,6 +30,7 @@ package struct AgentPetConfiguration: Equatable {
     package var labelPlacement: LabelPlacement
     package var disambiguatesLabels: Bool
     package var reservedSprites: [String]
+    package var spriteDirectories: [String]
 
     package init(
         focuser: FocuserConfiguration,
@@ -37,7 +38,8 @@ package struct AgentPetConfiguration: Equatable {
         colorSync: ColorSyncKind,
         labelPlacement: LabelPlacement = .pill,
         disambiguatesLabels: Bool = false,
-        reservedSprites: [String] = []
+        reservedSprites: [String] = [],
+        spriteDirectories: [String] = []
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -45,6 +47,7 @@ package struct AgentPetConfiguration: Equatable {
         self.labelPlacement = labelPlacement
         self.disambiguatesLabels = disambiguatesLabels
         self.reservedSprites = reservedSprites
+        self.spriteDirectories = spriteDirectories
     }
 }
 
@@ -85,6 +88,7 @@ package enum ConfigurationFile {
         }
         if let disambiguatesLabels = raw.disambiguateLabels { configuration.disambiguatesLabels = disambiguatesLabels }
         if let reservedSprites = raw.reservedSprites { configuration.reservedSprites = reservedSprites }
+        if let spriteDirectories = raw.spriteDirectories { configuration.spriteDirectories = spriteDirectories }
         return configuration
     }
 
@@ -129,6 +133,7 @@ private struct RawConfiguration: Decodable {
     let labelPlacement: String?
     let disambiguateLabels: Bool?
     let reservedSprites: [String]?
+    let spriteDirectories: [String]?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -137,6 +142,7 @@ private struct RawConfiguration: Decodable {
         case labelPlacement
         case disambiguateLabels
         case reservedSprites
+        case spriteDirectories
     }
 
     init(from decoder: Decoder) throws {
@@ -151,6 +157,9 @@ private struct RawConfiguration: Decodable {
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?
             .compactMap { entry in entry.value }
             .filter { packName in !packName.isEmpty }
+        spriteDirectories = (try? container.decodeIfPresent([LenientString].self, forKey: .spriteDirectories))?
+            .compactMap { entry in entry.value }
+            .filter { path in !path.isEmpty }
     }
 }
 

@@ -12,6 +12,7 @@ package struct AgentPetContracts {
     package let colorSync: ColorSync
     package let spriteStrategy: SpriteStrategy
     package let grouping: PetGrouping
+    package let spritePackLoader: SpritePackLoader
 
     package init(configuration: AgentPetConfiguration, focusCompletion: FocusCompletion) {
         self.configuration = configuration
@@ -29,8 +30,11 @@ package struct AgentPetContracts {
         case .none:
             colorSync = DisabledColorSync()
         }
+        let spritePackLoader = SpritePackLoader(extraDirectoryPaths: configuration.spriteDirectories)
+        self.spritePackLoader = spritePackLoader
         spriteStrategy = LeastUsedSpriteStrategy(
             sessionSource: sessionSource,
+            loader: spritePackLoader,
             reservedPackNames: configuration.reservedSprites
         )
         grouping = SharedKeyGrouping()

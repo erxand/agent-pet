@@ -84,10 +84,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func reconcile(forceReload: Bool) {
-        if spritePackRegistry.reloadChangedPacks() {
+        let configurationChanged = reloadConfigurationIfChanged()
+        let replacementLoader = configurationChanged || forceReload ? contracts.spritePackLoader : nil
+        if spritePackRegistry.reloadChangedPacks(using: replacementLoader) {
             spriteImageCache.removeAll()
         }
-        let configurationChanged = reloadConfigurationIfChanged()
         let petSessionsSignature = SessionsDirectorySignature.current(directory: PetPaths.sessionsDirectory)
         let claudeSessionsSignature = contracts.sessionSource.signature()
         let petSessionsChanged = forceReload

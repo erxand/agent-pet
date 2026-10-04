@@ -23,26 +23,102 @@ package struct SpritePackLoader {
     }
 
     private let packsDirectory: URL
+    private let extraDirectoryPaths: [String]
+    private let homeDirectory: URL
     private let fileManager = FileManager.default
 
-    package init(packsDirectory: URL = PetPaths.spritesDirectory) {
+    /// `packsDirectory` is `~/.agent-pet/sprites`. `extraDirectoryPaths` are the config's
+    /// `spriteDirectories`, searched after it in order; the first folder that holds a pack name wins.
+    package init(
+        packsDirectory: URL = PetPaths.spritesDirectory,
+        extraDirectoryPaths: [String] = ConfigurationFile.load().spriteDirectories,
+        homeDirectory: URL = PetPaths.homeDirectory
+    ) {
         self.packsDirectory = packsDirectory
+        self.extraDirectoryPaths = extraDirectoryPaths
+        self.homeDirectory = homeDirectory
     }
 
     package func availablePackNames() -> [String] {
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: packsDirectory,
-            includingPropertiesForKeys: [.isDirectoryKey]
-        ) else { return [] }
-        return entries
-            .filter { entryURL in isDirectory(entryURL) }
-            .map { entryURL in entryURL.lastPathComponent }
-            .sorted()
+        scan().directoryByPackName.keys.sorted()
+    }
+
+    /// Every loadable pack name and the folder it is read from, after the clash rule.
+    package func packDirectoriesByName() -> [String: URL] {
+        scan().directoryByPackName
+    }
+
+    /// Problems with the extra folders: a folder that is missing or unreadable, and a pack name that
+    /// an earlier folder already holds. Each is one log line; the caller decides how often to say it.
+    package func directoryIssues() -> [String] {
+        scan().issues
+    }
+
+    package func directory(forPackNamed packName: String) -> URL {
+        scan(lookingFor: packName).directoryByPackName[packName]
+            ?? packsDirectory.appendingPathComponent(packName, isDirectory: true)
     }
 
     package func directoryModification(forPackNamed packName: String) -> Date? {
-        let attributes = try? fileManager.attributesOfItem(atPath: directory(forPackNamed: packName).path)
+        SpritePackLoader.modification(of: directory(forPackNamed: packName))
+    }
+
+    package static func modification(of directoryURL: URL) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: directoryURL.path)
         return attributes?[.modificationDate] as? Date
+    }
+
+    private struct Scan {
+        var directoryByPackName: [String: URL] = [:]
+        var issues: [String] = []
+    }
+
+    private func scan(lookingFor wantedPackName: String? = nil) -> Scan {
+        var result = Scan()
+        var seenRootPaths: Set<String> = []
+        for (rootIndex, root) in searchRoots().enumerated() {
+            if let rootURL = root.url, !seenRootPaths.insert(rootURL.standardizedFileURL.path).inserted { continue }
+            guard let rootURL = root.url, let entries = try? fileManager.contentsOfDirectory(
+                at: rootURL,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            ) else {
+                if rootIndex > 0 {
+                    result.issues.append("agent-pet: sprite directory \(root.configuredPath) is missing or unreadable, skipped")
+                }
+                continue
+            }
+            for entryURL in entries.sorted(by: { first, second in first.lastPathComponent < second.lastPathComponent })
+            where isDirectory(entryURL) {
+                let packName = entryURL.lastPathComponent
+                if let winner = result.directoryByPackName[packName] {
+                    result.issues.append(
+                        "agent-pet: sprite pack \(packName) in \(root.configuredPath) is ignored, \(winner.path) has the same name"
+                    )
+                    continue
+                }
+                result.directoryByPackName[packName] = entryURL
+                if packName == wantedPackName { return result }
+            }
+        }
+        return result
+    }
+
+    private struct SearchRoot {
+        let url: URL?
+        let configuredPath: String
+    }
+
+    private func searchRoots() -> [SearchRoot] {
+        var roots = [SearchRoot(url: packsDirectory, configuredPath: packsDirectory.path)]
+        for configuredPath in extraDirectoryPaths {
+            let expanded = SessionDirectoryPattern.expand(configuredPath, homeDirectory: homeDirectory)
+            if expanded.isEmpty {
+                roots.append(SearchRoot(url: nil, configuredPath: configuredPath))
+                continue
+            }
+            roots += expanded.map { url in SearchRoot(url: url, configuredPath: configuredPath) }
+        }
+        return roots
     }
 
     package func load(packNamed packName: String) -> LoadOutcome {
@@ -87,10 +163,6 @@ package struct SpritePackLoader {
         return .loaded(
             LoadedSpritePack(sheet: sheet, declaredAccent: declaredAccent, unknownAccentName: unknownAccentName)
         )
-    }
-
-    private func directory(forPackNamed packName: String) -> URL {
-        packsDirectory.appendingPathComponent(packName, isDirectory: true)
     }
 
     private func isDirectory(_ entryURL: URL) -> Bool {

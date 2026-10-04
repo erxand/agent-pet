@@ -65,10 +65,11 @@ enum PacksCommand {
         for pet in livePets {
             livePetsByPack[pet.owner?.sprite ?? SpritePackLoader.defaultPackName, default: 0] += 1
         }
-        return SpritePackLoader().availablePackNames().map { packName in
+        let loader = contracts.spritePackLoader
+        return loader.availablePackNames().map { packName in
             PackEntry(
                 name: packName,
-                accent: SpritePackAccent.accent(forPackNamed: packName)?.rawValue,
+                accent: SpritePackAccent.accent(forPackNamed: packName, loader: loader)?.rawValue,
                 reserved: reserved.contains(packName),
                 livePets: livePetsByPack[packName] ?? 0
             )
