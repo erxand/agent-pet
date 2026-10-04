@@ -22,6 +22,8 @@ public enum AgentPetCommandLine {
             return SessionCommands.show(flags: flags)
         case .hide:
             return SessionCommands.hide(flags: flags)
+        case .release:
+            return SessionCommands.release(flags: flags)
         case .remove:
             return SessionCommands.remove(flags: flags)
         case .status:

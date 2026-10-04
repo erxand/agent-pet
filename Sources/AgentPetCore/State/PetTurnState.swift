@@ -2,10 +2,12 @@ import Foundation
 
 package struct PetRecordSnapshot {
     package let visible: Bool
+    package let held: Bool
     package let activeSubagentCount: Int
 
     init(record: PetSession?) {
         visible = record?.visible ?? false
+        held = record?.held == true
         activeSubagentCount = record?.activeSubagents.count ?? 0
     }
 }
@@ -50,10 +52,21 @@ enum SessionEndReason: String {
 }
 
 package enum PetTurnState {
+    /// Shows the pet unconditionally: the `show` command, which a person or an integration asked for.
     @discardableResult
     static func show(sessionId: String, mood: PetMood?, message: String?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
             markVisible(&record, mood: mood, message: message)
+            return PetRecordSnapshot(record: record)
+        }
+    }
+
+    /// Shows the pet for a hook, unless its pane is the one in front: then it is held back until the
+    /// user leaves that pane (`release`), because he is already looking at it.
+    @discardableResult
+    static func showUnlessInFront(sessionId: String, mood: PetMood, message: String?) -> PetRecordSnapshot {
+        PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
+            markVisibleUnlessInFront(&record, mood: mood, message: message, focusedTarget: FocusedTarget.current())
             return PetRecordSnapshot(record: record)
         }
     }
@@ -70,7 +83,12 @@ package enum PetTurnState {
                 markHidden(&record)
             } else {
                 markDone(&record)
-                markVisible(&record, mood: mood, message: message)
+                markVisibleUnlessInFront(
+                    &record,
+                    mood: mood,
+                    message: message,
+                    focusedTarget: FocusedTarget.current()
+                )
             }
             return PetHookResult(record: record, cleanup: cleanup)
         }
@@ -108,6 +126,27 @@ package enum PetTurnState {
         }
     }
 
+    /// The user left the pane a pet was held back for. It comes up after all when the session still
+    /// wants him (enabled, not working, not already up) and, with a `grace`, when he left within
+    /// that many seconds of the hold: staying longer counts as having seen it. Otherwise the hold
+    /// is just dropped, so the pet stays down for the rest of that turn.
+    @discardableResult
+    static func release(sessionId: String, grace: TimeInterval? = nil) -> PetRecordSnapshot {
+        PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
+            guard var session = record, session.held == true else { return PetRecordSnapshot(record: record) }
+            let now = Date().timeIntervalSince1970
+            let leftInTime = grace.map { seconds in now - (session.heldAt ?? 0) < seconds } ?? true
+            session.held = nil
+            session.heldAt = nil
+            if leftInTime && session.enabled && !session.isWorking && !session.visible {
+                session.visible = true
+                session.updatedAt = Date().timeIntervalSince1970
+            }
+            record = session
+            return PetRecordSnapshot(record: record)
+        }
+    }
+
     @discardableResult
     static func remove(sessionId: String) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -139,7 +178,29 @@ package enum PetTurnState {
     private static func markVisible(_ record: inout PetSession?, mood: PetMood?, message: String?) {
         guard var session = record, session.enabled else { return }
         session.visible = true
+        session.held = nil
+        session.heldAt = nil
         session.mood = mood ?? session.mood
+        session.message = message
+        session.updatedAt = Date().timeIntervalSince1970
+        record = session
+    }
+
+    private static func markVisibleUnlessInFront(
+        _ record: inout PetSession?,
+        mood: PetMood,
+        message: String?,
+        focusedTarget: String?
+    ) {
+        guard var session = record, session.enabled else { return }
+        guard FocusedTarget.isInFront(session, focusedTarget: focusedTarget) else {
+            markVisible(&record, mood: mood, message: message)
+            return
+        }
+        session.visible = false
+        if session.held != true { session.heldAt = Date().timeIntervalSince1970 }
+        session.held = true
+        session.mood = mood
         session.message = message
         session.updatedAt = Date().timeIntervalSince1970
         record = session
@@ -158,9 +219,13 @@ package enum PetTurnState {
     }
 
     private static func markHidden(_ record: inout PetSession?) {
-        guard var session = record, session.visible else { return }
-        session.visible = false
-        session.updatedAt = Date().timeIntervalSince1970
+        guard var session = record, session.visible || session.held != nil else { return }
+        if session.visible {
+            session.visible = false
+            session.updatedAt = Date().timeIntervalSince1970
+        }
+        session.held = nil
+        session.heldAt = nil
         record = session
     }
 }
@@ -188,6 +253,8 @@ enum PetSubagentTracking {
             session.busy = true
             guard HookEventDeduplication.claim(identity: identity, in: &session, now: now) else {
                 session.visible = false
+                session.held = nil
+                session.heldAt = nil
                 record = session
                 return PetHookResult(record: record, cleanup: cleanup)
             }
@@ -200,6 +267,8 @@ enum PetSubagentTracking {
                 session.activeSubagents.append(TrackedSubagent(id: agentId, startedAt: now))
             }
             session.visible = false
+            session.held = nil
+            session.heldAt = nil
             session.updatedAt = now
             record = session
             return PetHookResult(record: record, cleanup: cleanup)

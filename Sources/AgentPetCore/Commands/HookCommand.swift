@@ -161,7 +161,7 @@ enum HookCommand {
         }
         switch notificationType {
         case .permissionPrompt, .workerPermissionPrompt, .agentNeedsInput, .elicitationDialog, .elicitationUrlDialog:
-            let snapshot = PetTurnState.show(sessionId: sessionId, mood: .needsInput, message: nil)
+            let snapshot = PetTurnState.showUnlessInFront(sessionId: sessionId, mood: .needsInput, message: nil)
             ensureDaemonWhenVisible(snapshot: snapshot)
             return snapshot
         case .idlePrompt:

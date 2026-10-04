@@ -26,7 +26,7 @@ enum SessionStartSource: String {
 /// shell, so the walk stops three levels up: a Claude started from another Claude's Bash tool sits
 /// further down than that from its parent, and must never take the parent's pet.
 /// The identity (label, sprite, accent, group, owner, focus target, pid) moves; the turn state
-/// (visible, busy, subagents, transcript) starts fresh, as it would for a new session.
+/// (visible, held, busy, subagents, transcript) starts fresh, as it would for a new session.
 enum PetSessionHandover {
     private static let maximumAncestorDepth = 3
     private static let firstUserProcessIdentifier: pid_t = 1
@@ -59,6 +59,8 @@ enum PetSessionHandover {
         var successor = previous
         successor.sessionId = sessionId
         successor.visible = false
+        successor.held = nil
+        successor.heldAt = nil
         successor.busy = nil
         successor.mood = .ready
         successor.message = nil

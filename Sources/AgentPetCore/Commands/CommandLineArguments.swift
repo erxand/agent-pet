@@ -7,6 +7,7 @@ enum CommandName: String, CaseIterable {
     case off
     case show
     case hide
+    case release
     case remove
     case status
     case hook
@@ -37,6 +38,7 @@ enum CommandFlag: String, CaseIterable {
     case pack = "--pack"
     case animation = "--animation"
     case frame = "--frame"
+    case grace = "--grace"
 }
 
 struct ParsedFlags {
@@ -84,7 +86,7 @@ enum ExitCode {
     static let usage: Int32 = 2
 }
 
-/// The records `hide` and `remove` act on: `--session`, else every record whose
+/// The records `hide`, `release` and `remove` act on: `--session`, else every record whose
 /// `focusTarget` is `--focus-target` (what a terminal knows about a pane), else every record whose
 /// `pid` is `--pid` (what knows the process, after a `/clear` changed its session id), else
 /// `$CLAUDE_CODE_SESSION_ID`. Nil when none of them is given.

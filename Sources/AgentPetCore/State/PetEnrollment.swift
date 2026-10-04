@@ -5,9 +5,11 @@ enum PetEnrollment {
         let enrolled = PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession in
             var enrolled = overrides.applied(to: record ?? PetSession.newlyEnrolled(sessionId: sessionId))
             // Re-running `on` on a live pet only changes who it is (a new label, say), so a pet that is
-            // up stays up. A new or a disabled record starts hidden.
+            // up, or held back, stays that way. A new or a disabled record starts hidden.
             if record?.enabled != true {
                 enrolled.visible = false
+                enrolled.held = nil
+                enrolled.heldAt = nil
             }
             enrolled.enabled = true
             if enrolled.sprite == nil {
@@ -33,6 +35,8 @@ enum PetEnrollment {
             guard var session = record else { return nil }
             session.enabled = false
             session.visible = false
+            session.held = nil
+            session.heldAt = nil
             session.updatedAt = Date().timeIntervalSince1970
             record = session
             return session
