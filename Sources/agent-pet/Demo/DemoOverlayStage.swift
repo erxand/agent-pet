@@ -84,6 +84,12 @@ final class DemoSpriteSheets {
         }
         return shippedRegistry?.sheet(forPackNamed: packName) ?? installedRegistry.sheet(forPackNamed: packName)
     }
+
+    func mascotImage(forPackNamed packName: String) -> NSImage? {
+        let sheet = sheet(forPackNamed: packName)
+        guard let frame = sheet.idle.first else { return nil }
+        return PixelRenderer.image(for: frame, palette: sheet.palette, scale: PetGeometry.spriteScale, facingLeft: false)
+    }
 }
 
 final class DemoOverlayStage: DemoStage {
@@ -177,7 +183,7 @@ final class DemoOverlayStage: DemoStage {
     func present(terminal: DemoTerminalCard?) {
         for panel in terminalPanels { panel.fadeOut() }
         guard let terminal else { return }
-        let panel = clickablePanel(DemoTerminalView(card: terminal))
+        let panel = clickablePanel(DemoTerminalView(card: terminal, mascot: spriteSheets.mascotImage(forPackNamed: terminal.mascotSprite)))
         terminalPanels.append(panel)
         let screenFrame = OverlayScreenFrames.current().visibleFrame
         panel.place(

@@ -38,7 +38,7 @@ package final class DemoTranscriptStage: DemoStage {
 
     package func present(terminal: DemoTerminalCard?) {
         guard let terminal else { return }
-        write("terminal: \(terminal.title), " + terminal.lines.joined(separator: " | "))
+        write("terminal: \(terminal.title), " + terminal.shownTexts.dropFirst().joined(separator: " | "))
     }
 
     package func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {

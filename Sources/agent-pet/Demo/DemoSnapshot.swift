@@ -223,7 +223,9 @@ enum DemoSnapshot {
             maximumWidth: snapshotScreenWidth
         )
         caption.progress = revealMomentInSeconds / (scene?.holdOffsetInSeconds ?? scene?.durationInSeconds ?? 1)
-        let terminal = revealStage.terminal.map { card in DemoTerminalView(card: card) }
+        let terminal = revealStage.terminal.map { card in
+            DemoTerminalView(card: card, mascot: spriteSheets.mascotImage(forPackNamed: card.mascotSprite))
+        }
         let pets = petViews(from: shownStage, spriteSheets: spriteSheets, diving: true)
         let cursor = DemoCursorView()
         let terminalSize = terminal?.preferredSize ?? .zero

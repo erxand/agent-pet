@@ -90,13 +90,52 @@ package struct DemoCursorCue: Equatable {
 
 package struct DemoTerminalCard: Equatable {
     package let title: String
-    package let lines: [String]
     package let accent: AccentColor
+    package let mascotSprite: String
+    package let productName: String
+    package let version: String
+    package let model: String
+    package let directory: String
+    package let userMessage: String
+    package let reply: String
+    package let statusLine: String
 
-    package init(title: String, lines: [String], accent: AccentColor) {
+    package init(
+        title: String,
+        accent: AccentColor,
+        mascotSprite: String,
+        productName: String,
+        version: String,
+        model: String,
+        directory: String,
+        userMessage: String,
+        reply: String,
+        statusLine: String
+    ) {
         self.title = title
-        self.lines = lines
         self.accent = accent
+        self.mascotSprite = mascotSprite
+        self.productName = productName
+        self.version = version
+        self.model = model
+        self.directory = directory
+        self.userMessage = userMessage
+        self.reply = reply
+        self.statusLine = statusLine
+    }
+
+    package static let userPrompt = ">"
+    package static let replyBullet = "\u{25CF}"
+    package static let inputChevron = "\u{276F}"
+
+    package var shownTexts: [String] {
+        [
+            title, productName, version, model, directory,
+            "\(DemoTerminalCard.userPrompt) \(userMessage)",
+            "\(DemoTerminalCard.replyBullet) \(reply)",
+            DemoTerminalCard.inputChevron,
+            statusLine
+        ]
     }
 }
 

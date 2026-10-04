@@ -69,13 +69,15 @@ package enum DemoScript {
                 DemoStep(offsetInSeconds: 3.2, action: .click(actorId: ActorId.deploy)),
                 DemoStep(offsetInSeconds: 3.7, action: .showTerminal(DemoTerminalCard(
                     title: "deploy",
-                    lines: [
-                        "~/api $ claude",
-                        "> Deploy the api to staging.",
-                        "Deployed. The health check passed.",
-                        ">"
-                    ],
-                    accent: .cyan
+                    accent: .cyan,
+                    mascotSprite: PackName.claude,
+                    productName: "Claude Code",
+                    version: "v2.0",
+                    model: "Opus",
+                    directory: "~/api",
+                    userMessage: "Deploy the api to staging.",
+                    reply: "Deployed. The health check passed.",
+                    statusLine: "dir: ~/api \u{00B7} model: opus"
                 ))),
                 DemoStep(offsetInSeconds: 4.3, action: .hideCursor),
                 DemoStep(offsetInSeconds: 6, action: .hideTerminal)

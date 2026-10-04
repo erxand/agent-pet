@@ -80,7 +80,7 @@ you what each scene shows:
   walks when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your
   input. A working agent has no pet.
 - A click on a pet brings the terminal tab of its session to the front. The demo shows this: a drawn
-  pixel cursor moves to a pet and clicks it, the pet dives, and a drawn terminal window appears. The
+  pixel cursor moves to a pet and clicks it, the pet dives, and a drawn picture of a Claude Code session appears. The
   cursor and the terminal are only pictures. The demo does not move your mouse pointer, and it does not
   open a real terminal. The demo pets have no session and ignore the mouse.
 

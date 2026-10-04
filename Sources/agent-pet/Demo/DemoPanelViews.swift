@@ -358,18 +358,32 @@ final class DemoTerminalView: DemoPanelView {
     private static let dotSide: CGFloat = 4 * unit
     private static let dotGap: CGFloat = 3 * unit
     private static let underlineHeight: CGFloat = 1 * unit
-    private static let lineGap: CGFloat = 4 * unit
-    private static let blockCursorGap: CGFloat = 2 * unit
+    private static let mascotGap: CGFloat = 8 * unit
+    private static let headerLineGap: CGFloat = 3 * unit
+    private static let sectionGap: CGFloat = 9 * unit
+    private static let messageGap: CGFloat = 5 * unit
+    private static let ruleGap: CGFloat = 4 * unit
+    private static let ruleHeight: CGFloat = 1 * unit
+    private static let ruleOpacity: CGFloat = 0.45
+    private static let wordGap: CGFloat = 6 * unit
     private static let minimumWidth: CGFloat = 240 * unit
     private static let dotAccents: [AccentColor] = [.red, .yellow, .green]
 
     let card: DemoTerminalCard
+    private let mascot: NSImage?
     private let titleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.smallPixelSide)
-    private let promptStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.bodyPixelSide)
-    private let lineStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private let productStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private let versionStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private let detailStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.smallPixelSide)
+    private let mutedBodyStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private let bodyStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
+    private var accentBodyStyle: DemoTextStyle {
+        DemoTextStyle(color: DemoPalette.accentColor(card.accent), pixelSide: DemoPanelFrame.bodyPixelSide)
+    }
 
-    init(card: DemoTerminalCard) {
+    init(card: DemoTerminalCard, mascot: NSImage?) {
         self.card = card
+        self.mascot = mascot
         super.init(frame: .zero)
         setFrameSize(computedSize())
     }
@@ -384,33 +398,108 @@ final class DemoTerminalView: DemoPanelView {
         DemoPixelPainter.size(of: card.title, style: titleStyle).height + DemoTerminalView.titleBarPadding * 2
     }
 
-    private var lineHeight: CGFloat {
-        DemoPixelPainter.size(of: "A", style: lineStyle).height
+    private var bodyLineHeight: CGFloat { DemoPixelPainter.size(of: "A", style: bodyStyle).height }
+
+    private var smallLineHeight: CGFloat { DemoPixelPainter.size(of: "A", style: detailStyle).height }
+
+    private var headerTextHeight: CGFloat {
+        bodyLineHeight + (DemoTerminalView.headerLineGap + smallLineHeight) * 2
     }
 
-    private func computedSize() -> CGSize {
-        let widest = card.lines.map { line in DemoPixelPainter.size(of: line, style: lineStyle).width }.max() ?? 0
-        let contentWidth = max(widest + DemoTerminalView.blockCursorGap + blockCursorWidth, DemoTerminalView.minimumWidth)
-        let linesHeight = CGFloat(card.lines.count) * lineHeight + CGFloat(max(0, card.lines.count - 1)) * DemoTerminalView.lineGap
-        return CGSize(
-            width: ceil(contentWidth + DemoPanelFrame.padding * 2),
-            height: ceil(titleBarHeight + DemoTerminalView.underlineHeight + linesHeight + DemoPanelFrame.padding * 2)
-        )
+    private var mascotSize: CGSize { mascot?.size ?? .zero }
+
+    private var headerHeight: CGFloat { max(headerTextHeight, mascotSize.height) }
+
+    private var headerTextLeft: CGFloat {
+        DemoPanelFrame.padding + (mascot == nil ? 0 : mascotSize.width + DemoTerminalView.mascotGap)
     }
 
     private var blockCursorWidth: CGFloat {
-        CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide * 0.7
+        (CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide * 0.7).rounded()
+    }
+
+    private func prefixedWidth(_ prefix: String, _ text: String) -> CGFloat {
+        DemoPixelPainter.size(of: prefix, style: bodyStyle).width + DemoTerminalView.wordGap
+            + DemoPixelPainter.size(of: text, style: bodyStyle).width
+    }
+
+    private func computedSize() -> CGSize {
+        let productLine = DemoPixelPainter.boldSize(of: card.productName, style: productStyle).width
+            + DemoTerminalView.wordGap + DemoPixelPainter.size(of: card.version, style: versionStyle).width
+        let headerWidth = headerTextLeft - DemoPanelFrame.padding + max(
+            productLine,
+            DemoPixelPainter.size(of: card.model, style: detailStyle).width,
+            DemoPixelPainter.size(of: card.directory, style: detailStyle).width
+        )
+        let contentWidth = max(
+            headerWidth,
+            prefixedWidth(DemoTerminalCard.userPrompt, card.userMessage),
+            prefixedWidth(DemoTerminalCard.replyBullet, card.reply),
+            DemoPixelPainter.size(of: card.statusLine, style: detailStyle).width,
+            DemoTerminalView.minimumWidth
+        )
+        let ruleBlock = DemoTerminalView.ruleGap * 2 + DemoTerminalView.ruleHeight
+        let bodyHeight = headerHeight + DemoTerminalView.sectionGap
+            + bodyLineHeight + DemoTerminalView.messageGap + bodyLineHeight + DemoTerminalView.sectionGap
+            + DemoTerminalView.ruleHeight + DemoTerminalView.ruleGap + bodyLineHeight + ruleBlock + smallLineHeight
+        return CGSize(
+            width: ceil(contentWidth + DemoPanelFrame.padding * 2),
+            height: ceil(titleBarHeight + DemoTerminalView.underlineHeight + bodyHeight + DemoPanelFrame.padding * 2)
+        )
     }
 
     override func draw(_ dirtyRect: NSRect) {
         DemoPanelFrame.draw(in: bounds, accentStripe: nil)
         let inner = bounds.insetBy(dx: DemoPanelFrame.unit * 2, dy: DemoPanelFrame.unit * 2)
         let titleBar = CGRect(x: inner.minX, y: inner.maxY - titleBarHeight, width: inner.width, height: titleBarHeight)
+        drawTitleBar(titleBar, inner: inner)
+
+        let left = DemoPanelFrame.padding
+        let right = bounds.maxX - DemoPanelFrame.padding
+        var top = titleBar.minY - DemoTerminalView.underlineHeight - DemoPanelFrame.padding
+
+        if let mascot {
+            NSGraphicsContext.current?.imageInterpolation = .none
+            let mascotTop = top - ((headerHeight - mascotSize.height) / 2).rounded()
+            mascot.draw(in: CGRect(x: left, y: mascotTop - mascotSize.height, width: mascotSize.width, height: mascotSize.height))
+        }
+        var headerTop = top - ((headerHeight - headerTextHeight) / 2).rounded()
+        DemoPixelPainter.drawBold(card.productName, topLeft: CGPoint(x: headerTextLeft, y: headerTop), style: productStyle)
+        let versionLeft = headerTextLeft + DemoPixelPainter.boldSize(of: card.productName, style: productStyle).width + DemoTerminalView.wordGap
+        DemoPixelPainter.draw(card.version, topLeft: CGPoint(x: versionLeft, y: headerTop), style: versionStyle)
+        headerTop -= bodyLineHeight + DemoTerminalView.headerLineGap
+        DemoPixelPainter.draw(card.model, topLeft: CGPoint(x: headerTextLeft, y: headerTop), style: detailStyle)
+        headerTop -= smallLineHeight + DemoTerminalView.headerLineGap
+        DemoPixelPainter.draw(card.directory, topLeft: CGPoint(x: headerTextLeft, y: headerTop), style: detailStyle)
+        top -= headerHeight + DemoTerminalView.sectionGap
+
+        drawPrefixed(DemoTerminalCard.userPrompt, prefixStyle: mutedBodyStyle, text: card.userMessage, textStyle: mutedBodyStyle, left: left, top: top)
+        top -= bodyLineHeight + DemoTerminalView.messageGap
+        drawPrefixed(DemoTerminalCard.replyBullet, prefixStyle: accentBodyStyle, text: card.reply, textStyle: bodyStyle, left: left, top: top)
+        top -= bodyLineHeight + DemoTerminalView.sectionGap
+
+        drawRule(left: left, right: right, top: top)
+        top -= DemoTerminalView.ruleHeight + DemoTerminalView.ruleGap
+        DemoPixelPainter.draw(DemoTerminalCard.inputChevron, topLeft: CGPoint(x: left, y: top), style: mutedBodyStyle)
+        let capHeight = CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide
+        DemoPalette.text.setFill()
+        CGRect(
+            x: left + DemoPixelPainter.size(of: DemoTerminalCard.inputChevron, style: bodyStyle).width + DemoTerminalView.wordGap,
+            y: top - capHeight,
+            width: blockCursorWidth,
+            height: capHeight
+        ).fill()
+        top -= bodyLineHeight + DemoTerminalView.ruleGap
+        drawRule(left: left, right: right, top: top)
+        top -= DemoTerminalView.ruleHeight + DemoTerminalView.ruleGap
+        DemoPixelPainter.draw(card.statusLine, topLeft: CGPoint(x: left, y: top), style: detailStyle)
+    }
+
+    private func drawTitleBar(_ titleBar: CGRect, inner: CGRect) {
         DemoPalette.rim.setFill()
         titleBar.fill()
         DemoPalette.accentColor(card.accent).setFill()
         CGRect(x: inner.minX, y: titleBar.minY - DemoTerminalView.underlineHeight, width: inner.width, height: DemoTerminalView.underlineHeight).fill()
-
         var dotLeft = titleBar.minX + DemoTerminalView.titleBarPadding
         for accent in DemoTerminalView.dotAccents {
             DemoPalette.accentColor(accent).setFill()
@@ -423,23 +512,16 @@ final class DemoTerminalView: DemoPanelView {
             topLeft: CGPoint(x: ((bounds.width - titleSize.width) / 2).rounded(), y: (titleBar.midY + titleSize.height / 2).rounded()),
             style: titleStyle
         )
+    }
 
-        var lineTop = titleBar.minY - DemoTerminalView.underlineHeight - DemoPanelFrame.padding
-        for (lineIndex, line) in card.lines.enumerated() {
-            let isPrompt = line.hasPrefix("~") || line.hasPrefix(">")
-            DemoPixelPainter.draw(line, topLeft: CGPoint(x: DemoPanelFrame.padding, y: lineTop), style: isPrompt ? promptStyle : lineStyle)
-            if lineIndex == card.lines.count - 1 {
-                let lineWidth = DemoPixelPainter.size(of: line, style: lineStyle).width
-                let capHeight = CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide
-                DemoPalette.text.setFill()
-                CGRect(
-                    x: DemoPanelFrame.padding + lineWidth + DemoTerminalView.blockCursorGap,
-                    y: lineTop - capHeight,
-                    width: blockCursorWidth.rounded(),
-                    height: capHeight
-                ).fill()
-            }
-            lineTop -= lineHeight + DemoTerminalView.lineGap
-        }
+    private func drawPrefixed(_ prefix: String, prefixStyle: DemoTextStyle, text: String, textStyle: DemoTextStyle, left: CGFloat, top: CGFloat) {
+        DemoPixelPainter.draw(prefix, topLeft: CGPoint(x: left, y: top), style: prefixStyle)
+        let textLeft = left + DemoPixelPainter.size(of: prefix, style: prefixStyle).width + DemoTerminalView.wordGap
+        DemoPixelPainter.draw(text, topLeft: CGPoint(x: textLeft, y: top), style: textStyle)
+    }
+
+    private func drawRule(left: CGFloat, right: CGFloat, top: CGFloat) {
+        DemoPalette.mutedText.withAlphaComponent(DemoTerminalView.ruleOpacity).setFill()
+        CGRect(x: left, y: top - DemoTerminalView.ruleHeight, width: right - left, height: DemoTerminalView.ruleHeight).fill()
     }
 }
