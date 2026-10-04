@@ -60,7 +60,7 @@ package enum DemoScript {
         ),
         DemoScene(
             name: .click,
-            caption: "In real use, a click brings the pet's terminal tab to the front.",
+            caption: "Clicking the pet brings the terminal tab to focus.",
             durationInSeconds: 6.5,
             labelPlacement: .pill,
             steps: [

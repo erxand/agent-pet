@@ -117,6 +117,22 @@ package enum DemoPixelFont {
         return widths.reduce(0, +) + (widths.count - 1) * glyphSpacing
     }
 
+    package static func wrap(_ text: String, maximumWidth: Int) -> [String] {
+        var lines: [String] = []
+        var current = ""
+        for word in text.split(separator: " ").map(String.init) {
+            let candidate = current.isEmpty ? word : current + " " + word
+            if current.isEmpty || width(of: candidate) <= maximumWidth {
+                current = candidate
+            } else {
+                lines.append(current)
+                current = word
+            }
+        }
+        if !current.isEmpty { lines.append(current) }
+        return lines
+    }
+
     package static func rows(for text: String) -> [String]? {
         guard canRender(text) else { return nil }
         let spacer = String(repeating: blank, count: glyphSpacing)

@@ -33,6 +33,10 @@ enum DemoPixelPainter {
         drawRows(rows, topLeft: topLeft, pixelSide: style.pixelSide, color: style.color)
     }
 
+    static func wrap(_ text: String, style: DemoTextStyle, maximumWidth: CGFloat) -> [String] {
+        DemoPixelFont.wrap(drawable(text), maximumWidth: Int((maximumWidth / style.pixelSide).rounded(.down)))
+    }
+
     static func boldSize(of text: String, style: DemoTextStyle) -> CGSize {
         let size = size(of: text, style: style)
         return CGSize(width: size.width + CGFloat(drawable(text).count) * style.pixelSide, height: size.height)

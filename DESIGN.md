@@ -665,7 +665,10 @@ anyone who never runs it, and it never touches real state:
   uses one frame (`DemoPanelFrame`): a border, a rim and a fill from `DemoPalette`, cut pixel corners, one
   padding and three pixel sizes of `DemoPixelFont`, a proportional 5 by 7 pixel font with lowercase and
   descenders. The only other colors are the eight accent colors. The caption has a stripe and a progress
-  bar in the accent of the first pet its scene shows. The title card has an accent underline. Text is
+  bar in the accent of the first pet its scene shows. The title card has an accent underline. It is at most 60% of the screen width and never wider
+  than 1100 pt. `DemoPixelFont.wrap` breaks its title and subtitle at word boundaries onto centered lines.
+  Its top padding is 1.5 times the panel padding and its bottom padding is 2 times, with the key hint
+  near the bottom edge. Text is
   off-white or a muted gray, and a test measures that both have at least 4.5:1 contrast on the panel
   tones. Nothing flashes or shakes: panels fade over 0.45 s.
 - `--dry-run` swaps in `DemoTranscriptStage`, which prints the timeline, so the whole flow is testable
