@@ -7,6 +7,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private static let animationIntervalInSeconds: TimeInterval = 1.0 / 30.0
     private static let maximumAnimationStepInSeconds: TimeInterval = 0.25
     private static let substituteGroundFrameIndex = 0
+    // How long a stopping daemon waits for its pets to dive before it exits
+    // anyway. A dive is 450 ms; this only matters when the main thread is stuck.
+    private static let shutdownDeadlineInSeconds: TimeInterval = 2
 
     private let store = PetSessionStore()
     private let spritePackRegistry = SpritePackRegistry()
@@ -21,12 +24,47 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var lastClaudeSessionsSignature: SessionSourceSignature?
     private var lastAnimationTimestamp = Date()
     private var timers: [Timer] = []
+    private var shutdownCompletion: (() -> Void)?
+
+    var isShuttingDown: Bool { shutdownCompletion != nil }
 
     func start() {
         PetPaths.createStateDirectoriesIfNeeded()
         lastConfigurationModification = ConfigurationFile.modificationDate(of: configurationFile)
         reconcile(forceReload: true)
         scheduleTimers()
+    }
+
+    /// Dives every pet, then calls `completion` once they are all under (or at
+    /// the deadline). A daemon stopped by launchd (a restart onto a new build,
+    /// an uninstall) used to take its pets off the screen in the same instant;
+    /// now they dig back down first. Records are left as they are, so a daemon
+    /// that starts again brings the visible ones back up.
+    func beginShutdown(completion: @escaping () -> Void) {
+        guard !isShuttingDown else { return }
+        shutdownCompletion = completion
+        for petKey in presencesBySessionId.keys {
+            beginDive(sessionId: petKey)
+        }
+        let deadline = Timer(
+            timeInterval: PetOverlayController.shutdownDeadlineInSeconds,
+            repeats: false
+        ) { [weak self] _ in
+            self?.finishShutdown()
+        }
+        RunLoop.main.add(deadline, forMode: .common)
+        finishShutdownIfEveryPetIsUnder()
+    }
+
+    private func finishShutdownIfEveryPetIsUnder() {
+        guard isShuttingDown, presencesBySessionId.isEmpty else { return }
+        finishShutdown()
+    }
+
+    private func finishShutdown() {
+        guard let completion = shutdownCompletion else { return }
+        shutdownCompletion = { }
+        completion()
     }
 
     func petViewDidReceiveLeftClick(sessionId petKey: String) {
@@ -84,6 +122,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func reconcile(forceReload: Bool) {
+        guard !isShuttingDown else { return }
         let configurationChanged = reloadConfigurationIfChanged()
         let replacementLoader = configurationChanged || forceReload ? contracts.spritePackLoader : nil
         if spritePackRegistry.reloadChangedPacks(using: replacementLoader) {
@@ -203,6 +242,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func sweepDeadSessions() {
+        guard !isShuttingDown else { return }
         let claudeSessions = contracts.sessionSource.recordsBySessionId()
         for record in store.list() {
             let claudeSession = claudeSessions[record.sessionId]
@@ -219,7 +259,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             PetOverlayController.maximumAnimationStepInSeconds
         )
         lastAnimationTimestamp = now
-        guard !presencesBySessionId.isEmpty else { return }
+        guard !presencesBySessionId.isEmpty else {
+            finishShutdownIfEveryPetIsUnder()
+            return
+        }
 
         let screenFrames = OverlayScreenFrames.current()
         var submergedSessionIds: [String] = []
@@ -230,11 +273,18 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 continue
             }
             renderSprite(for: presence)
+            // A diving pet stays where it is. Nothing moves it sideways during
+            // a dive, and re-placing it would follow NSScreen.main, which moves
+            // to whichever display has keyboard focus: focusing a terminal on
+            // another display (one of the things that hides a pet) would carry
+            // the pet there to dive, so it vanished from the one being watched.
+            guard !presence.animator.isDiving else { continue }
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
         for sessionId in submergedSessionIds {
             removePresence(sessionId: sessionId)
         }
+        finishShutdownIfEveryPetIsUnder()
     }
 
     private func renderSprite(for presence: PetPresence) {

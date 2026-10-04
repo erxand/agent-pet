@@ -426,6 +426,15 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
 - **Dive**, on a record becoming hidden or removed: label and bubble fade out over 100 ms, the `dive` frames play
   once over 350 ms while `groundOffset` goes from 0 to `spriteHeight` with ease-in, then the window closes. A record
   that becomes visible again mid-dive reverses into an emerge from the current offset. Liveness-sweep removals dive.
+- **Every way a pet goes away dives**: hidden (a hook, `hide`, a click, its pane focused), removed (`remove`, session
+  end, the liveness sweep), disabled (`off`), a group whose last waiting member stops waiting, and the daemon itself
+  stopping (SIGTERM from launchd on a restart or uninstall, or SIGINT), which dives every pet and exits once they are
+  under (2 s at most). Records are untouched, so a daemon that starts again brings the visible pets back up.
+- A pet hidden mid-emerge dives from its current offset and still plays every `dive` frame over the full 350 ms
+  descent; its label fades from its current opacity. Only a pet with nothing above ground yet goes straight under.
+- An emerge or dive advances at most 1/15 s per animation tick, so a late tick (a busy main thread or Mac) slows
+  the move down rather than skipping its frames. A diving window is not re-placed, so it dives where it was even if
+  `NSScreen.main` moves to another display.
 
 ## Sprite contract
 

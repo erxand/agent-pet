@@ -15,6 +15,13 @@ final class PetAnimator {
     private static let emergeChromeFadeInDurationInSeconds: Double = 0.15
     private static let diveChromeFadeOutDurationInSeconds: Double = 0.1
     private static let diveDescentDurationInSeconds: Double = 0.35
+    // The longest step an emerge or a dive takes in one tick. The overlay's
+    // animation timer is charged for whatever the main thread did between two
+    // ticks (a reconcile, a slow pack folder, a busy Mac), and a dive is only
+    // 450 ms long, so without this one late tick could carry a pet straight
+    // through its dive frames and it would seem to vanish. A slow tick now
+    // slows the dive down instead of skipping it.
+    static let maximumGroundStepInSeconds: Double = 1.0 / 15.0
     private static let minimumPauseInSeconds: Double = 1
     private static let maximumPauseInSeconds: Double = 3
     private static let minimumWalkInSeconds: Double = 1.5
@@ -41,6 +48,8 @@ final class PetAnimator {
     private var bubblePhaseInSeconds: Double = 0
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
+    private var diveStartGroundOffsetFraction: Double = PetAnimator.fullyAboveGround
+    private var diveStartChromeOpacity: Double = PetAnimator.opaqueChrome
 
     init() {
         startEmerging(fromGroundOffsetFraction: PetAnimator.fullyUnderground)
@@ -50,6 +59,13 @@ final class PetAnimator {
         switch groundPhase {
         case .submerged: return true
         case .emerging, .grounded, .diving: return false
+        }
+    }
+
+    var isDiving: Bool {
+        switch groundPhase {
+        case .diving: return true
+        case .emerging, .grounded, .submerged: return false
         }
     }
 
@@ -78,7 +94,10 @@ final class PetAnimator {
         }
     }
 
-    func advance(elapsedSeconds: Double, mood: PetMood) {
+    func advance(elapsedSeconds unclampedElapsedSeconds: Double, mood: PetMood) {
+        let elapsedSeconds = playsGroundAnimationOnce
+            ? min(unclampedElapsedSeconds, PetAnimator.maximumGroundStepInSeconds)
+            : unclampedElapsedSeconds
         advanceFrameClock(elapsedSeconds: elapsedSeconds)
         advanceBubbleBob(elapsedSeconds: elapsedSeconds)
 
@@ -105,15 +124,30 @@ final class PetAnimator {
         beginGroundAnimation(named: .emerge)
     }
 
+    // A dive always plays every dive frame, from wherever the pet is. A pet
+    // hidden while it was still coming up (a click, a prompt, or its pane being
+    // focused mid-emerge) used to start its dive at the point that matched its
+    // height, which skipped the first frames and, early in an emerge, all of
+    // them. Now it sinks from its current height over the whole descent, and
+    // its label fades from its current opacity. Only a pet with nothing above
+    // ground yet goes straight under, since there is nothing to see dive.
     private func startDiving(fromGroundOffsetFraction startingFraction: Double) {
         groundPhase = .diving
-        groundOffsetFraction = PetAnimator.clampedUnitValue(startingFraction)
-        phaseElapsedSeconds = PetAnimator.diveElapsedSeconds(
-            forGroundOffsetFraction: groundOffsetFraction
-        )
-        chromeOpacity = PetAnimator.diveChromeOpacity(phaseElapsedSeconds: phaseElapsedSeconds)
-        groundAnimationProgress = PetAnimator.diveDescentProgress(phaseElapsedSeconds: phaseElapsedSeconds)
+        diveStartGroundOffsetFraction = PetAnimator.clampedUnitValue(startingFraction)
+        diveStartChromeOpacity = PetAnimator.clampedUnitValue(chromeOpacity)
+        groundOffsetFraction = diveStartGroundOffsetFraction
+        phaseElapsedSeconds = 0
+        groundAnimationProgress = 0
         beginGroundAnimation(named: .dive)
+        guard diveStartGroundOffsetFraction >= PetAnimator.fullyUnderground else { return }
+        submerge()
+    }
+
+    private func submerge() {
+        groundPhase = .submerged
+        groundOffsetFraction = PetAnimator.fullyUnderground
+        chromeOpacity = PetAnimator.transparentChrome
+        groundAnimationProgress = 1
     }
 
     private func beginGroundAnimation(named groundAnimationName: SpriteAnimationName) {
@@ -139,14 +173,19 @@ final class PetAnimator {
 
     private func advanceDiving(elapsedSeconds: Double) {
         phaseElapsedSeconds += elapsedSeconds
-        chromeOpacity = PetAnimator.diveChromeOpacity(phaseElapsedSeconds: phaseElapsedSeconds)
-        let progress = PetAnimator.diveDescentProgress(phaseElapsedSeconds: phaseElapsedSeconds)
+        let fadeOutSeconds = diveStartChromeOpacity * PetAnimator.diveChromeFadeOutDurationInSeconds
+        chromeOpacity = max(
+            PetAnimator.transparentChrome,
+            diveStartChromeOpacity - phaseElapsedSeconds / PetAnimator.diveChromeFadeOutDurationInSeconds
+        )
+        let descentElapsedSeconds = max(0, phaseElapsedSeconds - fadeOutSeconds)
+        let progress = min(1, descentElapsedSeconds / PetAnimator.diveDescentDurationInSeconds)
         groundAnimationProgress = progress
-        groundOffsetFraction = PetAnimator.easeInTravelledDistance(progress: progress)
+        let remainingDistance = PetAnimator.fullyUnderground - diveStartGroundOffsetFraction
+        groundOffsetFraction = diveStartGroundOffsetFraction
+            + remainingDistance * PetAnimator.easeInTravelledDistance(progress: progress)
         guard progress >= 1 else { return }
-        groundPhase = .submerged
-        groundOffsetFraction = PetAnimator.fullyUnderground
-        chromeOpacity = PetAnimator.transparentChrome
+        submerge()
     }
 
     private func advanceMoodBehavior(elapsedSeconds: Double, mood: PetMood) {
@@ -253,27 +292,10 @@ final class PetAnimator {
         (1 - sqrt(clampedUnitValue(fraction))) * emergeDurationInSeconds
     }
 
-    private static func diveElapsedSeconds(forGroundOffsetFraction fraction: Double) -> Double {
-        let remainingFraction = clampedUnitValue(fraction)
-        guard remainingFraction > fullyAboveGround else { return 0 }
-        return diveChromeFadeOutDurationInSeconds + sqrt(remainingFraction) * diveDescentDurationInSeconds
-    }
-
     private static func emergeChromeOpacity(phaseElapsedSeconds: Double) -> Double {
         let fadeInStartInSeconds = emergeDurationInSeconds - emergeChromeFadeInDurationInSeconds
         let elapsedSinceFadeInStart = phaseElapsedSeconds - fadeInStartInSeconds
         guard elapsedSinceFadeInStart > 0 else { return transparentChrome }
         return clampedUnitValue(elapsedSinceFadeInStart / emergeChromeFadeInDurationInSeconds)
-    }
-
-    private static func diveChromeOpacity(phaseElapsedSeconds: Double) -> Double {
-        let fadeOutProgress = clampedUnitValue(phaseElapsedSeconds / diveChromeFadeOutDurationInSeconds)
-        return opaqueChrome - fadeOutProgress
-    }
-
-    private static func diveDescentProgress(phaseElapsedSeconds: Double) -> Double {
-        let descentElapsedSeconds = phaseElapsedSeconds - diveChromeFadeOutDurationInSeconds
-        guard descentElapsedSeconds > 0 else { return 0 }
-        return min(1, descentElapsedSeconds / diveDescentDurationInSeconds)
     }
 }
