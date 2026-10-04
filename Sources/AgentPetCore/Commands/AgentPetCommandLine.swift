@@ -2,6 +2,14 @@ import Foundation
 
 public enum AgentPetCommandLine {
     public static func run(arguments: [String], runOverlay: () -> Void) -> Int32 {
+        run(arguments: arguments, runOverlay: runOverlay, runDemo: DemoCommand.reportOverlayUnavailable)
+    }
+
+    package static func run(
+        arguments: [String],
+        runOverlay: () -> Void,
+        runDemo: (DemoRequest) -> Int32
+    ) -> Int32 {
         guard let commandToken = arguments.first,
               let command = CommandName(rawValue: commandToken) else {
             return CommandFeedback.reportUsage()
@@ -40,6 +48,8 @@ public enum AgentPetCommandLine {
             return RenderCommand.run(flags: flags)
         case .packs:
             return PacksCommand.run(flags: flags)
+        case .demo:
+            return DemoCommand.run(flags: flags, runDemo: runDemo)
         }
     }
 }

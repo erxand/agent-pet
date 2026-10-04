@@ -19,9 +19,11 @@ agent-pet/
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, PixelFont (nametag glyphs), TerminalSpriteRenderer
+    Demo/                      DemoScript (scenes and cast), DemoRunner (timeline), DemoPlayback (clock and signals), DemoPixelFont, DemoCommand, see "Demo"
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
-    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, lanes, clicks
+    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks
+    Demo/                      the demo's AppKit stage: caption and title card panels, snapshots
   Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
@@ -227,6 +229,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `render --pack NAME [--animation idle] [--frame N]` | print one frame to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, or N is not a frame of it |
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
+| `demo [--scene NAME] [--list] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
 
@@ -481,6 +484,80 @@ sprites/<pack-name>/
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
   then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
+
+## Demo
+
+`agent-pet demo` is a short tour for people who have never seen a pet. It
+shows only the core flow, then one card that points at Configuration. The `states` scene holds the two
+moods a hook sets (`ready`, `needsInput`) side by side for 9.5 s, and the hidden working state as an
+empty dashed spot. It leaves out `blocked`, because no hook sets it and a user never sees it. Each slot has a
+`DemoStateLabelView` above it in the panel style. The other scenes are a click and the last card. It does not show lanes, the dive on return, groups, nametags or reserved
+sprites, and it uses the pill labels a new user sees. It changes nothing for
+anyone who never runs it, and it never touches real state:
+
+- The cast is a list of `PetSession` values built in memory (`DemoScript.cast`, session ids prefixed
+  `demo-`, `pid` set to the demo's own process so `ProcessLiveness` keeps them alive). Nothing is written
+  to `~/.agent-pet`, the daemon is never ensured, no Focuser runs and no ColorSync types into a pane. A
+  dry run in a fresh home leaves it empty.
+- `DemoScript.scenes` is data: each `DemoScene` has a name, a one line caption, a duration, a label
+  placement, steps at offsets into the scene (show an actor with a mood, hide actors, click an actor,
+  show or hide the title card), an optional hold offset, and optional state slots (a label and an actor,
+  or no actor for the working state). Only the title has no hold offset.
+- `DemoRunner` is the timeline. It keeps the cast's visibility and moods, and after every step it runs the
+  real `PetDisplayPlanner` with `SharedKeyGrouping`, so the moods in the demo are the shipped
+  rules, not a copy. Entering a scene resets the cast, so `--scene` and
+  skipping always start clean. The click scene shows a click instead of a description:
+  `pointCursor` makes the stage draw `DemoCursorView`, a 12 by 17 pixel arrow at 4 px per pixel in
+  `DemoPalette.text` with a `DemoPalette.frame` outline, in its own clear window. The arrow eases toward
+  the pet's sprite and follows it. `click` presses the arrow down one art pixel for 0.2 s and hides
+  every member of the pet, so it dives. `showTerminal` fades in `DemoTerminalView`, a simple picture of a
+  Claude Code session: a title bar (three dots, the session label, an accent underline), a header with
+  the idle frame of the `claude` pack and three lines (the product name in pixel bold with a muted
+  version, the model, the folder), the user message after `>`, the reply after a bullet in the pet's
+  accent, an input line with a chevron and a block cursor between two thin rules, and a muted status
+  line. The content is generic: no account, plan, company or permission mode. These are drawings only: nothing moves the system cursor or posts an event, and a
+  test scans the demo sources for the APIs that could. The demo pets have no session, so their windows
+  ignore the mouse and the stage gives `PetView` no interaction handler.
+- Interactive mode is the default (`waitsForUser`). The clock of a scene stops at its hold offset, after
+  its animation, and the runner waits until `skipToNextScene()`. The steps after the hold offset are the
+  timed exit and run only with `--auto`. The title has no hold offset, so it moves on by itself after
+  6 s. `--auto`, `--dry-run`, `--snapshot` and the tests use the timed mode, where a scene ends at its
+  duration.
+- `DemoPlayback` drives the runner from a 30 Hz timer, scaled by `--speed`, and owns SIGINT and SIGTERM
+  through dispatch signal sources: the stage tears down every window, a line is printed, and the exit code is
+  128 plus the signal. `handle(key:)` takes a `DemoKey`: space calls `skipToNextScene()`, esc stops the
+  demo with exit code 0. A `DemoFocus` takes the focus at start and gets it back at every end (the
+  last scene, esc, SIGINT or SIGTERM). At the end it waits for the stage to settle (pets dived, panels
+  faded) for at most 2.5 s, then tears down.
+- Keys: `DemoAppFocus` remembers the frontmost app, activates the demo once, and makes `DemoKeyWindow`
+  key. That window is a 1 by 1 clear borderless window that can become key and ignores the mouse, so
+  the title card, which has no caption, also gets the keys. A local key-down monitor sends space and esc
+  without command, control or option to the playback, and swallows them. Other keys pass. A local
+  monitor sees keys only while the demo is the active app, so a demo that lost the focus waits and
+  never activates again. At the end, the focus goes back to the remembered app only when the demo is
+  still the active app.
+- Getting the keys back: `NSApp.activate()` at start can be refused, for example from a background
+  shell, and the user can click another app. Every text panel (caption, title card, state label,
+  terminal) takes mouse clicks. A click calls `DemoAppFocus.reclaimFocus()`, which activates the demo and
+  makes `DemoKeyWindow` key again, and does not change the scene. The demo never activates itself except
+  at start and after such a click. `applicationDidBecomeActive` and `applicationDidResignActive` set
+  `hasFocus` on the stage, and the caption and the title card change their key hint from
+  `DemoScript.focusedKeyHint` ("space: next   esc: quit") to `DemoScript.unfocusedKeyHint` ("click here,
+  then press space"), drawn in the brighter text color. The pets, the cursor and the empty spot still
+  ignore the mouse.
+- The AppKit stage reuses `PetView`, `PetWindow`, `PetAnimator` and `PetSpriteFrames`, so the pets are drawn
+  exactly as the daemon draws them. It eases a pet's lane home when the lane count changes. Every panel
+  uses one frame (`DemoPanelFrame`): a border, a rim and a fill from `DemoPalette`, cut pixel corners, one
+  padding and three pixel sizes of `DemoPixelFont`, a proportional 5 by 7 pixel font with lowercase and
+  descenders. The only other colors are the eight accent colors. The caption has a stripe and a progress
+  bar in the accent of the first pet its scene shows. The title card has an accent underline. It is at most 60% of the screen width and never wider
+  than 1100 pt. `DemoPixelFont.wrap` breaks its title and subtitle at word boundaries onto centered lines.
+  Its top padding is 1.5 times the panel padding and its bottom padding is 2 times, with the key hint
+  near the bottom edge. Text is
+  off-white or a muted gray, and a test measures that both have at least 4.5:1 contrast on the panel
+  tones. Nothing flashes or shakes: panels fade over 0.45 s.
+- `--dry-run` swaps in `DemoTranscriptStage`, which prints the timeline, so the whole flow is testable
+  without a window server. `--snapshot DIR` renders the panels offscreen to PNGs.
 
 ## Focusing a session
 
