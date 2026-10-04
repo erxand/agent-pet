@@ -42,6 +42,7 @@ package struct PetSession: Codable, Equatable {
     package var group: String?
     package var owner: Bool?
     package var enrolledAt: Double?
+    package var busy: Bool?
     package var activeSubagents: [TrackedSubagent]
     package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
@@ -58,6 +59,10 @@ package struct PetSession: Codable, Equatable {
 
     package var isFlaggedOwner: Bool {
         owner == true
+    }
+
+    package var isWorking: Bool {
+        busy == true || !activeSubagents.isEmpty
     }
 
     package var enrollmentOrder: Double {
@@ -96,6 +101,7 @@ extension PetSession {
         group = try container.decodeIfPresent(String.self, forKey: .group)
         owner = try container.decodeIfPresent(Bool.self, forKey: .owner)
         enrolledAt = try container.decodeIfPresent(Double.self, forKey: .enrolledAt)
+        busy = try container.decodeIfPresent(Bool.self, forKey: .busy)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
@@ -129,6 +135,7 @@ extension PetSession {
             group: nil,
             owner: nil,
             enrolledAt: nil,
+            busy: nil,
             activeSubagents: [],
             handledHookEvents: nil,
             transcriptPath: nil,

@@ -24,11 +24,22 @@ package struct PetGroup: Equatable {
     }
 
     package var waitingMembers: [PetSession] {
-        members.filter { member in member.visible }
+        let holdsReady = holdsReadyWhileOthersWork
+        return members.filter { member in
+            member.visible && !(holdsReady && member.mood == .ready)
+        }
     }
 
     package var isWaiting: Bool {
-        members.contains { member in member.visible }
+        !waitingMembers.isEmpty
+    }
+
+    package var hasWorkingMember: Bool {
+        members.contains { member in member.isWorking }
+    }
+
+    private var holdsReadyWhileOthersWork: Bool {
+        members.count > 1 && hasWorkingMember
     }
 
     package var mood: PetMood? {

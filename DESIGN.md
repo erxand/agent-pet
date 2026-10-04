@@ -70,7 +70,13 @@ file on every write (temp file in the same dir, then rename).
   as alive until its `updatedAt` is 30 s old, so enrollment cannot lose a race with Claude Code writing the file.
   Absent on any other agent: treat as alive. `mood` is one of `ready`, `needsInput`, `blocked`.
 - `visible: true` is the only thing that makes a pet appear, `enabled: false` makes `show` a no-op, and deleting the
-  file removes the pet.
+  file removes the pet. In a group of several sessions, a visible `ready` member can still be held back while
+  another member works, see "Groups".
+- `busy` is optional and present only as `true`: the session is in the middle of a turn. `UserPromptSubmit`,
+  `PreToolUse` and `SubagentStart` set it, and a `Stop` with no active subagents left removes it. A record without
+  it, including every record from before this field, is not busy. A session is working while it is `busy` or
+  tracks any subagent. `busy` and `visible` are separate on purpose: a click or `hide` clears `visible` and leaves
+  `busy` alone, so a dismissed session that had finished counts as done, not as working.
 - `activeSubagents` holds one `TrackedSubagent` (`id`, the `agent_id`, and `startedAt`) for every background
   subagent the session has started and not yet finished. It defaults to empty when absent. A record from before
   this field still decodes: a legacy `activeSubagentIds` string array becomes entries whose `startedAt` is the
@@ -232,12 +238,12 @@ enrolled and goes through the table below.
 | event | action |
 |---|---|
 | any event whose payload has `transcript_path` | first store it as the record's `transcriptPath`, in its own locked write; a missing record is left alone |
-| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present); any left means `hide`, and do not ensure the daemon |
+| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means clear `busy` and `show --mood ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present); any left means `hide` and keep `busy`, and do not ensure the daemon |
 | `Notification` with `notification_type` in `permission_prompt`, `agent_needs_input` | `show --mood needsInput`, whatever the subagent set holds |
-| `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id and hides, in one locked write |
+| `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id, sets `busy` and hides, in one locked write |
 | `SubagentStop` | scan and expire, then `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
-| `UserPromptSubmit` | `hide` only. The subagent set is left as it is, because a new prompt does not end a running subagent |
-| `PreToolUse` | `hide` |
+| `UserPromptSubmit` | set `busy` and `hide`, in one locked write. The subagent set is left as it is, because a new prompt does not end a running subagent |
+| `PreToolUse` | set `busy` and `hide` |
 | `SessionEnd` | `remove` |
 | anything else | nothing |
 
@@ -364,7 +370,7 @@ crash left every later hook updating records that nothing drew.
 - Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
   described under "Focusing a session".
 - What is on screen comes from `PetDisplayPlanner`: enabled, live records, oldest `updatedAt` first,
-  passed through the Grouping contract, keeping each group with at least one visible member. Each item
+  passed through the Grouping contract, keeping each group with at least one waiting member (see "Groups"). Each item
   carries the owner (for sprite, accent and label), the mood, the waiting member's message, the bubble
   caption, every member's session id, and the FocusRequest a click hands the Focuser. Without `group`
   on any record every group is one session, so this is exactly one pet per visible session.
@@ -382,9 +388,18 @@ crash left every later hook updating records that nothing drew.
 Sessions that share a `group` share one pet. `SharedKeyGrouping` keys each record by `group`, else its
 session id, and the planner applies these rules to the live members of each key:
 
-- The pet is visible while any live member is visible, that is, waiting on the user. A group with no
-  live member has no pet, and the 5 s sweep deletes dead records as before.
-- The mood is the strongest among the waiting members: `needsInput`, then `blocked`, then `ready`.
+- A group with no live member has no pet, and the 5 s sweep deletes dead records as before.
+- A visible `needsInput` or `blocked` member is waiting at once, whatever the other members are doing.
+- A visible `ready` member is waiting only when no live member is working, that is, no member is `busy`
+  and no member tracks a subagent. Until then the ready member stays visible in its record and the pet
+  stays hidden, so a ticket's dev, review and QA tabs do not interrupt while any of them is still at work.
+  When the last one finishes, the pet appears with the held `ready`. A member the user dismissed is not
+  visible and not `busy`, so it counts as done.
+- The pet is visible while any live member is waiting. The mood is the strongest among the waiting
+  members: `needsInput`, then `blocked`, then `ready`.
+- A group of one live member ignores the working rule and shows whenever it is visible, exactly as
+  before groups existed. Hooks never leave a lone session visible and working, so the rule would change
+  nothing there, and the exception makes that a guarantee for any record.
 - When the group has more than one live member, the bubble names the most recently updated waiting
   member: its nickname, its label, its Claude session name, or else `#` and the last 4 characters of its
   session id. The bubble then widens to hold the caption, and shows even for `ready`, which otherwise
@@ -394,7 +409,8 @@ session id, and the planner applies these rules to the live members of each key:
 - The owner is the live member flagged `owner`, else the live member with the earliest `enrolledAt`
   (falling back to `updatedAt` for a record without it). The pet's sprite, accent and label come from
   the owner, so when the owner exits the next member takes over on the next poll.
-- Subagent tracking stays per session: a member's running subagents hide that member, never the others.
+- Subagent tracking stays per session: a member's running subagents hide that member, and they hold
+  back the `ready` of the others through the working rule above, never their `needsInput`.
 
 ### Emerge and dive
 

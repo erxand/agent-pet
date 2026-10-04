@@ -90,7 +90,7 @@ enum HookCommand {
                 identity: subagentIdentity(in: payload, payloadData: payloadData)
             )
         case .userPromptSubmit, .preToolUse:
-            return PetHookResult(snapshot: PetTurnState.hide(sessionId: sessionId))
+            return PetHookResult(snapshot: PetTurnState.hideAndMarkWorking(sessionId: sessionId))
         case .sessionEnd:
             return PetHookResult(snapshot: PetTurnState.remove(sessionId: sessionId))
         }

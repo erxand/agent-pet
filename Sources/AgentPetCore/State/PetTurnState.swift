@@ -50,9 +50,19 @@ package enum PetTurnState {
             if record?.activeSubagents.isEmpty == false {
                 markHidden(&record)
             } else {
+                markDone(&record)
                 markVisible(&record, mood: mood, message: message)
             }
             return PetHookResult(record: record, cleanup: cleanup)
+        }
+    }
+
+    @discardableResult
+    static func hideAndMarkWorking(sessionId: String) -> PetRecordSnapshot {
+        PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
+            markWorking(&record)
+            markHidden(&record)
+            return PetRecordSnapshot(record: record)
         }
     }
 
@@ -85,6 +95,18 @@ package enum PetTurnState {
         record = session
     }
 
+    private static func markWorking(_ record: inout PetSession?) {
+        guard var session = record, session.busy != true else { return }
+        session.busy = true
+        record = session
+    }
+
+    private static func markDone(_ record: inout PetSession?) {
+        guard var session = record, session.busy != nil else { return }
+        session.busy = nil
+        record = session
+    }
+
     private static func markHidden(_ record: inout PetSession?) {
         guard var session = record, session.visible else { return }
         session.visible = false
@@ -113,6 +135,7 @@ enum PetSubagentTracking {
             let now = Date().timeIntervalSince1970
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             guard var session = record else { return PetHookResult(record: record, cleanup: cleanup) }
+            session.busy = true
             guard HookEventDeduplication.claim(identity: identity, in: &session, now: now) else {
                 session.visible = false
                 record = session

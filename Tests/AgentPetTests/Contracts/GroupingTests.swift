@@ -124,7 +124,7 @@ struct GroupingTests {
     }
 
     @Test func subagentTrackingStaysPerSession() {
-        var owner = member("owner-1111", group: "g", visible: true, updatedAt: 10, enrolledAt: 1)
+        var owner = member("owner-1111", group: "g", visible: true, mood: .needsInput, updatedAt: 10, enrolledAt: 1)
         owner.activeSubagents = [TrackedSubagent(id: "agent-one", startedAt: 1)]
         let helper = member("helper-2222", group: "g", updatedAt: 20, enrolledAt: 2)
         let item = plan([owner, helper]).first

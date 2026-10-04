@@ -110,8 +110,9 @@ sprite, the accent, the focus target and the subagents it is tracking.
 
 Several sessions can share one pet. `agent-pet on --session ID --group KEY` puts a session in the pet
 named KEY, and `--owner` makes it the pet's owner, whose label, sprite and accent the pet wears. With
-no owner flagged, the first member to join owns it. The pet shows while any member is waiting, with
-`!` when any of them needs input. When the group has several members, the bubble names the one that is
+no owner flagged, the first member to join owns it. The pet shows `!` at once when any member needs
+input. It shows ready only when every member is done: while one of them is still working, or still has
+subagents running, the others' ready waits. A member you dismissed counts as done. When the group has several members, the bubble names the one that is
 waiting, a click jumps to it (or to the owner when none is), and the pet hides for all of them. A new
 member takes the owner's sprite, and `status --json` reports each session's `group` and whether it is
 the `owner`.
