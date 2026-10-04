@@ -42,7 +42,10 @@ struct PetIdentityOverrides {
         var updated = session
         if let nickname { updated.nickname = nickname }
         if let label { updated.label = label }
-        if let accent { updated.accent = accent }
+        if let accent {
+            updated.accent = accent
+            updated.accentFromPack = nil
+        }
         if let agent { updated.agent = agent }
         if let tmuxTarget { updated.tmuxTarget = tmuxTarget }
         if let pid { updated.pid = pid }

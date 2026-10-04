@@ -12,6 +12,7 @@ final class PetPresence {
     var memberSessionIds: [String] = []
     var spritePackName: String
     var spriteSheet: SpriteSheet
+    var spriteTint: AccentColor?
 
     init(
         sessionId: String,
@@ -30,6 +31,7 @@ final class PetPresence {
 
 struct SpriteImageCacheKey: Hashable {
     let packName: String
+    let tint: AccentColor?
     let animationName: SpriteAnimationName
     let frameIndex: Int
     let facingLeft: Bool

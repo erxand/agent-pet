@@ -11,7 +11,15 @@ enum RenderCommand {
         guard let animation = SpriteAnimationName(rawValue: animationName) else {
             return CommandFeedback.reportUnknownAnimation(animationName)
         }
-        guard let sheet = sheet(forPackNamed: packName) else {
+        let accent: AccentColor?
+        do {
+            accent = try FlagParsing.accent(in: flags)
+        } catch let failure as FlagParseFailure {
+            return failure.report()
+        } catch {
+            return ExitCode.usage
+        }
+        guard let sheet = sheet(forPackNamed: packName, accent: accent) else {
             return CommandFeedback.reportUnknownPack(packName)
         }
         let frames = animation.frames(in: sheet)
@@ -23,10 +31,14 @@ enum RenderCommand {
         return ExitCode.success
     }
 
-    private static func sheet(forPackNamed packName: String) -> SpriteSheet? {
+    /// `--accent` previews the sheet a session that chose that accent would get.
+    private static func sheet(forPackNamed packName: String, accent: AccentColor?) -> SpriteSheet? {
         switch SpritePackLoader().load(packNamed: packName) {
         case .loaded(let pack):
-            return pack.sheet
+            guard let inks = pack.accentInks,
+                  let tint = SpriteAccentTint.tint(chosenAccent: accent, accentInks: inks)
+            else { return pack.sheet }
+            return SpriteAccentTint.tinted(pack.sheet, inks: inks, accent: tint)
         case .failed:
             return packName == SpritePackLoader.defaultPackName ? SpriteSheet.claude8Bit : nil
         }

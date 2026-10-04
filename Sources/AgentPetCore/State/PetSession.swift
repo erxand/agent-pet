@@ -32,6 +32,8 @@ package struct PetSession: Codable, Equatable {
     package var nickname: String?
     package var label: String?
     package var accent: AccentColor?
+    /// True when `on` or `preview` filled `accent` from the sprite pack rather than a caller choosing it.
+    package var accentFromPack: Bool?
     package var mood: PetMood
     package var message: String?
     package var agent: PetAgent
@@ -73,6 +75,11 @@ package struct PetSession: Codable, Equatable {
         accent ?? AccentColor.derived(fromSessionId: sessionId)
     }
 
+    /// The accent the session chose for itself: `accent`, unless it was only filled from the pack.
+    package var chosenAccent: AccentColor? {
+        accentFromPack == true ? nil : accent
+    }
+
     package var parsedTmuxTarget: TmuxTarget? {
         tmuxTarget.flatMap { rawTarget in TmuxTarget(rawValue: rawTarget) }
     }
@@ -91,6 +98,7 @@ extension PetSession {
         nickname = try container.decodeIfPresent(String.self, forKey: .nickname)
         label = try container.decodeIfPresent(String.self, forKey: .label)
         accent = try container.decodeIfPresent(AccentColor.self, forKey: .accent)
+        accentFromPack = try container.decodeIfPresent(Bool.self, forKey: .accentFromPack)
         mood = try container.decodeIfPresent(PetMood.self, forKey: .mood) ?? .ready
         message = try container.decodeIfPresent(String.self, forKey: .message)
         agent = try container.decodeIfPresent(PetAgent.self, forKey: .agent) ?? .claudeCode

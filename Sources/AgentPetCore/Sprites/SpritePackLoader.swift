@@ -15,6 +15,17 @@ package struct SpritePackLoader {
         let sheet: SpriteSheet
         let declaredAccent: AccentColor?
         let unknownAccentName: String?
+        let accentInks: AccentInks?
+
+        /// The accent `on` fills for a session that gets this pack: the declared `accent`, else the
+        /// accent nearest the pack's dominant color.
+        var ownAccent: AccentColor? {
+            declaredAccent
+                ?? PackAccentResolver.dominantAccent(
+                    colorsByCharacter: sheet.colorsByCharacter,
+                    frames: SpriteAnimationName.allCases.flatMap { animationName in animationName.frames(in: sheet) }
+                )
+        }
     }
 
     package enum LoadOutcome {
@@ -161,7 +172,12 @@ package struct SpritePackLoader {
         let declaredAccent = manifest.accent.flatMap { accentName in AccentColor(rawValue: accentName) }
         let unknownAccentName = declaredAccent == nil ? manifest.accent : nil
         return .loaded(
-            LoadedSpritePack(sheet: sheet, declaredAccent: declaredAccent, unknownAccentName: unknownAccentName)
+            LoadedSpritePack(
+                sheet: sheet,
+                declaredAccent: declaredAccent,
+                unknownAccentName: unknownAccentName,
+                accentInks: SpritePackLoader.parseAccentInks(manifest.accentInks, colorsByCharacter: colorsByCharacter)
+            )
         )
     }
 
@@ -175,6 +191,28 @@ package struct SpritePackLoader {
         let frameSize: Int?
         let palette: [String: String]?
         let accent: String?
+        let accentInks: AccentInksManifest?
+    }
+
+    private struct AccentInksManifest: Codable {
+        let accent: String?
+        let shade: String?
+    }
+
+    /// `accentInks` counts only when `accent` is one character the palette holds. A `shade` that is not
+    /// one palette character is dropped, and the accent ink is still recolored.
+    private static func parseAccentInks(
+        _ rawInks: AccentInksManifest?,
+        colorsByCharacter: [Character: NSColor]
+    ) -> AccentInks? {
+        guard let rawAccent = rawInks?.accent, rawAccent.count == 1, let accentCharacter = rawAccent.first,
+              colorsByCharacter[accentCharacter] != nil else { return nil }
+        let shadeCharacter = rawInks?.shade.flatMap { rawShade -> Character? in
+            guard rawShade.count == 1, let character = rawShade.first, colorsByCharacter[character] != nil,
+                  character != accentCharacter else { return nil }
+            return character
+        }
+        return AccentInks(accent: accentCharacter, shade: shadeCharacter)
     }
 
     private static func parseFrames(from text: String, frameSize: Int) -> [PixelFrame]? {

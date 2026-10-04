@@ -33,6 +33,7 @@ enum PreviewCommand {
         }
         if record.accent == nil, let spriteName = record.sprite {
             record.accent = SpritePackAccent.accent(forPackNamed: spriteName)
+            record.accentFromPack = record.accent == nil ? nil : true
         }
         record.visible = true
         record.mood = mood

@@ -6,8 +6,22 @@ package final class SpritePackRegistry {
     private let reportFailure: (String) -> Void
 
     private var sheetsByPackName: [String: SpriteSheet] = [:]
+    private var accentInksByPackName: [String: AccentInks] = [:]
+    private var tintedSheets: [TintedSheetKey: SpriteSheet] = [:]
     private var packDirectoryStateByPackName: [String: PackDirectoryState] = [:]
     private var reportedDirectoryIssues: Set<String> = []
+
+    private struct TintedSheetKey: Hashable {
+        let packName: String
+        let accent: AccentColor
+    }
+
+    /// A pack's sheet as a session sees it: `tint` is the accent its accent inks are painted in, nil
+    /// when the sheet is the pack's own palette.
+    package struct SessionSheet {
+        package let sheet: SpriteSheet
+        package let tint: AccentColor?
+    }
 
     private struct PackDirectoryState: Equatable {
         let path: String
@@ -27,6 +41,22 @@ package final class SpritePackRegistry {
     package func sheet(forPackNamed packName: String?) -> SpriteSheet {
         let resolvedName = packName ?? SpritePackLoader.defaultPackName
         return sheetsByPackName[resolvedName] ?? fallbackSheet
+    }
+
+    /// The sheet for a session whose chosen accent is `chosenAccent` (`PetSession.chosenAccent`).
+    /// Each pack and accent pair is recolored once and kept until the pack reloads.
+    package func sheet(forPackNamed packName: String?, chosenAccent: AccentColor?) -> SessionSheet {
+        let resolvedName = packName ?? SpritePackLoader.defaultPackName
+        let baseSheet = sheet(forPackNamed: resolvedName)
+        guard let accentInks = accentInksByPackName[resolvedName],
+              let tint = SpriteAccentTint.tint(chosenAccent: chosenAccent, accentInks: accentInks) else {
+            return SessionSheet(sheet: baseSheet, tint: nil)
+        }
+        let key = TintedSheetKey(packName: resolvedName, accent: tint)
+        if let cached = tintedSheets[key] { return SessionSheet(sheet: cached, tint: tint) }
+        let tinted = SpriteAccentTint.tinted(baseSheet, inks: accentInks, accent: tint)
+        tintedSheets[key] = tinted
+        return SessionSheet(sheet: tinted, tint: tint)
     }
 
     /// Rescans every pack folder and reloads the packs whose directory moved or changed. Pass a
@@ -50,6 +80,7 @@ package final class SpritePackRegistry {
         for knownPackName in Set(sheetsByPackName.keys).union(packDirectoryStateByPackName.keys)
         where !seenPackNames.contains(knownPackName) {
             if sheetsByPackName.removeValue(forKey: knownPackName) != nil { anythingChanged = true }
+            forgetTints(forPackNamed: knownPackName)
             packDirectoryStateByPackName.removeValue(forKey: knownPackName)
         }
         return anythingChanged
@@ -63,10 +94,17 @@ package final class SpritePackRegistry {
         reportedDirectoryIssues = Set(currentIssues)
     }
 
+    private func forgetTints(forPackNamed packName: String) {
+        accentInksByPackName.removeValue(forKey: packName)
+        tintedSheets = tintedSheets.filter { key, _ in key.packName != packName }
+    }
+
     private func applyOutcome(_ outcome: SpritePackLoader.LoadOutcome, packName: String) {
+        forgetTints(forPackNamed: packName)
         switch outcome {
         case .loaded(let pack):
             sheetsByPackName[packName] = pack.sheet
+            accentInksByPackName[packName] = pack.accentInks
             if let unknownAccentName = pack.unknownAccentName {
                 reportFailure("agent-pet: sprite pack \(packName) accent \(unknownAccentName) is not an accent color, ignored")
             }

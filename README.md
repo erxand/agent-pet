@@ -60,8 +60,9 @@ Seven commands are useful from any shell:
   leave every attached client where it is.
 - `agent-pet clear-subagents [--session ID]` forgets every subagent the session counts as
   running and prints how many it dropped. It exits 2 when the session has no record.
-- `agent-pet render --pack NAME [--animation idle] [--frame N]` draws a sprite in the terminal with
-  truecolor half blocks, two pixel rows per line, so a picker can show the pets without the overlay.
+- `agent-pet render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` draws a sprite in the
+  terminal with truecolor half blocks, two pixel rows per line, so a picker can show the pets without
+  the overlay. `--accent` shows the pet as a session that chose that color would see it.
 - `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
   them, and how many live pets use each.
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
@@ -207,7 +208,11 @@ critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon` and `tinowl`.
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
-yours. `/pet <nickname> <color>` overrides it.
+yours. `/pet <nickname> <color>` overrides it. A color you choose this way also paints the pet:
+every shipped pack but `claude` hands one part of the creature to the accent (golem's chest gem,
+hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie), so
+sessions that share a creature still look different. A session that only took its pack's color
+keeps the pack's own look.
 
 | pack      | accent |
 |-----------|--------|
@@ -255,13 +260,14 @@ A sprite pack is a directory of plain text, so you can draw a new pet in any edi
 sprites/README.md for the full rules.
 
 ```
-<pack-name>/pack.json                    name, frameSize, optional accent, and a character-to-hex palette
+<pack-name>/pack.json                    name, frameSize, optional accent and accentInks, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
 ```
 
-Every color in a pack is fixed by its palette; the session accent never touches the sprite.
-The optional `accent` field in `pack.json` names one of the eight accent colors, and every
+Every color in a pack comes from its palette, except the inks named in the optional `accentInks`
+field (`{"accent":"A","shade":"a"}`): when a session chose its accent, those pixels are painted in
+it and in a darker shade of it. The optional `accent` field in `pack.json` names one of the eight accent colors, and every
 session that gets the pack uses it for the label dot, the mood bubble and the prompt bar.
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on

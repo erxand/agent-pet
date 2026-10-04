@@ -11,6 +11,7 @@ enum PetEnrollment {
             }
             if enrolled.accent == nil, let spriteName = enrolled.sprite {
                 enrolled.accent = SpritePackAccent.accent(forPackNamed: spriteName)
+                enrolled.accentFromPack = enrolled.accent == nil ? nil : true
             }
             if enrolled.tmuxTarget == nil {
                 enrolled.tmuxTarget = TmuxTargetResolver.resolveFromEnvironment()

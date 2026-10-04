@@ -4,6 +4,14 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 
 - `pack.json` holds the pack name, the `frameSize` (frames are square), an optional `accent`,
   and a `palette` that maps one character to one hex color.
+- `accentInks` is optional, `{"accent":"A","shade":"a"}`: the characters that show the session's
+  accent color. When a session chose its color (`/pet <nickname> <color>`, or `--accent`), every
+  pixel drawn with `accent` is painted in that color and every pixel drawn with `shade` in a darker
+  shade of it (each RGB channel at 68%). A session that only took the pack's own `accent` keeps
+  the palette colors, so the pack looks the way you drew it. Both characters must be in `palette`;
+  `shade` may be left out. Give it the part of the creature that reads as its color at a glance
+  (a scarf, a cap, a gem), not the body, so the creature stays recognizable in every color.
+  Preview one with `agent-pet render --pack <name> --accent <color>`.
 - `accent` names one of the eight accent colors: `red`, `blue`, `green`, `yellow`, `purple`,
   `orange`, `pink` or `cyan`. Every session that gets the pack uses it for the label dot, the
   mood bubble and the Claude Code prompt bar, unless the session asked for a color of its own.
@@ -17,9 +25,8 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `emerge.txt` and `dive.txt` are optional, 3 frames each. They play once while the pet rises
   out of the ground as it appears and drops back into it as it hides. A pack without them holds
   `idle` frame 0 for both moves.
-- Every color is fixed by the palette. `.` is transparent, and so is any character that is not
-  in `palette`. No character is reserved: the session accent shows on the label dot and the mood
-  bubble, never on the sprite.
+- Every other color is fixed by the palette. `.` is transparent, and so is any character that is
+  not in `palette`. No character is reserved: only the `accentInks` characters ever change color.
 - The shipped packs all use `#` for the outline, `e` for eyes and a lowercase/uppercase pair for
   a color and its shade, but that is convention, not a rule.
 - To use a pack, copy its directory to `~/.agent-pet/sprites/<name>/`. Every installed pack is in
@@ -43,12 +50,12 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
   that name and copies the shipped one again. To customize a shipped pack, copy it under a new
   name and edit the copy. Packs with names that are not shipped are left alone.
 
-| shipped pack | accent |
-|--------------|--------|
-| claude       | orange |
-| golem        | green  |
-| hatchling    | cyan   |
-| mossling     | red    |
-| nimbus       | blue   |
-| seon         | yellow |
-| tinowl       | purple |
+| shipped pack | accent | accentInks                   |
+|--------------|--------|------------------------------|
+| claude       | orange | none, the reserved original  |
+| golem        | green  | `A`/`a`, the chest gem       |
+| hatchling    | cyan   | `A`/`a`, the scarf           |
+| mossling     | red    | `A`/`a`, the cap             |
+| nimbus       | blue   | `A`/`a`, the lightning bolts |
+| seon         | yellow | `A`/`a`, the face mark       |
+| tinowl       | purple | `A`/`a`, the bow tie         |

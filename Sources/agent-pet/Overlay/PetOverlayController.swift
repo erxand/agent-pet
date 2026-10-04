@@ -176,7 +176,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         for (laneIndex, item) in items.enumerated() {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
-            let spriteSheet = spritePackRegistry.sheet(forPackNamed: packName)
+            let sessionSheet = spritePackRegistry.sheet(forPackNamed: packName, chosenAccent: record.chosenAccent)
+            let spriteSheet = sessionSheet.sheet
             let petAppearance = PetAppearance(
                 label: item.label,
                 accent: record.resolvedAccent,
@@ -197,6 +198,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             presence.view.update(petAppearance: petAppearance)
             presence.spritePackName = packName
             presence.spriteSheet = spriteSheet
+            presence.spriteTint = sessionSheet.tint
             presence.focusRequest = item.focusRequest
             presence.memberSessionIds = item.memberSessionIds
             presence.homeHorizontalCenter = LaneLayout.homeHorizontalCenter(
@@ -296,6 +298,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let frameIndex = frameIndex(for: presence, resolvedAnimation: resolvedAnimation)
         let cacheKey = SpriteImageCacheKey(
             packName: presence.spritePackName,
+            tint: presence.spriteTint,
             animationName: resolvedAnimation.animationName,
             frameIndex: frameIndex,
             facingLeft: presence.animator.facingLeft
