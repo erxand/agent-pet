@@ -79,15 +79,13 @@ you what each scene shows:
 - The states of a pet that you see, side by side, each with a label. A pet climbs out of the ground and
   walks when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your
   input. A working agent has no pet.
-- Three sessions show three pets, each in its own lane.
 - A click on a pet brings the terminal tab of its session to the front. The demo shows this: a drawn
   pixel cursor moves to a pet and clicks it, the pet dives, and a drawn terminal window appears. The
   cursor and the terminal are only pictures. The demo does not move your mouse pointer, and it does not
   open a real terminal. The demo pets have no session and ignore the mouse.
-- When you return to a session, its pet dives into the ground.
 
-The last card tells you that you can configure much more: labels, sprites, colors, how a click focuses,
-and more. See [Configuration](#configuration).
+The last card, "Configure things to your system", names some of what you can change: labels,
+sprites, colors, how a click focuses, and more. See [Configuration](#configuration).
 
 Press space for the next scene. Space also skips the title card. Press esc to quit. The demo takes
 the keyboard focus when it starts, so these keys do not go to another app. When the demo ends, it gives
@@ -105,12 +103,12 @@ can run it next to real pets. It uses your installed packs. When it runs from a 
 | form | effect |
 |---|---|
 | `agent-pet demo` | play all scenes. Each scene after the title waits for the space bar |
-| `agent-pet demo --auto` | play all scenes on a timer, about 35 seconds, with no keys needed |
+| `agent-pet demo --auto` | play all scenes on a timer, about 26 seconds, with no keys needed |
 | `agent-pet demo --scene NAME` | play one scene. `--list` shows the names |
 | `agent-pet demo --list` | print each scene with its length, `auto` or `space`, and its caption |
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
-| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the lanes scene, the states scene and the terminal reveal to DIR |
+| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the states scene and the terminal reveal to DIR |
 
 ## Configuration
 
