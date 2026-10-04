@@ -45,10 +45,6 @@ package struct PetSession: Codable, Equatable {
     package var owner: Bool?
     package var enrolledAt: Double?
     package var busy: Bool?
-    /// True while a pet that wanted to come up is held back because its pane was the one in front.
-    package var held: Bool?
-    /// When `held` was set, so a release can tell a pet he just glanced at from one he sat with.
-    package var heldAt: Double?
     package var activeSubagents: [TrackedSubagent]
     package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
@@ -114,8 +110,6 @@ extension PetSession {
         owner = try container.decodeIfPresent(Bool.self, forKey: .owner)
         enrolledAt = try container.decodeIfPresent(Double.self, forKey: .enrolledAt)
         busy = try container.decodeIfPresent(Bool.self, forKey: .busy)
-        held = try container.decodeIfPresent(Bool.self, forKey: .held)
-        heldAt = try container.decodeIfPresent(Double.self, forKey: .heldAt)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
@@ -150,8 +144,6 @@ extension PetSession {
             owner: nil,
             enrolledAt: nil,
             busy: nil,
-            held: nil,
-            heldAt: nil,
             activeSubagents: [],
             handledHookEvents: nil,
             transcriptPath: nil,

@@ -37,7 +37,6 @@ agent-pet/
   sessions/<session_id>.lock   the flock file that serializes writers of that record
   sprites/<pack>/              installed sprite packs
   config.json                  optional, see "Configuration"
-  focus.json                   written by a terminal integration: the pane in front, see "Held back"
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon stderr
   hooks.log                    one line per handled hook event
@@ -80,9 +79,6 @@ file on every write (temp file in the same dir, then rename).
   it, including every record from before this field, is not busy. A session is working while it is `busy` or
   tracks any subagent. `busy` and `visible` are separate on purpose: a click or `hide` clears `visible` and leaves
   `busy` alone, so a dismissed session that had finished counts as done, not as working.
-- `held` is optional and present only as `true`, with `heldAt` (seconds since 1970) beside it: a hook wanted
-  to show the pet but its pane was the one in front, so the pet stayed down. `release` decides later whether it
-  comes up. Any hide, `off` and the start of a new turn drop it. See "Held back".
 - `activeSubagents` holds one `TrackedSubagent` (`id`, the `agent_id`, and `startedAt`) for every background
   subagent the session has started and not yet finished. It defaults to empty when absent. A record from before
   this field still decodes: a legacy `activeSubagentIds` string array becomes entries whose `startedAt` is the
@@ -246,14 +242,13 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 |---|---|
 | `daemon` | run the overlay in the foreground (accessory app, no dock icon) |
 | `ensure-daemon` | kickstart the launchd agent when its plist exists, otherwise start `daemon` detached if `daemon.pid` is missing or dead; idempotent, see "Daemon lifecycle" |
-| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, and visible false for a new or disabled record (an enabled record keeps `visible` and `held`, so a relabel never takes a pet down), `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
+| `on [identity flags] [--no-color-sync]` | upsert record: enabled true, and visible false for a new or disabled record (an enabled record keeps `visible`, so a relabel never takes a pet down), `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
-| `hide [--session ID \| --focus-target T \| --pid N]` | visible false, `held` dropped |
-| `release [--session ID \| --focus-target T \| --pid N] [--grace S]` | for a `held` record: drop the hold, and when the record is enabled, not working, not visible and (with `--grace`) was held less than S seconds ago, show it with the mood and message it was held with; ensure-daemon when it came up. Anything else is untouched |
+| `hide [--session ID \| --focus-target T \| --pid N]` | visible false |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
 | `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
-| (selection) | `hide`, `release` and `remove` act on `--session`, else on every record whose `focusTarget` is `--focus-target` (what a terminal knows about its pane), else on every record whose `pid` is `--pid` (what knows the process after a `/clear` changed its id), else on `$CLAUDE_CODE_SESSION_ID` |
+| (selection) | `hide` and `remove` act on `--session`, else on every record whose `focusTarget` is `--focus-target` (what a terminal knows about its pane), else on every record whose `pid` is `--pid` (what knows the process after a `/clear` changed its id), else on `$CLAUDE_CODE_SESSION_ID` |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
 | `focus [--session ID] [--no-client-switch]` | run the configured Focuser the way a left click does, so focusing can be tested from a shell; exit 2 when the record is missing, or, with the `tmux-iterm` focuser, when it has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client. The CLI waits for a command focuser to finish |
@@ -272,8 +267,8 @@ enrolled and goes through the table below.
 | event | action |
 |---|---|
 | any event whose payload has `transcript_path` | first store it as the record's `transcriptPath`, in its own locked write; a missing record is left alone |
-| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means clear `busy` and show with mood `ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present), or hold it back when its pane is in front (see "Held back"); any left means `hide` and keep `busy`, and do not ensure the daemon |
-| `Notification` with `notification_type` in `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog` | show with mood `needsInput`, whatever the subagent set holds, or hold it back when its pane is in front |
+| `Stop` | scan the transcript and expire old entries (see "Subagent completion"), then decide in the same locked section: no active subagents left means clear `busy` and show with mood `ready` (message: first line of `last_assistant_message`, truncated to 80 chars, if present); any left means `hide` and keep `busy`, and do not ensure the daemon |
+| `Notification` with `notification_type` in `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog` | show with mood `needsInput`, whatever the subagent set holds |
 | `Notification` with `notification_type` `idle_prompt` | clear `busy` and nothing else: the session has sat at its prompt for a minute, so whatever turn it was in is over, including one an interrupt (Esc) ended, which fires no `Stop`. It never shows a pet |
 | `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id, sets `busy` and hides, in one locked write |
 | `SubagentStop` | scan and expire, then `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
@@ -361,8 +356,7 @@ state dir all exit 0 quietly.
 Every handled hook appends one line to `~/.agent-pet/hooks.log`: ISO timestamp, event name, the first 8
 characters of the session id, the `agent_id` or `-`, and the record state after the write as
 `visible=<bool> agents=<count>`. A `PreToolUse` line then adds `tool=<tool_name>`, a `Notification` line
-`type=<notification_type>`, a `SessionEnd` line `reason=<reason>`, a `SessionStart` line `source=<source>`, and a
-line whose record ended up held back `held=true`, and a `Stop` line whose
+`type=<notification_type>`, a `SessionEnd` line `reason=<reason>`, and a `SessionStart` line `source=<source>`. A `Stop` line whose
 cleanup found any completed, interim or expired subagent adds `completed=<n> interim=<k> expired=<m>`. The cleanup can also write its own lines before
 the event's line: `SubagentExpired <session> <agent_id> startedAt=<ISO timestamp>` per expired entry, and
 `TranscriptReadTruncated <session> - skippedBytes=<count>` when the 64 MiB cap applied. The log is truncated before the append once it passes 1 MiB, the same rule
@@ -424,25 +418,6 @@ crash left every later hook updating records that nothing drew.
   poll interval without recreating the window or restarting the animation.
 - The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
   and reconciles every record again, so no restart is needed after editing it.
-
-### Held back
-
-A pet exists to fetch the user, so it never comes up for the pane he is already looking at. A terminal
-integration says which pane that is by writing `~/.agent-pet/focus.json`, `{"focusTarget": "<target>", "pid":
-<its own pid>}`, on every change, and `"focusTarget": null` when nothing of its own is in front (Termie writes
-`termie:<pane id>`, the same string hq stamps as the record's `focusTarget`). `FocusedTarget.current()` reads it
-and ignores it unless the writer pid is alive, so a terminal that crashed while focused holds nothing back.
-
-Every show a hook makes (`Stop`, the needs-input notifications) reads it inside the record lock. When the
-record's `focusTarget` is the one in front, the record keeps the new mood and message but stays hidden, with
-`held` and `heldAt`, so the pet never flashes up and down. The integration then calls `release --focus-target T
---grace S` when the user leaves that pane: inside S seconds of the hold, a session that still wants him
-(enabled, not busy, no subagents) gets its pet; past S, staying on the pane counted as seeing it, so the hold is
-dropped and nothing comes up for that turn. A prompt in between (`UserPromptSubmit` hides, and so drops the
-hold) also keeps it down. The `show` command never holds back: it is a direct request.
-
-Because the integration writes the file before it runs `release`, a hook deciding at the same moment either
-still sees the old pane and holds (which the `release` then answers) or already sees the new one and shows.
 
 ### Groups
 

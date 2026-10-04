@@ -75,19 +75,6 @@ enum SessionCommands {
         return ExitCode.success
     }
 
-    static func release(flags: ParsedFlags) -> Int32 {
-        guard let sessionIds = RecordSelection.sessionIds(flags: flags) else {
-            return CommandFeedback.reportMissingSession()
-        }
-        let grace = flags.value(for: .grace).flatMap { rawValue in TimeInterval(rawValue) }
-        var anyVisible = false
-        for sessionId in sessionIds where PetTurnState.release(sessionId: sessionId, grace: grace).visible {
-            anyVisible = true
-        }
-        if anyVisible { DaemonCommand.ensureRunning() }
-        return ExitCode.success
-    }
-
     static func remove(flags: ParsedFlags) -> Int32 {
         guard let sessionIds = RecordSelection.sessionIds(flags: flags) else {
             return CommandFeedback.reportMissingSession()

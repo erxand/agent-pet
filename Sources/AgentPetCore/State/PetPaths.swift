@@ -12,7 +12,6 @@ package enum PetPaths {
     private static let daemonProcessIdentifierFileName = "daemon.pid"
     private static let daemonLogFileName = "daemon.log"
     private static let hookLogFileName = "hooks.log"
-    private static let focusFileName = "focus.json"
 
     package static var homeDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -46,10 +45,6 @@ package enum PetPaths {
 
     package static var hookLogFile: URL {
         stateDirectory.appendingPathComponent(hookLogFileName, isDirectory: false)
-    }
-
-    package static var focusFile: URL {
-        stateDirectory.appendingPathComponent(focusFileName, isDirectory: false)
     }
 
     package static func createStateDirectoriesIfNeeded() {
