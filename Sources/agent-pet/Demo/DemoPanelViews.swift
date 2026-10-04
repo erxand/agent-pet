@@ -146,17 +146,31 @@ final class DemoCaptionView: DemoPanelView, DemoKeyHintShowing {
 }
 
 final class DemoTitleView: DemoPanelView, DemoKeyHintShowing {
+    static let screenWidthFraction: CGFloat = 0.6
+    static let widestCard: CGFloat = 1100
+
     private static let unit = DemoPanelFrame.unit
+    private static let horizontalPadding = DemoPanelFrame.padding * 2
+    private static let topPadding = DemoPanelFrame.padding * 1.5
+    private static let bottomPadding = DemoPanelFrame.padding * 2
+    private static let titleLineGap: CGFloat = 4 * unit
     private static let underlineHeight: CGFloat = 2 * unit
     private static let underlineGap: CGFloat = 4 * unit
     private static let subtitleGap: CGFloat = 22 * unit
-    private static let hintGap: CGFloat = 8 * unit
+    private static let subtitleLineGap: CGFloat = 5 * unit
+    private static let hintGap: CGFloat = 16 * unit
+
+    static func maximumWidth(screenWidth: CGFloat) -> CGFloat {
+        min(screenWidth * screenWidthFraction, widestCard)
+    }
 
     let card: DemoTitleCard
     private let titleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.titlePixelSide)
     private let subtitleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
     private let hintStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.smallPixelSide)
     private let unfocusedHintStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.smallPixelSide)
+    private let titleLines: [String]
+    private let subtitleLines: [String]
 
     var hasFocus = true {
         didSet {
@@ -164,8 +178,11 @@ final class DemoTitleView: DemoPanelView, DemoKeyHintShowing {
         }
     }
 
-    init(card: DemoTitleCard) {
+    init(card: DemoTitleCard, maximumWidth: CGFloat) {
         self.card = card
+        let textWidth = maximumWidth - DemoTitleView.horizontalPadding * 2
+        titleLines = DemoPixelPainter.wrap(card.title, style: titleStyle, maximumWidth: textWidth)
+        subtitleLines = DemoPixelPainter.wrap(card.subtitle, style: subtitleStyle, maximumWidth: textWidth)
         super.init(frame: .zero)
         setFrameSize(computedSize())
     }
@@ -176,51 +193,65 @@ final class DemoTitleView: DemoPanelView, DemoKeyHintShowing {
 
     override var preferredSize: CGSize { computedSize() }
 
+    private func width(of lines: [String], style: DemoTextStyle) -> CGFloat {
+        lines.map { line in DemoPixelPainter.size(of: line, style: style).width }.max() ?? 0
+    }
+
+    private func height(of lines: [String], style: DemoTextStyle, gap: CGFloat) -> CGFloat {
+        let lineHeight = DemoPixelPainter.size(of: "A", style: style).height
+        return CGFloat(lines.count) * lineHeight + CGFloat(max(0, lines.count - 1)) * gap
+    }
+
+    private var hintSize: CGSize {
+        DemoPixelPainter.size(of: DemoScript.keyHint(hasFocus: false), style: hintStyle)
+    }
+
     private func computedSize() -> CGSize {
-        let titleSize = DemoPixelPainter.size(of: card.title, style: titleStyle)
-        let subtitleSize = DemoPixelPainter.size(of: card.subtitle, style: subtitleStyle)
-        let hintSize = DemoPixelPainter.size(of: DemoScript.keyHint(hasFocus: false), style: hintStyle)
-        let contentWidth = max(titleSize.width, subtitleSize.width, hintSize.width)
-        let contentHeight = titleSize.height + DemoTitleView.underlineGap + DemoTitleView.underlineHeight
-            + DemoTitleView.subtitleGap + subtitleSize.height + DemoTitleView.hintGap + hintSize.height
+        let contentWidth = max(width(of: titleLines, style: titleStyle), width(of: subtitleLines, style: subtitleStyle), hintSize.width)
+        let contentHeight = height(of: titleLines, style: titleStyle, gap: DemoTitleView.titleLineGap)
+            + DemoTitleView.underlineGap + DemoTitleView.underlineHeight
+            + DemoTitleView.subtitleGap + height(of: subtitleLines, style: subtitleStyle, gap: DemoTitleView.subtitleLineGap)
+            + DemoTitleView.hintGap + hintSize.height
         return CGSize(
-            width: ceil(contentWidth + DemoPanelFrame.padding * 2),
-            height: ceil(contentHeight + DemoPanelFrame.padding * 2)
+            width: ceil(contentWidth + DemoTitleView.horizontalPadding * 2),
+            height: ceil(contentHeight + DemoTitleView.topPadding + DemoTitleView.bottomPadding)
         )
+    }
+
+    private func drawCentered(_ lines: [String], style: DemoTextStyle, gap: CGFloat, top: CGFloat) -> CGFloat {
+        var lineTop = top
+        let lineHeight = DemoPixelPainter.size(of: "A", style: style).height
+        for line in lines {
+            let lineWidth = DemoPixelPainter.size(of: line, style: style).width
+            DemoPixelPainter.draw(line, topLeft: CGPoint(x: ((bounds.width - lineWidth) / 2).rounded(), y: lineTop), style: style)
+            lineTop -= lineHeight + gap
+        }
+        return lineTop + gap
     }
 
     override func draw(_ dirtyRect: NSRect) {
         DemoPanelFrame.draw(in: bounds, accentStripe: nil)
-        let titleSize = DemoPixelPainter.size(of: card.title, style: titleStyle)
-        let titleLeft = ((bounds.width - titleSize.width) / 2).rounded()
-        let titleTop = bounds.maxY - DemoPanelFrame.padding
-        DemoPixelPainter.draw(card.title, topLeft: CGPoint(x: titleLeft, y: titleTop), style: titleStyle)
+        let titleBottom = drawCentered(titleLines, style: titleStyle, gap: DemoTitleView.titleLineGap, top: bounds.maxY - DemoTitleView.topPadding)
 
-        let underlineTop = titleTop - titleSize.height - DemoTitleView.underlineGap
+        let underlineWidth = width(of: titleLines, style: titleStyle)
         DemoPalette.accentColor(card.accent).setFill()
+        let underlineTop = titleBottom - DemoTitleView.underlineGap
         CGRect(
-            x: titleLeft,
+            x: ((bounds.width - underlineWidth) / 2).rounded(),
             y: underlineTop - DemoTitleView.underlineHeight,
-            width: titleSize.width,
+            width: underlineWidth,
             height: DemoTitleView.underlineHeight
         ).fill()
 
+        let subtitleTop = underlineTop - DemoTitleView.underlineHeight - DemoTitleView.subtitleGap
+        _ = drawCentered(subtitleLines, style: subtitleStyle, gap: DemoTitleView.subtitleLineGap, top: subtitleTop)
+
         let hintText = DemoScript.keyHint(hasFocus: hasFocus)
-        let hintSize = DemoPixelPainter.size(of: hintText, style: hintStyle)
+        let shownHintSize = DemoPixelPainter.size(of: hintText, style: hintStyle)
         DemoPixelPainter.draw(
             hintText,
-            topLeft: CGPoint(x: ((bounds.width - hintSize.width) / 2).rounded(), y: DemoPanelFrame.padding + hintSize.height),
+            topLeft: CGPoint(x: ((bounds.width - shownHintSize.width) / 2).rounded(), y: DemoTitleView.bottomPadding + shownHintSize.height),
             style: hasFocus ? hintStyle : unfocusedHintStyle
-        )
-
-        let subtitleSize = DemoPixelPainter.size(of: card.subtitle, style: subtitleStyle)
-        DemoPixelPainter.draw(
-            card.subtitle,
-            topLeft: CGPoint(
-                x: ((bounds.width - subtitleSize.width) / 2).rounded(),
-                y: DemoPanelFrame.padding + hintSize.height + DemoTitleView.hintGap + subtitleSize.height
-            ),
-            style: subtitleStyle
         )
     }
 }

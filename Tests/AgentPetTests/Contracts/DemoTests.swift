@@ -129,7 +129,7 @@ struct DemoTimelineTests {
     }
 
     @Test func theClickSceneShowsACursorClickThenADiveThenASimulatedTerminal() throws {
-        let expected = "In real use, a click brings the pet's terminal tab to the front."
+        let expected = "Clicking the pet brings the terminal tab to focus."
         let scene = try #require(DemoScript.scene(named: .click))
         #expect(scene.caption == expected)
         let stage = RecordingDemoStage()
@@ -358,6 +358,17 @@ struct DemoPixelFontTests {
         }
     }
 
+    @Test func wrappingKeepsWordsWholeAndEveryLineInsideTheWidth() {
+        let text = "Labels, sprites, colors, how a click focuses, and more. Read Configuration in the README."
+        let maximumWidth = DemoPixelFont.width(of: text) / 2
+        let lines = DemoPixelFont.wrap(text, maximumWidth: maximumWidth)
+        #expect(lines.count == 2)
+        #expect(lines.joined(separator: " ") == text)
+        #expect(lines.allSatisfy { line in DemoPixelFont.width(of: line) <= maximumWidth })
+        #expect(DemoPixelFont.wrap("agent-pet", maximumWidth: 1) == ["agent-pet"])
+        #expect(DemoPixelFont.wrap("one two", maximumWidth: 10_000) == ["one two"])
+    }
+
     @Test func lookAlikeLettersDiffer() {
         for (left, right) in [("N", "M"), ("V", "Y"), ("O", "0"), ("I", "l"), ("S", "5"), ("B", "8")] {
             #expect(DemoPixelFont.rows(for: left) != DemoPixelFont.rows(for: right), "\(left) and \(right) look the same")
@@ -444,7 +455,7 @@ struct DemoCommandTests {
             environment: ["HOME": freshHome.path, "CFFIXED_USER_HOME": freshHome.path]
         )
         #expect(run.exitStatus == 0)
-        #expect(run.standardOutput.contains("caption: In real use, a click brings the pet's terminal tab to the front."))
+        #expect(run.standardOutput.contains("caption: Clicking the pet brings the terminal tab to focus."))
         #expect(run.standardOutput.contains("cursor: clicks demo-deploy-6e2b"))
         #expect(run.standardOutput.contains("terminal: deploy, Claude Code | v2.0 | Opus | ~/api | > Deploy the api to staging. | \u{25CF} Deployed. The health check passed."))
         #expect(try FileManager.default.contentsOfDirectory(atPath: freshHome.path).isEmpty)

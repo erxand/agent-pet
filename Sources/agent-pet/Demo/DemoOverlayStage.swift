@@ -144,7 +144,8 @@ final class DemoOverlayStage: DemoStage {
         }
         for panel in titlePanels { panel.fadeOut() }
         guard let title else { return }
-        let panel = clickablePanel(DemoTitleView(card: title))
+        let screenWidth = OverlayScreenFrames.current().visibleFrame.width
+        let panel = clickablePanel(DemoTitleView(card: title, maximumWidth: DemoTitleView.maximumWidth(screenWidth: screenWidth)))
         titlePanels.append(panel)
         placeTitle(panel)
     }

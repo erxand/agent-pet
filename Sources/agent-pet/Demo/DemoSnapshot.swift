@@ -74,7 +74,7 @@ enum DemoSnapshot {
         var expectedCount = 3
         if let titleCard {
             expectedCount += 1
-            written.append(contentsOf: save(DemoTitleView(card: titleCard), named: FileName.title, in: directory))
+            written.append(contentsOf: save(DemoTitleView(card: titleCard, maximumWidth: DemoTitleView.maximumWidth(screenWidth: snapshotScreenWidth)), named: FileName.title, in: directory))
         }
         if let captionScene, let captionText = captionScene.caption {
             let sceneNumber = (DemoScript.scenes.firstIndex { scene in scene.name == captionScene.name } ?? 0) + 1
