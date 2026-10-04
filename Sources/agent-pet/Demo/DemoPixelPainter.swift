@@ -33,6 +33,21 @@ enum DemoPixelPainter {
         drawRows(rows, topLeft: topLeft, pixelSide: style.pixelSide, color: style.color)
     }
 
+    static func boldSize(of text: String, style: DemoTextStyle) -> CGSize {
+        let size = size(of: text, style: style)
+        return CGSize(width: size.width + CGFloat(drawable(text).count) * style.pixelSide, height: size.height)
+    }
+
+    static func drawBold(_ text: String, topLeft: CGPoint, style: DemoTextStyle) {
+        var left = topLeft.x
+        for character in drawable(text) {
+            let glyph = String(character)
+            draw(glyph, topLeft: CGPoint(x: left, y: topLeft.y), style: style)
+            draw(glyph, topLeft: CGPoint(x: left + style.pixelSide, y: topLeft.y), style: style)
+            left += CGFloat(DemoPixelFont.width(of: glyph) + DemoPixelFont.glyphSpacing + 1) * style.pixelSide
+        }
+    }
+
     private static func drawRows(_ rows: [String], topLeft: CGPoint, pixelSide: CGFloat, color: NSColor) {
         color.setFill()
         for (rowIndex, row) in rows.enumerated() {

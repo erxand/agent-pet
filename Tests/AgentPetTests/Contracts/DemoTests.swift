@@ -153,6 +153,25 @@ struct DemoTimelineTests {
         #expect(terminalStep.offsetInSeconds < hold)
     }
 
+    @Test func theSimulatedTerminalIsAGenericClaudeCodeSession() throws {
+        let scene = try #require(DemoScript.scene(named: .click))
+        let card = try #require(scene.steps.compactMap { step -> DemoTerminalCard? in
+            if case .showTerminal(let card) = step.action { return card }
+            return nil
+        }.first)
+        #expect(card.title == "deploy")
+        #expect(card.productName == "Claude Code")
+        #expect(card.mascotSprite == SpritePackLoader.defaultPackName)
+        #expect(card.reply == "Deployed. The health check passed.")
+        let shown = card.shownTexts.joined(separator: " ").lowercased()
+        for forbidden in ["@", "max", "plan", "team", "enterprise", "permission", "bypass", "anthropic", "paramify"] {
+            #expect(!shown.contains(forbidden), "terminal shows \(forbidden)")
+        }
+        for text in card.shownTexts {
+            #expect(DemoPixelFont.canRender(text), "cannot draw \(text)")
+        }
+    }
+
     @Test func nothingInTheDemoMovesTheSystemCursor() throws {
         let demoDirectories = ["Sources/agent-pet/Demo", "Sources/AgentPetCore/Demo"]
         for directory in demoDirectories {
@@ -327,8 +346,7 @@ struct DemoPixelFontTests {
                 case .showTitle(let card):
                     texts.append(contentsOf: [card.title, card.subtitle])
                 case .showTerminal(let card):
-                    texts.append(card.title)
-                    texts.append(contentsOf: card.lines)
+                    texts.append(contentsOf: card.shownTexts)
                 case .show, .hide, .click, .hideTitle, .pointCursor, .hideCursor, .hideTerminal:
                     break
                 }
@@ -428,7 +446,7 @@ struct DemoCommandTests {
         #expect(run.exitStatus == 0)
         #expect(run.standardOutput.contains("caption: In real use, a click brings the pet's terminal tab to the front."))
         #expect(run.standardOutput.contains("cursor: clicks demo-deploy-6e2b"))
-        #expect(run.standardOutput.contains("terminal: deploy, ~/api $ claude"))
+        #expect(run.standardOutput.contains("terminal: deploy, Claude Code | v2.0 | Opus | ~/api | > Deploy the api to staging. | \u{25CF} Deployed. The health check passed."))
         #expect(try FileManager.default.contentsOfDirectory(atPath: freshHome.path).isEmpty)
     }
 
@@ -501,7 +519,7 @@ struct DemoWordsTests {
             texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
             for step in scene.steps {
                 if case .showTitle(let card) = step.action { texts.append(contentsOf: [card.title, card.subtitle]) }
-                if case .showTerminal(let card) = step.action { texts.append(contentsOf: [card.title] + card.lines) }
+                if case .showTerminal(let card) = step.action { texts.append(contentsOf: card.shownTexts) }
             }
         }
         for text in texts {

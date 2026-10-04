@@ -510,9 +510,12 @@ anyone who never runs it, and it never touches real state:
   `pointCursor` makes the stage draw `DemoCursorView`, a 12 by 17 pixel arrow at 4 px per pixel in
   `DemoPalette.text` with a `DemoPalette.frame` outline, in its own clear window. The arrow eases toward
   the pet's sprite and follows it. `click` presses the arrow down one art pixel for 0.2 s and hides
-  every member of the pet, so it dives. `showTerminal` fades in `DemoTerminalView`, a panel with a title
-  bar (three dots, the session label, an accent underline), a prompt, the agent's last message and a
-  block cursor. These are drawings only: nothing moves the system cursor or posts an event, and a
+  every member of the pet, so it dives. `showTerminal` fades in `DemoTerminalView`, a simple picture of a
+  Claude Code session: a title bar (three dots, the session label, an accent underline), a header with
+  the idle frame of the `claude` pack and three lines (the product name in pixel bold with a muted
+  version, the model, the folder), the user message after `>`, the reply after a bullet in the pet's
+  accent, an input line with a chevron and a block cursor between two thin rules, and a muted status
+  line. The content is generic: no account, plan, company or permission mode. These are drawings only: nothing moves the system cursor or posts an event, and a
   test scans the demo sources for the APIs that could. The demo pets have no session, so their windows
   ignore the mouse and the stage gives `PetView` no interaction handler.
 - Interactive mode is the default (`waitsForUser`). The clock of a scene stops at its hold offset, after
