@@ -20,8 +20,9 @@ package enum SpriteAccentTint {
     package static let shadeBrightness: CGFloat = 0.68
 
     /// The accent a pet's sprite is painted in, or nil to keep the pack's own palette. A sprite is
-    /// recolored only when the pack names `accentInks` and the session chose its accent (`--accent`),
-    /// see `PetSession.chosenAccent`. An accent `on` only filled from the pack keeps the palette.
+    /// recolored only when the config turns `accentInks` on, the pack names `accentInks` and the session
+    /// chose its accent (`--accent`), see `PetSession.chosenAccent`. An accent `on` only filled from the
+    /// pack keeps the palette.
     package static func tint(chosenAccent: AccentColor?, accentInks: AccentInks?) -> AccentColor? {
         guard accentInks != nil else { return nil }
         return chosenAccent

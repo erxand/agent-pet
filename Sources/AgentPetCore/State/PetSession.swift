@@ -32,7 +32,8 @@ package struct PetSession: Codable, Equatable {
     package var nickname: String?
     package var label: String?
     package var accent: AccentColor?
-    /// True when `on` or `preview` filled `accent` from the sprite pack rather than a caller choosing it.
+    /// True when `on` or `preview` filled `accent` from the sprite pack, false when a caller chose it
+    /// (`--accent`). Absent on records written before the flag existed.
     package var accentFromPack: Bool?
     package var mood: PetMood
     package var message: String?
@@ -83,8 +84,17 @@ package struct PetSession: Codable, Equatable {
     }
 
     /// The accent the session chose for itself: `accent`, unless it was only filled from the pack.
-    package var chosenAccent: AccentColor? {
-        accentFromPack == true ? nil : accent
+    /// A record from before `accentFromPack` existed had its accent filled from the pack whenever it
+    /// matches `packAccent` (the pack's own accent), so it keeps the pack's palette.
+    package func chosenAccent(packAccent: AccentColor?) -> AccentColor? {
+        switch accentFromPack {
+        case true?:
+            return nil
+        case false?:
+            return accent
+        case nil:
+            return accent == packAccent ? nil : accent
+        }
     }
 
     package var parsedTmuxTarget: TmuxTarget? {

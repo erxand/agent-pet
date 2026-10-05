@@ -44,7 +44,7 @@ struct PetIdentityOverrides {
         if let label { updated.label = label }
         if let accent {
             updated.accent = accent
-            updated.accentFromPack = nil
+            updated.accentFromPack = false
         }
         if let agent { updated.agent = agent }
         if let tmuxTarget { updated.tmuxTarget = tmuxTarget }

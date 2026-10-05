@@ -4,12 +4,13 @@ enum TranscriptCompletionEvent: Equatable {
     case finished(String)
     case interim(String)
     /// A named teammate went idle. It carries the teammate's name, not its agent id: the tracked id
-    /// of a teammate is `a<name>-<16 hex>`, see `TeammateAgentId`.
-    case teammateIdle(String)
+    /// of a teammate is `a<name>-<16 hex>`, see `TeammateAgentId`. `at` is when, in seconds since
+    /// 1970, from the notification's own timestamp, nil when it has none.
+    case teammateIdle(String, at: TimeInterval?)
 
     var agentId: String {
         switch self {
-        case .finished(let agentId), .interim(let agentId), .teammateIdle(let agentId):
+        case .finished(let agentId), .interim(let agentId), .teammateIdle(let agentId, _):
             return agentId
         }
     }
@@ -56,6 +57,7 @@ enum TranscriptCompletionScanner {
     static let handBackMarker = "[Subagent hand-back]"
     static let teammateIdleMarker = "idle_notification"
     static let teammateIdleSearchWindowByteCount = 160
+    static let teammateEnvelopeToPayloadByteCount = 120
 
     private static let taskIdOpeningTag = Data("<task-id>".utf8)
     private static let taskIdClosingTag = Data("</task-id>".utf8)
@@ -68,9 +70,15 @@ enum TranscriptCompletionScanner {
     private static let interimNoteMarkerBytes = Data(interimNoteMarker.utf8)
     private static let finalNoteMarkerBytes = Data(finalNoteMarker.utf8)
     private static let handBackMarkerBytes = Data(handBackMarker.utf8)
-    private static let teammateIdleMarkerBytes = Data(teammateIdleMarker.utf8)
+    private static let teammateEnvelopePrefix = Data("<teammate-message teammate_id=".utf8)
+    private static let teammateIdleTypes = [
+        Data("{\\\"type\\\":\\\"\(teammateIdleMarker)\\\"".utf8),
+        Data("{\"type\":\"\(teammateIdleMarker)\"".utf8)
+    ]
     private static let teammateSenderKeys = [Data("from\\\":\\\"".utf8), Data("from\":\"".utf8)]
+    private static let teammateTimestampKeys = [Data("timestamp\\\":\\\"".utf8), Data("timestamp\":\"".utf8)]
     private static let teammateSenderTerminators = [Data("\\\"".utf8), Data("\"".utf8)]
+    private static let maximumTimestampByteCount = 40
     private static let lineFeedByte = UInt8(ascii: "\n")
     private static let taskIdCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
 
@@ -138,28 +146,65 @@ enum TranscriptCompletionScanner {
         return matches
     }
 
-    /// `{"type":"idle_notification","from":"NAME",...}`, JSON-escaped inside the transcript line
-    /// (`\"from\":\"NAME\"`) or raw. A teammate whose turn failed (a usage limit) sends this and no
-    /// `SubagentStop`, so it is the one completion signal that always arrives.
+    /// A teammate message whose payload is `{"type":"idle_notification","from":"NAME","timestamp":...}`,
+    /// inside the `<teammate-message teammate_id="NAME">` envelope Claude Code wraps it in, JSON-escaped
+    /// inside the transcript line or raw. A teammate whose turn failed (a usage limit) sends this and no
+    /// `SubagentStop`, so it is the one completion signal that always arrives. The envelope must name the
+    /// same teammate as the payload, so a file that only quotes a payload (a Read of a fixture) is not one.
     private static func teammateIdleMatches(in bytes: Data) -> [TranscriptCompletionMatch] {
         var matches: [TranscriptCompletionMatch] = []
         var searchStart = bytes.startIndex
-        while let markerRange = bytes.range(of: teammateIdleMarkerBytes, in: searchStart..<bytes.endIndex) {
-            searchStart = markerRange.upperBound
-            let windowEnd = min(bytes.endIndex, markerRange.upperBound + teammateIdleSearchWindowByteCount)
-            for (senderKey, terminator) in zip(teammateSenderKeys, teammateSenderTerminators) {
-                guard let keyRange = bytes.range(of: senderKey, in: markerRange.upperBound..<windowEnd),
-                      let senderMatch = identifier(in: bytes, startingAt: keyRange.upperBound, terminator: terminator) else {
-                    continue
-                }
+        while let envelopeRange = bytes.range(of: teammateEnvelopePrefix, in: searchStart..<bytes.endIndex) {
+            searchStart = envelopeRange.upperBound
+            guard let quote = openingQuote(in: bytes, at: envelopeRange.upperBound),
+                  let envelopeName = identifier(in: bytes, startingAt: envelopeRange.upperBound + quote.count, terminator: quote)
+            else { continue }
+            searchStart = envelopeName.terminatorEnd
+            let payloadWindow = searchWindow(
+                in: bytes,
+                from: envelopeName.terminatorEnd,
+                byteCount: teammateEnvelopeToPayloadByteCount,
+                stoppingAt: teammateEnvelopePrefix
+            )
+            for ((idleType, senderKey), (timestampKey, terminator)) in zip(
+                zip(teammateIdleTypes, teammateSenderKeys),
+                zip(teammateTimestampKeys, teammateSenderTerminators)
+            ) {
+                guard let typeRange = bytes.range(of: idleType, in: payloadWindow) else { continue }
+                let fieldWindow = searchWindow(
+                    in: bytes,
+                    from: typeRange.upperBound,
+                    byteCount: teammateIdleSearchWindowByteCount,
+                    stoppingAt: teammateEnvelopePrefix
+                )
+                guard let keyRange = bytes.range(of: senderKey, in: fieldWindow),
+                      let senderMatch = identifier(in: bytes, startingAt: keyRange.upperBound, terminator: terminator),
+                      senderMatch.identifier == envelopeName.identifier else { continue }
                 matches.append(TranscriptCompletionMatch(
-                    byteOffset: byteOffset(of: markerRange.lowerBound, in: bytes),
-                    event: .teammateIdle(senderMatch.identifier)
+                    byteOffset: byteOffset(of: envelopeRange.lowerBound, in: bytes),
+                    event: .teammateIdle(
+                        senderMatch.identifier,
+                        at: timestamp(in: bytes, within: fieldWindow, key: timestampKey, terminator: terminator)
+                    )
                 ))
                 break
             }
         }
         return matches
+    }
+
+    private static func timestamp(in bytes: Data, within window: Range<Data.Index>, key: Data, terminator: Data) -> TimeInterval? {
+        guard let keyRange = bytes.range(of: key, in: window) else { return nil }
+        let searchEnd = min(bytes.endIndex, keyRange.upperBound + maximumTimestampByteCount + terminator.count)
+        guard let terminatorRange = bytes.range(of: terminator, in: keyRange.upperBound..<searchEnd),
+              let text = String(data: bytes[keyRange.upperBound..<terminatorRange.lowerBound], encoding: .utf8) else {
+            return nil
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date.timeIntervalSince1970 }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)?.timeIntervalSince1970
     }
 
     private static func openingQuote(in bytes: Data, at index: Data.Index) -> Data? {

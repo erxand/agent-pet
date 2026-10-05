@@ -162,7 +162,9 @@ package enum PetTurnState {
     @discardableResult
     static func end(sessionId: String, reason: SessionEndReason?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            if reason?.continuesInSameProcess == true {
+            // Only a record that names its process can be handed over (`PetSessionHandover`), so a
+            // record with no pid (the plain `/pet` flow) goes, as it always did.
+            if reason?.continuesInSameProcess == true, record?.pid != nil {
                 markDone(&record)
                 markHidden(&record)
             } else {

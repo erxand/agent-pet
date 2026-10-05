@@ -7,6 +7,7 @@ package final class SpritePackRegistry {
 
     private var sheetsByPackName: [String: SpriteSheet] = [:]
     private var accentInksByPackName: [String: AccentInks] = [:]
+    private var ownAccentByPackName: [String: AccentColor] = [:]
     private var tintedSheets: [TintedSheetKey: SpriteSheet] = [:]
     private var packDirectoryStateByPackName: [String: PackDirectoryState] = [:]
     private var reportedDirectoryIssues: Set<String> = []
@@ -41,6 +42,11 @@ package final class SpritePackRegistry {
     package func sheet(forPackNamed packName: String?) -> SpriteSheet {
         let resolvedName = packName ?? SpritePackLoader.defaultPackName
         return sheetsByPackName[resolvedName] ?? fallbackSheet
+    }
+
+    /// The accent `on` fills from this pack (`LoadedSpritePack.ownAccent`), nil for a pack not loaded.
+    package func ownAccent(forPackNamed packName: String?) -> AccentColor? {
+        ownAccentByPackName[packName ?? SpritePackLoader.defaultPackName]
     }
 
     /// The sheet for a session whose chosen accent is `chosenAccent` (`PetSession.chosenAccent`).
@@ -96,6 +102,7 @@ package final class SpritePackRegistry {
 
     private func forgetTints(forPackNamed packName: String) {
         accentInksByPackName.removeValue(forKey: packName)
+        ownAccentByPackName.removeValue(forKey: packName)
         tintedSheets = tintedSheets.filter { key, _ in key.packName != packName }
     }
 
@@ -105,6 +112,7 @@ package final class SpritePackRegistry {
         case .loaded(let pack):
             sheetsByPackName[packName] = pack.sheet
             accentInksByPackName[packName] = pack.accentInks
+            ownAccentByPackName[packName] = pack.ownAccent
             if let unknownAccentName = pack.unknownAccentName {
                 reportFailure("agent-pet: sprite pack \(packName) accent \(unknownAccentName) is not an accent color, ignored")
             }

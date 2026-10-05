@@ -11,11 +11,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     // anyway. A dive is 450 ms; this only matters when the main thread is stuck.
     private static let shutdownDeadlineInSeconds: TimeInterval = 2
 
-    private let store = PetSessionStore()
-    private let spritePackRegistry = SpritePackRegistry()
-    private let configurationFile = ConfigurationFile.path()
+    private let store: PetSessionStore
+    private let spritePackRegistry: SpritePackRegistry
+    private let configurationFile: URL
 
-    private var contracts = AgentPetContracts.loaded(focusCompletion: .detaches)
+    private var contracts: AgentPetContracts
     private var lastConfigurationModification: Date?
 
     private var presencesBySessionId: [String: PetPresence] = [:]
@@ -30,6 +30,18 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
+
+    init(
+        configurationFile: URL = ConfigurationFile.path(),
+        store: PetSessionStore = PetSessionStore(),
+        spritePackRegistry: SpritePackRegistry = SpritePackRegistry()
+    ) {
+        self.configurationFile = configurationFile
+        self.store = store
+        self.spritePackRegistry = spritePackRegistry
+        contracts = AgentPetContracts(configuration: ConfigurationFile.load(from: configurationFile), focusCompletion: .detaches)
+        super.init()
+    }
 
     func start() {
         PetPaths.createStateDirectoriesIfNeeded()
@@ -124,7 +136,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let modification = ConfigurationFile.modificationDate(of: configurationFile)
         guard modification != lastConfigurationModification else { return false }
         lastConfigurationModification = modification
-        contracts = AgentPetContracts.loaded(focusCompletion: .detaches)
+        contracts = AgentPetContracts(configuration: ConfigurationFile.load(from: configurationFile), focusCompletion: .detaches)
         return true
     }
 
@@ -202,7 +214,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         for (laneIndex, item) in items.enumerated() {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
-            let sessionSheet = spritePackRegistry.sheet(forPackNamed: packName, chosenAccent: record.chosenAccent)
+            let chosenAccent = contracts.configuration.paintsAccentInks
+                ? record.chosenAccent(packAccent: spritePackRegistry.ownAccent(forPackNamed: packName))
+                : nil
+            let sessionSheet = spritePackRegistry.sheet(forPackNamed: packName, chosenAccent: chosenAccent)
             let spriteSheet = sessionSheet.sheet
             let petAppearance = PetAppearance(
                 label: item.label,

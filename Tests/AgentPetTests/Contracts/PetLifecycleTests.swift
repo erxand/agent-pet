@@ -219,6 +219,17 @@ struct PetLifecycleTests {
         #expect(sandbox.hookLogLines().last?.hasSuffix("visible=false agents=0 reason=\(reason)") == true)
     }
 
+    @Test(arguments: ["clear", "resume"])
+    func aSessionEndOfARecordWithNoProcessRemovesIt(reason: String) throws {
+        let sandbox = try Sandbox()
+        var record = RecordFixtures.enrolled(visible: true)
+        record.removeValue(forKey: "pid")
+        try sandbox.writeRecord(record)
+        try sandbox.hook(RecordFixtures.hookPayload("SessionEnd", extra: ["reason": reason]))
+
+        #expect(!sandbox.exists(sandbox.recordURL(RecordFixtures.sessionId)))
+    }
+
     @Test(arguments: ["prompt_input_exit", "logout", "other"])
     func aSessionEndThatEndsTheProcessRemovesTheRecord(reason: String) throws {
         let sandbox = try Sandbox()
@@ -270,6 +281,40 @@ struct PetLifecycleTests {
         #expect(sandbox.hookLogLines().isEmpty)
     }
 
+    /// A Claude started from another Claude's Bash tool (`claude -p --resume`, say) runs its hooks with
+    /// the parent Claude two levels up. The parent's pet stays the parent's.
+    @Test(arguments: ["resume", "clear"])
+    func aClaudeStartedFromAnotherClaudesShellNeverTakesTheParentsPet(source: String) throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "parent", extra: ["label": "Parent"]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", sessionId: "child", extra: ["source": source]), throughShell: true)
+
+        #expect(!sandbox.exists(sandbox.recordURL("child")))
+        #expect(sandbox.record("parent")?["label"] as? String == "Parent")
+        #expect(sandbox.hookLogLines().isEmpty)
+    }
+
+    @Test func aChildWhoseSessionFileNamesItselfNeverTakesTheParentsPet() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "parent", extra: ["label": "Parent"]))
+        try sandbox.writeClaudeSession(processIdentifier: Int32(deadProcessIdentifier), sessionId: "child")
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", sessionId: "child", extra: ["source": "resume"]))
+
+        #expect(!sandbox.exists(sandbox.recordURL("child")))
+        #expect(sandbox.exists(sandbox.recordURL("parent")))
+    }
+
+    /// Claude Code's session file names the process, however far up the hook it sits.
+    @Test func theSessionFileForTheNewIdNamesTheProcessThatTakesThePet() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "before", extra: ["label": "Mine"]))
+        try sandbox.writeClaudeSession(processIdentifier: getpid(), sessionId: "after")
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", sessionId: "after", extra: ["source": "clear"]), throughShell: true)
+
+        #expect(!sandbox.exists(sandbox.recordURL("before")))
+        #expect(sandbox.record("after")?["label"] as? String == "Mine")
+    }
+
     @Test func removeByProcessTakesEveryRecordOfThatProcess() throws {
         let sandbox = try Sandbox()
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "after-clear"))
@@ -311,5 +356,49 @@ struct PetLifecycleTests {
 
         #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["afixer-70-d035f68f1e116378"])
         #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == false)
+    }
+
+    private func idleLine(teammate: String, envelope: String? = nil, timestamp: String? = nil) -> String {
+        let stamp = timestamp.map { value in ",\\\"timestamp\\\":\\\"\(value)\\\"" } ?? ""
+        let payload = "{\\\"type\\\":\\\"idle_notification\\\",\\\"from\\\":\\\"\(teammate)\\\"\(stamp),\\\"idleReason\\\":\\\"available\\\"}"
+        let opening = envelope.map { name in "<teammate-message teammate_id=\\\"\(name)\\\">\\n" } ?? ""
+        return "{\"type\":\"user\",\"message\":{\"content\":\"\(opening)\(payload)\"}}\n"
+    }
+
+    /// The lead spawned a second `fixer` after the first one went idle. The first one's notice says
+    /// nothing about the second, which is still working.
+    @Test func anEarlierTeammateOfTheSameNameGoingIdleLeavesANewOneWorking() throws {
+        let sandbox = try Sandbox()
+        let transcript = sandbox.home.appendingPathComponent("transcript.jsonl")
+        let now = Date().timeIntervalSince1970
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let wentIdle = formatter.string(from: Date(timeIntervalSince1970: now - 60))
+        try idleLine(teammate: "fixer", envelope: "fixer", timestamp: wentIdle)
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        let spawnedBefore = now - 120
+        let spawnedAfter = now - 10
+        try sandbox.writeRecord(RecordFixtures.enrolled(activeSubagents: [
+            RecordFixtures.trackedSubagent("afixer-d035f68f1e116378", startedAt: spawnedBefore),
+            RecordFixtures.trackedSubagent("afixer-1111222233334444", startedAt: spawnedAfter)
+        ]))
+        try sandbox.hook(RecordFixtures.hookPayload("Stop", extra: ["transcript_path": transcript.path]))
+
+        #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["afixer-1111222233334444"])
+    }
+
+    /// Only a real teammate message counts: a payload quoted with no envelope (a Read of a fixture), or
+    /// one whose envelope names somebody else, finishes nobody.
+    @Test(arguments: [nil, "reviewer"] as [String?])
+    func aQuotedIdleNotificationFinishesNobody(envelope: String?) throws {
+        let sandbox = try Sandbox()
+        let transcript = sandbox.home.appendingPathComponent("transcript.jsonl")
+        try idleLine(teammate: "fixer", envelope: envelope).write(to: transcript, atomically: true, encoding: .utf8)
+        try sandbox.writeRecord(RecordFixtures.enrolled(activeSubagents: [
+            RecordFixtures.trackedSubagent("afixer-d035f68f1e116378")
+        ]))
+        try sandbox.hook(RecordFixtures.hookPayload("Stop", extra: ["transcript_path": transcript.path]))
+
+        #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["afixer-d035f68f1e116378"])
     }
 }

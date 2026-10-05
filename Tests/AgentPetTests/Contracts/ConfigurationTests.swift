@@ -22,6 +22,15 @@ struct ConfigurationTests {
         #expect(AgentPetConfiguration.defaults.disambiguatesLabels == false)
         #expect(AgentPetConfiguration.defaults.reservedSprites.isEmpty)
         #expect(AgentPetConfiguration.defaults.display == .focused)
+        #expect(AgentPetConfiguration.defaults.settleSeconds == 0)
+        #expect(!AgentPetConfiguration.defaults.holdsWhileBusy)
+        #expect(!AgentPetConfiguration.defaults.paintsAccentInks)
+        #expect(!AgentPetConfiguration.defaults.divesOnExit)
+    }
+
+    @Test func diveOnExitIsOffUnlessTheConfigTurnsItOn() {
+        #expect(parse(#"{"diveOnExit":true}"#).divesOnExit)
+        #expect(!parse(#"{"diveOnExit":"yes"}"#).divesOnExit)
     }
 
     @Test func anEmptyObjectUnreadableJsonAndUnknownKeysAreTheDefaults() {

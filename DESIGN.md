@@ -61,7 +61,7 @@ file on every write (temp file in the same dir, then rename).
   and `sprite` are optional overrides: `accent` is an `AccentColor` name, and `sprite` is a pack
   name where missing or unknown means the compiled-in `claude` art. `on` and `preview` fill
   `sprite` when it is absent, then fill `accent` from that pack when `accent` is absent, see
-  "Sprite assignment". `accentFromPack` is true when that fill wrote `accent`, and is removed whenever
+  "Sprite assignment". `accentFromPack` is true when that fill wrote `accent`, and false whenever
   `--accent` sets it, so it tells an accent the session chose from one it only inherited from its
   pack, see "Accent on the sprite". Label resolution order is `nickname`,
   `label`, Claude session `name`, basename of `cwd`.
@@ -174,14 +174,19 @@ packs sit near 0.7, and the result stays readable for all eight accents). Both m
 characters present in `palette`: an `accent` that is not drops the whole key, a `shade` that is not
 drops only the shade. A pack without the key, and the compiled-in `claude8Bit`, never recolor.
 
-The rule is `SpriteAccentTint.tint(chosenAccent:accentInks:)`: the sprite is recolored when the pack
-has `accentInks` and the record has a chosen accent, `PetSession.chosenAccent`, which is `accent`
-unless `accentFromPack` is true. So `--accent` (which hq passes for every account) recolors, and an
-accent that `on` or `preview` only filled from the pack keeps the pack's own palette, the look the
-pack was drawn with. A record written before `accentFromPack` existed counts its `accent` as chosen.
-An explicit accent equal to the pack's own accent still recolors, so two sessions on one pack with
-different chosen accents never look alike. With no `accent` at all (the session hash case) the
-sprite keeps its palette.
+This is off unless the config sets `accentInks` to `true`. With no config a chosen accent colors the
+label dot, the bubble and the prompt bar, as upstream always did, and every sprite keeps its palette.
+
+The rule is `SpriteAccentTint.tint(chosenAccent:accentInks:)`: with `accentInks` on, the sprite is
+recolored when the pack has `accentInks` and the record has a chosen accent,
+`PetSession.chosenAccent(packAccent:)`. That is `accent` when `accentFromPack` is false, nothing when it
+is true. So `--accent` (which hq passes for every account) recolors, and an accent that `on` or
+`preview` only filled from the pack keeps the pack's own palette, the look the pack was drawn with. A
+record written before `accentFromPack` existed has no flag, and `on` filled its `accent` from the pack
+whenever none was given, so such a record counts as filled from the pack when its `accent` equals the
+pack's own accent, and as chosen otherwise. An explicit accent equal to the pack's own accent still
+recolors, so two sessions on one pack with different chosen accents never look alike. With no `accent`
+at all (the session hash case) the sprite keeps its palette.
 
 `SpritePackRegistry.sheet(forPackNamed:chosenAccent:)` returns the sheet and the tint it applied.
 It recolors each pack and accent pair once and keeps the result until that pack reloads, and the
@@ -283,8 +288,8 @@ enrolled and goes through the table below.
 | `SubagentStop` | scan and expire, then `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
 | `UserPromptSubmit` | set `busy` and `hide`, in one locked write. The subagent set is left as it is, because a new prompt does not end a running subagent |
 | `PreToolUse` | set `busy` and `hide`. From a subagent (the payload has an `agent_id`) a visible `needsInput` pet stays up: another subagent may still be waiting on a permission prompt, and nothing the first one does answers it |
-| `SessionEnd` | `remove`, except with `reason` `clear` or `resume`: then clear `busy`, hide and keep the record, because the same process goes on under a new session id |
-| `SessionStart` with `source` `clear` or `resume` | the one event that may act for a session with no record: the record whose `pid` is one of the hook's nearest three ancestors (Claude Code runs a hook as its child, at most through a shell) moves to the new session id, keeping its identity (label, sprite, accent, group, owner, focus target, pid) and starting its turn state fresh. A Claude started from another Claude's Bash tool is further away from its parent than three levels, so it can never take its parent's pet. Logged as `SessionStart <new> - ... source=<source>`. Any other source, or no such record, writes nothing |
+| `SessionEnd` | `remove`, except with `reason` `clear` or `resume` on a record that has a `pid`: then clear `busy`, hide and keep the record, because the same process goes on under a new session id and the `SessionStart` that follows hands it over. A record with no `pid` (the plain `/pet` flow) can never be handed over, so it is removed as before |
+| `SessionStart` with `source` `clear` or `resume` | the one event that may act for a session with no record: the record whose `pid` is the process of the new session id moves to that id, keeping its identity (label, sprite, accent, group, owner, focus target, pid) and starting its turn state fresh. The process is the `pid` in Claude Code's own session file for the new session id (any `sessionDirectories`), and, until Claude Code has written that file, the hook's parent, since Claude Code runs a hook as its child. No other ancestor counts: a Claude started from another Claude's Bash tool (`claude -p --resume`, say) has the parent Claude a few levels up, and must never take the parent's pet. Logged as `SessionStart <new> - ... source=<source>`. Any other source, or no such record, writes nothing |
 | anything else | nothing |
 
 A session that has both global hooks and `/pet` skill hooks sees every event twice. Every action above is
@@ -338,10 +343,15 @@ own write, `SubagentCleanup` does two things:
      marker `stopped with background work of its own still running` makes `.interim(ID)`; the final
      marker `stops with no live background children of its own`, any other note, or no note at all makes
      `.finished(ID)`.
-   - Every `idle_notification` followed within 160 bytes by `from":"NAME"` (JSON-escaped or raw): a named
-     teammate went idle. It makes `.teammateIdle(NAME)`, and it finishes every tracked id that is `a`, NAME,
-     `-` and 16 hex digits, the shape of a teammate's `agent_id`. A teammate whose turn failed (a usage limit)
-     sends this and no `SubagentStop`, which held its lead's pet down until the 3 hour expiry.
+   - Every `<teammate-message teammate_id="NAME">` envelope whose payload, within 120 bytes, starts
+     `{"type":"idle_notification"` and names the same `from":"NAME"` within 160 bytes after that (JSON-escaped
+     or raw): a named teammate went idle. It makes `.teammateIdle(NAME, at:)`, with the payload's own
+     `timestamp` when it has one, and it finishes every tracked id that is `a`, NAME, `-` and 16 hex digits
+     (the shape of a teammate's `agent_id`) whose `startedAt` is at or before that time. An earlier teammate of
+     the same name going idle says nothing about one spawned since. A notification with no timestamp finishes
+     every such id. A payload quoted outside its envelope (a Read of a fixture, say), or under an envelope
+     that names someone else, finishes nobody. A teammate whose turn failed (a usage limit) sends this and no
+     `SubagentStop`, which held its lead's pet down until the 3 hour expiry.
    - Every `agent-message from=` followed by `\"ID\"` (the JSON-escaped form) or `"ID"` (the raw form),
      where the marker `[Subagent hand-back]` follows within 400 bytes and before the next
      `agent-message from=`. That makes `.finished(ID)`.
@@ -492,9 +502,9 @@ session id, and the planner applies these rules to the live members of each key:
 
 A session that has just started waiting often stops again within a moment: a message queued while Claude worked
 is submitted about 0.1 s after the `Stop` that ends the turn (a `UserPromptSubmit` follows), and a `!` command
-queued the same way runs right after it. So the planner holds a pet back until its session has stayed waiting for
-`settleSeconds` (default 1 s, `AgentPetConfiguration.defaultSettleSeconds`, config key `settleSeconds`), and one
-that stops waiting inside that time never comes up at all. The hooks stay instant and nothing sleeps: the hook
+queued the same way runs right after it. So the planner can hold a pet back until its session has stayed waiting
+for `settleSeconds` (config key `settleSeconds`, default 0, `AgentPetConfiguration.defaultSettleSeconds`, so with no
+config a pet comes up at once, as upstream), and one that stops waiting inside that time never comes up at all. The hooks stay instant and nothing sleeps: the hook
 only stamps `waitingSince`, and the daemon decides.
 
 - A visible member whose `waitingSince` is less than `settleSeconds` old is treated as not visible, unless its pet
@@ -503,7 +513,8 @@ only stamps `waitingSince`, and the daemon decides.
 - `needsInput` settles the same way. A permission prompt is answered by a person, which takes longer than a
   second, so the delay costs it nothing, and a prompt that a hook or an auto mode answers at once never flashes a
   pet. One rule for every mood is also easier to reason about.
-- A `!` command (Claude Code's bash mode) fires no hook at all, typed or queued: `hooks.log` shows the `Stop`
+- With `holdWhileBusy` set to `true` in the config (off by default): a `!` command (Claude Code's bash mode)
+  fires no hook at all, typed or queued: `hooks.log` shows the `Stop`
   before it and the `Stop` after Claude's reply, nothing between. Claude Code does write `status: "busy"` to its
   own session file within about 0.1 s of the command starting, and `idle` when it is done. So a visible `ready`
   member whose Claude session file says `busy` with a `statusUpdatedAt` at or after its `waitingSince` is treated
@@ -513,7 +524,8 @@ only stamps `waitingSince`, and the daemon decides.
 - The daemon re-plans on any change to the pet records, to a Claude session file (so a `busy` is seen within one
   poll), and once the earliest settling pet is due (`nextSettleDeadline`), so a pet comes up between
   `settleSeconds` and `settleSeconds` plus one poll interval after its `Stop`.
-- `settleSeconds` 0 turns the delay off. The `busy` rule still applies.
+- `settleSeconds` 0 turns the delay off. The `busy` rule is separate and follows `holdWhileBusy` alone.
+- Status `shell` is not read: it means idle with background shell tasks running, not a `!` command.
 
 ### Emerge and dive
 
@@ -529,9 +541,12 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
   once over 350 ms while `groundOffset` goes from 0 to `spriteHeight` with ease-in, then the window closes. A record
   that becomes visible again mid-dive reverses into an emerge from the current offset. Liveness-sweep removals dive.
 - **Every way a pet goes away dives**: hidden (a hook, `hide`, a click, its pane focused), removed (`remove`, session
-  end, the liveness sweep), disabled (`off`), a group whose last waiting member stops waiting, and the daemon itself
+  end, the liveness sweep), disabled (`off`), a group whose last waiting member stops waiting, and, with
+  `diveOnExit` set to `true` in the config (off by default, read when the daemon starts), the daemon itself
   stopping (SIGTERM from launchd on a restart or uninstall, or SIGINT), which dives every pet and exits once they are
-  under (2 s at most). Records are untouched, so a daemon that starts again brings the visible pets back up.
+  under (2 s at most, and 3 s after the signal even when the main thread is stuck, since the signal is handled on a
+  queue of its own; a second signal exits at once). Records are untouched, so a daemon that starts again brings
+  the visible pets back up. Without `diveOnExit` the signals keep their default action, as upstream.
 - A pet hidden mid-emerge dives from its current offset and still plays every `dive` frame over the full 350 ms
   descent; its label fades from its current opacity. Only a pet with nothing above ground yet goes straight under.
 - An emerge or dive advances at most 1/15 s per animation tick, so a late tick (a busy main thread or Mac) slows
@@ -721,10 +736,13 @@ the defaults.
 | PetGrouping | `SharedKeyGrouping`: one pet per session unless sessions name a `group` | `OnePetPerSessionGrouping` stays for comparison in tests | `--group` on the session, not config |
 | LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
 | LabelDisambiguation | off | last 4 of the owner's session id on duplicate labels | `disambiguateLabels` |
-| Settle delay | 1 s | any number of seconds, 0 for none | `settleSeconds` |
+| Settle delay | none (0 s) | any number of seconds | `settleSeconds` |
+| Hold while busy | off | a ready pet stays down while Claude Code's own status says `busy` (a `!` command) | `holdWhileBusy` |
+| Accent inks | off: a chosen accent colors the dot, bubble and prompt bar only | the sprite's accent inks take the chosen accent too | `accentInks` |
+| Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
-Accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
+The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
 the placement and the disambiguation are decided in `AgentPetCore`, so they are testable without AppKit.
 So is the display: the overlay hands the chooser an `AttachedDisplays` (each screen's `localizedName` in
 `NSScreen.screens` order and the index of `NSScreen.main`) and takes back an index.
@@ -745,6 +763,9 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "reservedSprites": ["claude"],
   "spriteDirectories": ["~/pets/prototypes"],
   "settleSeconds": 1,
+  "holdWhileBusy": true,
+  "accentInks": true,
+  "diveOnExit": true,
   "display": "primary"
 }
 ```
@@ -768,8 +789,14 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   after expansion is skipped, and so is a clashing pack. The daemon logs each such problem once to
   `daemon.log` and again only if it goes away and comes back. Non-string and empty entries are dropped.
 
-- `settleSeconds` is a number of seconds, default `1`: how long a session must stay waiting before its pet
-  comes up, see "Settling". `0` turns the delay off. A negative or non-number value means the default.
+- `settleSeconds` is a number of seconds, default `0`: how long a session must stay waiting before its pet
+  comes up, see "Settling". `0` is no delay. A negative or non-number value means the default.
+- `holdWhileBusy` is a boolean, default `false`: keep a ready pet down while its Claude session file says
+  `busy` after the turn ended, see "Settling".
+- `accentInks` is a boolean, default `false`: a chosen accent also paints the pack's `accentInks`, see
+  "Accent on the sprite".
+- `diveOnExit` is a boolean, default `false`: a daemon stopped by SIGTERM or SIGINT dives its pets
+  before it exits, see "Emerge and dive". Read when the daemon starts, so a change needs a restart.
 - `display` is `focused` (the default), `primary` or `name:<localizedName>`. `primary` is
   `NSScreen.screens.first`, the display with the menu bar, so it follows macOS when the primary changes.
   `name:` matches `NSScreen.localizedName` exactly and falls back to the primary display while no

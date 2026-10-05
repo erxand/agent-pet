@@ -5,7 +5,8 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `pack.json` holds the pack name, the `frameSize` (frames are square), an optional `accent`,
   and a `palette` that maps one character to one hex color.
 - `accentInks` is optional, `{"accent":"A","shade":"a"}`: the characters that show the session's
-  accent color. When a session chose its color (`/pet <nickname> <color>`, or `--accent`), every
+  accent color. When the config turns `accentInks` on and a session chose its color
+  (`/pet <nickname> <color>`, or `--accent`), every
   pixel drawn with `accent` is painted in that color and every pixel drawn with `shade` in a darker
   shade of it (each RGB channel at 68%). A session that only took the pack's own `accent` keeps
   the palette colors, so the pack looks the way you drew it. Both characters must be in `palette`;
