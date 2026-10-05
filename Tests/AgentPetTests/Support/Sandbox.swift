@@ -64,11 +64,19 @@ final class Sandbox {
     func run(
         _ arguments: [String],
         standardInput: String? = nil,
-        environment extraEnvironment: [String: String] = [:]
+        environment extraEnvironment: [String: String] = [:],
+        throughShell: Bool = false
     ) throws -> CommandRun {
         let process = Process()
-        process.executableURL = try Sandbox.binaryURL()
-        process.arguments = arguments
+        if throughShell {
+            // A shell that does not exec its command sits between this process and agent-pet, the
+            // way a Bash tool's shell sits between a parent Claude and a Claude it started.
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", "\"$0\" \"$@\"; exit $?", try Sandbox.binaryURL().path] + arguments
+        } else {
+            process.executableURL = try Sandbox.binaryURL()
+            process.arguments = arguments
+        }
         var environment = [
             "HOME": home.path,
             "CFFIXED_USER_HOME": home.path,
@@ -106,9 +114,14 @@ final class Sandbox {
     }
 
     @discardableResult
-    func hook(_ payload: [String: Any], environment: [String: String] = [:]) throws -> CommandRun {
+    func hook(_ payload: [String: Any], environment: [String: String] = [:], throughShell: Bool = false) throws -> CommandRun {
         let data = try JSONSerialization.data(withJSONObject: payload)
-        return try run(["hook"], standardInput: String(decoding: data, as: UTF8.self), environment: environment)
+        return try run(
+            ["hook"],
+            standardInput: String(decoding: data, as: UTF8.self),
+            environment: environment,
+            throughShell: throughShell
+        )
     }
 
     func writeRecord(_ record: [String: Any]) throws {

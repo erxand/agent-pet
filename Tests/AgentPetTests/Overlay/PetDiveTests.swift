@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AgentPetCore
 @testable import agent_pet
 
 @Suite("every pet that goes away digs back down")
@@ -112,8 +113,20 @@ struct PetDiveTests {
         #expect(abs(animator.groundOffsetFraction - heightWhenShown) < 1e-9)
     }
 
-    @Test func aStoppingDaemonWithNoPetsExitsAtOnce() {
-        let controller = PetOverlayController()
+    @Test func aStoppingDaemonWithNoPetsExitsAtOnce() throws {
+        let sandbox = try Sandbox()
+        let controller = PetOverlayController(
+            configurationFile: sandbox.stateDirectory.appendingPathComponent("config.json"),
+            store: PetSessionStore(directory: sandbox.sessionsDirectory),
+            spritePackRegistry: SpritePackRegistry(
+                loader: SpritePackLoader(
+                    packsDirectory: sandbox.spritesDirectory,
+                    extraDirectoryPaths: [],
+                    homeDirectory: sandbox.home
+                ),
+                reportFailure: { _ in }
+            )
+        )
         var completions = 0
         controller.beginShutdown { completions += 1 }
         #expect(completions == 1)

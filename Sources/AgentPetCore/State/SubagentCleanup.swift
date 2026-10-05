@@ -22,50 +22,63 @@ private struct TranscriptScanResult {
     static let unavailable = TranscriptScanResult(
         finishedTaskIds: [],
         interimTaskIds: [],
-        idleTeammateNames: [],
+        idleTeammates: [:],
         skippedByteCount: TranscriptTail.noBytes
     )
 
     let finishedTaskIds: Set<String>
     let interimTaskIds: Set<String>
-    let idleTeammateNames: Set<String>
+    /// Each idle teammate's name and when it last went idle; nil when a notification carried no time.
+    let idleTeammates: [String: TimeInterval?]
     let skippedByteCount: Int
 
-    init(finishedTaskIds: Set<String>, interimTaskIds: Set<String>, idleTeammateNames: Set<String>, skippedByteCount: Int) {
+    init(finishedTaskIds: Set<String>, interimTaskIds: Set<String>, idleTeammates: [String: TimeInterval?], skippedByteCount: Int) {
         self.finishedTaskIds = finishedTaskIds
         self.interimTaskIds = interimTaskIds
-        self.idleTeammateNames = idleTeammateNames
+        self.idleTeammates = idleTeammates
         self.skippedByteCount = skippedByteCount
     }
 
     init(events: [TranscriptCompletionEvent], skippedByteCount: Int) {
         var finishedTaskIds: Set<String> = []
         var interimTaskIds: Set<String> = []
-        var idleTeammateNames: Set<String> = []
+        var idleTeammates: [String: TimeInterval?] = [:]
         for event in events {
             switch event {
             case .finished(let agentId):
                 finishedTaskIds.insert(agentId)
             case .interim(let agentId):
                 interimTaskIds.insert(agentId)
-            case .teammateIdle(let name):
-                idleTeammateNames.insert(name)
+            case .teammateIdle(let name, let idleAt):
+                idleTeammates[name] = TranscriptScanResult.later(idleTeammates[name], idleAt)
             }
         }
         self.init(
             finishedTaskIds: finishedTaskIds,
             interimTaskIds: interimTaskIds,
-            idleTeammateNames: idleTeammateNames,
+            idleTeammates: idleTeammates,
             skippedByteCount: skippedByteCount
         )
     }
 
-    func finishedIds(among trackedIds: [String]) -> Set<String> {
+    /// An untimed notification outranks a timed one, since it may be the latest.
+    private static func later(_ known: TimeInterval??, _ seen: TimeInterval?) -> TimeInterval? {
+        guard let known else { return seen }
+        guard let knownTime = known, let seenTime = seen else { return nil }
+        return max(knownTime, seenTime)
+    }
+
+    /// A teammate is finished by an idle notification of its name sent after it started. An earlier
+    /// teammate of the same name going idle says nothing about one spawned since.
+    func finishedIds(among trackedSubagents: [TrackedSubagent]) -> Set<String> {
         var finished = finishedTaskIds
-        for trackedId in trackedIds where idleTeammateNames.contains(where: { name in
-            TeammateAgentId.belongs(trackedId, toTeammateNamed: name)
-        }) {
-            finished.insert(trackedId)
+        for trackedSubagent in trackedSubagents {
+            let wentIdle = idleTeammates.contains { name, idleAt in
+                guard TeammateAgentId.belongs(trackedSubagent.id, toTeammateNamed: name) else { return false }
+                guard let idleAt else { return true }
+                return idleAt >= trackedSubagent.startedAt
+            }
+            if wentIdle { finished.insert(trackedSubagent.id) }
         }
         return finished
     }
@@ -79,7 +92,7 @@ enum SubagentCleanup {
     static func apply(to record: inout PetSession?, now: TimeInterval) -> SubagentCleanupOutcome {
         guard var session = record else { return .nothingFound }
         let transcriptScan = scanTranscript(of: &session)
-        let finishedIds = transcriptScan.finishedIds(among: session.activeSubagents.map { trackedSubagent in trackedSubagent.id })
+        let finishedIds = transcriptScan.finishedIds(among: session.activeSubagents)
         let completedSubagentIds = removeSubagents(withIds: finishedIds, from: &session)
         let interimSubagentIds = trackedSubagentIds(in: session, matching: transcriptScan.interimTaskIds)
         let expiredSubagents = removeExpiredSubagents(from: &session, now: now)

@@ -77,26 +77,57 @@ struct SpriteAccentTintTests {
         #expect(filled["accentFromPack"] as? Bool == true)
         let chosen = try #require(sandbox.record("chosen"))
         #expect(chosen["accent"] as? String == "red")
-        #expect(chosen["accentFromPack"] == nil)
+        #expect(chosen["accentFromPack"] as? Bool == false)
 
         try sandbox.run(["on", "--session", "filled", "--accent", "cyan", "--pid", livePid])
         let rechosen = try #require(sandbox.record("filled"))
         #expect(rechosen["accent"] as? String == "cyan")
-        #expect(rechosen["accentFromPack"] == nil)
+        #expect(rechosen["accentFromPack"] as? Bool == false)
 
         let decoder = JSONDecoder()
         let packFilled = try decoder.decode(
             PetSession.self,
             from: Data(#"{"sessionId":"x","accent":"red","accentFromPack":true}"#.utf8)
         )
-        #expect(packFilled.chosenAccent == nil)
-        #expect(packFilled.resolvedAccent == .red)
-        let legacy = try decoder.decode(PetSession.self, from: Data(#"{"sessionId":"y","accent":"red"}"#.utf8))
-        #expect(legacy.chosenAccent == .red)
-
         let registry = registry(for: sandbox)
-        #expect(registry.sheet(forPackNamed: "mossling", chosenAccent: packFilled.chosenAccent).tint == nil)
-        #expect(registry.sheet(forPackNamed: "mossling", chosenAccent: legacy.chosenAccent).tint == .red)
+        let packAccent = registry.ownAccent(forPackNamed: "mossling")
+        #expect(packAccent == .red)
+        #expect(packFilled.chosenAccent(packAccent: packAccent) == nil)
+        #expect(packFilled.resolvedAccent == .red)
+        let chosenRed = try decoder.decode(
+            PetSession.self,
+            from: Data(#"{"sessionId":"z","accent":"red","accentFromPack":false}"#.utf8)
+        )
+        #expect(chosenRed.chosenAccent(packAccent: packAccent) == .red)
+        #expect(registry.sheet(forPackNamed: "mossling", chosenAccent: packFilled.chosenAccent(packAccent: packAccent)).tint == nil)
+        #expect(registry.sheet(forPackNamed: "mossling", chosenAccent: chosenRed.chosenAccent(packAccent: packAccent)).tint == .red)
+    }
+
+    /// A record written before `accentFromPack` existed carries the accent `on` copied from its pack and
+    /// no flag. It keeps the pack's palette; one whose accent differs from the pack's was chosen.
+    @Test func aRecordFromBeforeTheFlagKeepsThePacksPalette() throws {
+        let sandbox = try Sandbox()
+        try sandbox.installPack("golem")
+        let registry = registry(for: sandbox)
+        let packAccent = try #require(registry.ownAccent(forPackNamed: "golem"))
+        let decoder = JSONDecoder()
+        let copied = try decoder.decode(
+            PetSession.self,
+            from: Data(#"{"sessionId":"old","sprite":"golem","accent":"\#(packAccent.rawValue)"}"#.utf8)
+        )
+        #expect(copied.chosenAccent(packAccent: packAccent) == nil)
+        let other: AccentColor = packAccent == .blue ? .red : .blue
+        let chosen = try decoder.decode(
+            PetSession.self,
+            from: Data(#"{"sessionId":"old","sprite":"golem","accent":"\#(other.rawValue)"}"#.utf8)
+        )
+        #expect(chosen.chosenAccent(packAccent: packAccent) == other)
+    }
+
+    @Test func accentInksIsOffUnlessTheConfigTurnsItOn() {
+        #expect(!AgentPetConfiguration.defaults.paintsAccentInks)
+        #expect(ConfigurationFile.parse(Data(#"{"accentInks":true}"#.utf8)).paintsAccentInks)
+        #expect(!ConfigurationFile.parse(Data(#"{"accentInks":1}"#.utf8)).paintsAccentInks)
     }
 
     @Test func renderPreviewsAnAccent() throws {

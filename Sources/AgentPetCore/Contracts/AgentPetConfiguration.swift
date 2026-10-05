@@ -17,10 +17,10 @@ package enum LabelPlacement: String, Equatable {
 
 package struct AgentPetConfiguration: Equatable {
     package static let defaultSessionDirectoryPatterns = ["~/.claude/sessions"]
-    /// How long a session must stay waiting before its pet comes up. A queued message is submitted about
-    /// 0.1 s after the `Stop` that ends the turn before it, so one second covers it with room to spare
-    /// and is still too short to feel late.
-    package static let defaultSettleSeconds: TimeInterval = 1
+    /// How long a session must stay waiting before its pet comes up. None by default, as upstream: a pet
+    /// comes up at once. A queued message is submitted about 0.1 s after the `Stop` that ends the turn
+    /// before it, so a config that wants that flash gone sets about one second.
+    package static let defaultSettleSeconds: TimeInterval = 0
 
     package static let defaults = AgentPetConfiguration(
         focuser: .tmuxIterm,
@@ -36,6 +36,15 @@ package struct AgentPetConfiguration: Equatable {
     package var reservedSprites: [String]
     package var spriteDirectories: [String]
     package var settleSeconds: TimeInterval
+    /// A ready pet stays down while Claude Code's own session file says the session went busy after the
+    /// pet's turn ended (a `!` command fires no hook). Off by default.
+    package var holdsWhileBusy: Bool
+    /// A chosen accent (`--accent`) also paints the pack's accent inks in the sprite, not only the label
+    /// dot, the bubble and the prompt bar. Off by default.
+    package var paintsAccentInks: Bool
+    /// A daemon stopped by SIGTERM or SIGINT dives its pets before it exits, instead of dropping them.
+    /// Read when the daemon starts. Off by default.
+    package var divesOnExit: Bool
     package var display: DisplayChoice
 
     package init(
@@ -47,6 +56,9 @@ package struct AgentPetConfiguration: Equatable {
         reservedSprites: [String] = [],
         spriteDirectories: [String] = [],
         settleSeconds: TimeInterval = AgentPetConfiguration.defaultSettleSeconds,
+        holdsWhileBusy: Bool = false,
+        paintsAccentInks: Bool = false,
+        divesOnExit: Bool = false,
         display: DisplayChoice = .focused
     ) {
         self.focuser = focuser
@@ -57,6 +69,9 @@ package struct AgentPetConfiguration: Equatable {
         self.reservedSprites = reservedSprites
         self.spriteDirectories = spriteDirectories
         self.settleSeconds = settleSeconds
+        self.holdsWhileBusy = holdsWhileBusy
+        self.paintsAccentInks = paintsAccentInks
+        self.divesOnExit = divesOnExit
         self.display = display
     }
 }
@@ -102,6 +117,9 @@ package enum ConfigurationFile {
         if let settleSeconds = raw.settleSeconds, settleSeconds.isFinite, settleSeconds >= 0 {
             configuration.settleSeconds = settleSeconds
         }
+        if let holdsWhileBusy = raw.holdWhileBusy { configuration.holdsWhileBusy = holdsWhileBusy }
+        if let paintsAccentInks = raw.accentInks { configuration.paintsAccentInks = paintsAccentInks }
+        if let divesOnExit = raw.diveOnExit { configuration.divesOnExit = divesOnExit }
         if let display = raw.display.flatMap({ rawValue in DisplayChoice(configValue: rawValue) }) {
             configuration.display = display
         }
@@ -151,6 +169,9 @@ private struct RawConfiguration: Decodable {
     let reservedSprites: [String]?
     let spriteDirectories: [String]?
     let settleSeconds: Double?
+    let holdWhileBusy: Bool?
+    let accentInks: Bool?
+    let diveOnExit: Bool?
     let display: String?
 
     enum CodingKeys: String, CodingKey {
@@ -162,12 +183,18 @@ private struct RawConfiguration: Decodable {
         case reservedSprites
         case spriteDirectories
         case settleSeconds
+        case holdWhileBusy
+        case accentInks
+        case diveOnExit
         case display
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         settleSeconds = try? container.decodeIfPresent(Double.self, forKey: .settleSeconds)
+        holdWhileBusy = try? container.decodeIfPresent(Bool.self, forKey: .holdWhileBusy)
+        accentInks = try? container.decodeIfPresent(Bool.self, forKey: .accentInks)
+        diveOnExit = try? container.decodeIfPresent(Bool.self, forKey: .diveOnExit)
         focuser = try? container.decodeIfPresent(RawFocuser.self, forKey: .focuser)
         sessionDirectories = (try? container.decodeIfPresent([LenientString].self, forKey: .sessionDirectories))?
             .compactMap { entry in entry.value }

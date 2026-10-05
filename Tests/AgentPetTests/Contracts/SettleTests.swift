@@ -8,7 +8,11 @@ struct SettleTests {
     private static let waitingSince: TimeInterval = 1_000
     private static let millisecondsPerSecond: Double = 1000
 
-    private let planner = PetDisplayPlanner(grouping: SharedKeyGrouping(), settleSeconds: SettleTests.settleSeconds)
+    private let planner = PetDisplayPlanner(
+        grouping: SharedKeyGrouping(),
+        settleSeconds: SettleTests.settleSeconds,
+        holdsWhileBusy: true
+    )
 
     private func waiting(
         _ sessionId: String = "solo-1111",
@@ -120,6 +124,14 @@ struct SettleTests {
         #expect(plan([finished, bang], at: 5).count == 1)
     }
 
+    @Test func withNoConfigABusySessionDoesNotHoldItsPetDown() {
+        let upstream = AgentPetContracts(configuration: .defaults, focusCompletion: .waits).displayPlanner
+        let wentBusy = claudeSession(status: ClaudeSessionRecord.busyStatus, writtenAt: SettleTests.waitingSince + 0.05)
+        let items = upstream.displayItems(records: [waiting()], claudeSessions: wentBusy, now: SettleTests.waitingSince)
+        #expect(items.count == 1)
+        #expect(upstream.nextSettleDeadline(records: [waiting()], now: SettleTests.waitingSince) == nil)
+    }
+
     @Test func claudeStatusFieldsDecodeAndABadOneLosesOnlyItself() throws {
         let written = #"{"pid":42,"sessionId":"s-1","status":"busy","statusUpdatedAt":1791141774090}"#
         let decoded = try JSONDecoder().decode(ClaudeSessionRecord.self, from: Data(written.utf8))
@@ -133,11 +145,17 @@ struct SettleTests {
     }
 
     @Test func settleSecondsIsReadFromTheConfig() {
-        #expect(AgentPetConfiguration.defaults.settleSeconds == 1)
+        #expect(AgentPetConfiguration.defaults.settleSeconds == 0)
         #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":0.5}"#.utf8)).settleSeconds == 0.5)
-        #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":0}"#.utf8)).settleSeconds == 0)
-        #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":-2}"#.utf8)).settleSeconds == 1)
-        #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":"soon"}"#.utf8)).settleSeconds == 1)
+        #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":1}"#.utf8)).settleSeconds == 1)
+        #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":-2}"#.utf8)).settleSeconds == 0)
+        #expect(ConfigurationFile.parse(Data(#"{"settleSeconds":"soon"}"#.utf8)).settleSeconds == 0)
+    }
+
+    @Test func holdWhileBusyIsOffUnlessTheConfigTurnsItOn() {
+        #expect(!AgentPetConfiguration.defaults.holdsWhileBusy)
+        #expect(ConfigurationFile.parse(Data(#"{"holdWhileBusy":true}"#.utf8)).holdsWhileBusy)
+        #expect(!ConfigurationFile.parse(Data(#"{"holdWhileBusy":"yes"}"#.utf8)).holdsWhileBusy)
     }
 }
 

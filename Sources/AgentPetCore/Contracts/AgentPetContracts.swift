@@ -53,7 +53,8 @@ package struct AgentPetContracts {
         PetDisplayPlanner(
             grouping: grouping,
             disambiguatesLabels: configuration.disambiguatesLabels,
-            settleSeconds: configuration.settleSeconds
+            settleSeconds: configuration.settleSeconds,
+            holdsWhileBusy: configuration.holdsWhileBusy
         )
     }
 

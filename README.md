@@ -87,6 +87,9 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "reservedSprites": ["claude"],
   "spriteDirectories": ["~/Library/Mobile Documents/com~apple~CloudDocs/pets"],
   "settleSeconds": 1,
+  "holdWhileBusy": true,
+  "accentInks": true,
+  "diveOnExit": true,
   "display": "primary"
 }
 ```
@@ -100,10 +103,13 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id |
 | `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
 | `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
-| `settleSeconds` | `1` | how long a session must stay waiting before its pet comes up, so a queued message or `!` command that starts right after Claude finishes never flashes a pet. `0` shows at once |
+| `settleSeconds` | `0` | how long a session must stay waiting before its pet comes up, so a queued message that starts right after Claude finishes never flashes a pet. About `1` covers it. `0` shows at once |
+| `holdWhileBusy` | `false` | `true` keeps a pet down while Claude Code says the session is busy again after its turn ended, such as during a `!` command, which fires no hook |
+| `accentInks` | `false` | `true` lets a color you choose (`/pet <nickname> <color>`, `--accent`) paint part of the creature too, not only the label dot, the bubble and the prompt bar |
+| `diveOnExit` | `false` | `true` makes a stopping daemon (a launchd restart, Ctrl-C) dive its pets before it exits instead of dropping them. Read when the daemon starts |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
-The daemon rereads the file when it changes, so there is nothing to restart. With `primary` or
+The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
 `name:`, the pets also move when a display is attached, removed or rearranged, keep their lanes and
 their animation, and are never left on a display that went away. `primary` may be the better
 default; it is left as `focused` so that no config keeps the behavior from before, and the choice is
@@ -216,8 +222,8 @@ critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon` and `tinowl`.
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
-yours. `/pet <nickname> <color>` overrides it. A color you choose this way also paints the pet:
-every shipped pack but `claude` hands one part of the creature to the accent (golem's chest gem,
+yours. `/pet <nickname> <color>` overrides it. With `"accentInks": true` in the config, a color you
+choose this way also paints the pet: every shipped pack but `claude` hands one part of the creature to the accent (golem's chest gem,
 hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie), so
 sessions that share a creature still look different. A session that only took its pack's color
 keeps the pack's own look.
@@ -274,8 +280,8 @@ sprites/README.md for the full rules.
 ```
 
 Every color in a pack comes from its palette, except the inks named in the optional `accentInks`
-field (`{"accent":"A","shade":"a"}`): when a session chose its accent, those pixels are painted in
-it and in a darker shade of it. The optional `accent` field in `pack.json` names one of the eight accent colors, and every
+field (`{"accent":"A","shade":"a"}`): when the config turns `accentInks` on and a session chose
+its accent, those pixels are painted in it and in a darker shade of it. The optional `accent` field in `pack.json` names one of the eight accent colors, and every
 session that gets the pack uses it for the label dot, the mood bubble and the prompt bar.
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on

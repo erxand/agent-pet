@@ -19,11 +19,18 @@ package struct PetDisplayPlanner {
     private let grouping: PetGrouping
     private let disambiguatesLabels: Bool
     private let settleSeconds: TimeInterval
+    private let holdsWhileBusy: Bool
 
-    package init(grouping: PetGrouping, disambiguatesLabels: Bool = false, settleSeconds: TimeInterval = 0) {
+    package init(
+        grouping: PetGrouping,
+        disambiguatesLabels: Bool = false,
+        settleSeconds: TimeInterval = 0,
+        holdsWhileBusy: Bool = false
+    ) {
         self.grouping = grouping
         self.disambiguatesLabels = disambiguatesLabels
         self.settleSeconds = settleSeconds
+        self.holdsWhileBusy = holdsWhileBusy
     }
 
     /// `shownPetKeys` are the pets already up (not diving): the settle delay only holds a pet back from
@@ -73,7 +80,8 @@ package struct PetDisplayPlanner {
         let members = group.members.map { member -> PetSession in
             guard member.visible, let waitingSince = member.waitingSince else { return member }
             var heldBack = member
-            if member.mood == .ready,
+            if holdsWhileBusy,
+               member.mood == .ready,
                claudeSessions[member.sessionId]?.wentBusy(since: waitingSince) == true {
                 heldBack.visible = false
                 heldBack.busy = true
