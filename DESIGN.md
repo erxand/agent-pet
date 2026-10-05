@@ -268,7 +268,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` | print one frame, recolored as a session that chose COLOR would see it (see "Accent on the sprite"), to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, N is not a frame of it, or COLOR is not an accent name |
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
-| `demo [--scene NAME] [--list] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
+| `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
 
@@ -627,11 +627,14 @@ anyone who never runs it, and it never touches real state:
   the pet's sprite and follows it. `click` presses the arrow down one art pixel for 0.2 s and hides
   every member of the pet, so it dives. `showTerminal` fades in `DemoTerminalView`, a simple picture of a
   Claude Code session: a title bar (three dots, the session label, an accent underline), a header with
-  the idle frame of the `claude` pack and three lines (the product name in pixel bold with a muted
-  version, the model, the folder), the user message after `>`, the reply after a bullet in the pet's
+  the idle frame of the `claude` pack and two lines (the product name in pixel bold, the
+  folder), the user message after `>`, the reply after a bullet in the pet's
   accent, an input line with a chevron and a block cursor between two thin rules, and a muted status
-  line. The content is generic: no account, plan, company or permission mode. These are drawings only: nothing moves the system cursor or posts an event, and a
-  test scans the demo sources for the APIs that could. The demo pets have no session, so their windows
+  line. The content is generic: no version, model, account, plan, company or permission mode. These are drawings only: nothing moves the system cursor and nothing posts a system event, and a
+  test scans the demo sources for the APIs that could (cursor warps, `CGEvent`, `NSEvent` mouse, key and
+  enter or exit constructors, `AXUIElement` posting and actions, AppleScript). The one posted event is
+  app-local: `DemoApplication.stopRunLoop()` posts an `.applicationDefined` event to its own queue to wake
+  its run loop, and the test allows `postEvent(` only there. The demo pets have no session, so their windows
   ignore the mouse and the stage gives `PetView` no interaction handler.
 - Interactive mode is the default (`waitsForUser`). The clock of a scene stops at its hold offset, after
   its animation, and the runner waits until `skipToNextScene()`. The steps after the hold offset are the
@@ -661,10 +664,18 @@ anyone who never runs it, and it never touches real state:
   then press space"), drawn in the brighter text color. The pets, the cursor and the empty spot still
   ignore the mouse.
 - The AppKit stage reuses `PetView`, `PetWindow`, `PetAnimator` and `PetSpriteFrames`, so the pets are drawn
-  exactly as the daemon draws them. It eases a pet's lane home when the lane count changes. Every panel
+  exactly as the daemon draws them. It is built from `AgentPetContracts.loaded()`: the sprite loader is
+  the configured `spritePackLoader`, so packs in `spriteDirectories` are found, and the screen is the one
+  the configured `displayChooser` picks. From a checkout, the `sprites/` directory of the repo backs up
+  the installed packs. The demo pets stand on a row of their own, above the daemon's pets: their ground
+  is lifted by the full height of a daemon pet (the tallest installed pack, the configured label
+  placement, the bubble) plus 16 pt, and the caption sits above that. A real pet is therefore never
+  under a demo pet, and a click on a real pet still reaches it. It eases a pet's lane home when the lane count changes. Every panel
   uses one frame (`DemoPanelFrame`): a border, a rim and a fill from `DemoPalette`, cut pixel corners, one
   padding and three pixel sizes of `DemoPixelFont`, a proportional 5 by 7 pixel font with lowercase and
-  descenders. The only other colors are the eight accent colors. The caption has a stripe and a progress
+  descenders. It is not `PixelFont`: that one is the 3 by 5 uppercase nametag font, sized to fit a pill
+  on the pet, and caption sentences in it read as shouting and wrap badly. The two share the ink test
+  (`PixelFont.isInk`). The only other colors are the eight accent colors. The caption has a stripe and a progress
   bar in the accent of the first pet its scene shows. The title card has an accent underline. It is at most 60% of the screen width and never wider
   than 1100 pt. `DemoPixelFont.wrap` breaks its title and subtitle at word boundaries onto centered lines.
   Its top padding is 1.5 times the panel padding and its bottom padding is 2 times, with the key hint

@@ -82,7 +82,8 @@ you what each scene shows:
 - A click on a pet brings the terminal tab of its session to the front. The demo shows this: a drawn
   pixel cursor moves to a pet and clicks it, the pet dives, and a drawn picture of a Claude Code session appears. The
   cursor and the terminal are only pictures. The demo does not move your mouse pointer, and it does not
-  open a real terminal. The demo pets have no session and ignore the mouse.
+  open a real terminal, and it posts no system events. The demo pets have no session and ignore the
+  mouse. They stand on a row above your real pets, so they never cover one.
 
 The last card, "Configure things to your system", names some of what you can change: labels,
 sprites, colors, how a click focuses, and more. See [Configuration](#configuration).
@@ -97,8 +98,9 @@ stops the demo.
 
 The demo runs in its own process with a cast that exists only in memory. It writes no session record.
 It does not start the daemon or send it data. It does not focus a session or type into a pane. Thus you
-can run it next to real pets. It uses your installed packs. When it runs from a checkout, it uses the
-`sprites/` directory of the repo.
+can run it next to real pets. It uses your installed packs, the folders in `spriteDirectories` and the
+display your `display` setting picks. When it runs from a checkout, it also uses the `sprites/` directory
+of the repo.
 
 | form | effect |
 |---|---|
