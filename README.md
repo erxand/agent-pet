@@ -142,8 +142,8 @@ Sessions differ in four ways.
 agent-pet picks one of the installed packs at random among the packs that the fewest other live
 sessions are using, so no two sessions share a pet until there are more sessions than packs.
 The pick is stored in the session's record, so it stays put for the life of the session.
-`sprite:<name>` chooses one explicitly. The repo ships seven: `claude` (the original orange
-critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon` and `tinowl`.
+`sprite:<name>` chooses one explicitly. The repo ships eight: `claude` (the original orange
+critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl` and `walle`.
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
@@ -158,6 +158,7 @@ yours. `/pet <nickname> <color>` overrides it.
 | nimbus    | blue   |
 | seon      | yellow |
 | tinowl    | purple |
+| walle     | yellow |
 
 A pack of your own sets its color with the `accent` field in `pack.json`. Without that field,
 agent-pet uses the pack's most common color, leaving out the two darkest ones (the outline and
@@ -206,7 +207,7 @@ session that gets the pack uses it for the label dot, the mood bubble and the pr
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on
 each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling`, `nimbus`,
-`seon` or `tinowl` are overwritten. To customize a shipped pack, copy it under a new name and
+`seon`, `tinowl` or `walle` are overwritten. To customize a shipped pack, copy it under a new name and
 edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
 random pool, so dropping a new directory in is all it takes to add a pet.
 

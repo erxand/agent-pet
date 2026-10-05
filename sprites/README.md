@@ -37,3 +37,4 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 | nimbus       | blue   |
 | seon         | yellow |
 | tinowl       | purple |
+| walle        | yellow |

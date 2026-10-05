@@ -370,7 +370,7 @@ sprites/<pack-name>/
 - `accent` is optional and holds one `AccentColor` name. It becomes the accent of every session that gets the
   pack, see "Sprite assignment". An unknown name is ignored: the daemon logs one line and the pack falls back to
   its dominant color.
-- The repo ships seven packs (`claude` is the same art as `claude8Bit` exported to text):
+- The repo ships eight packs (`claude` is the same art as `claude8Bit` exported to text):
 
   | pack      | accent |
   |-----------|--------|
@@ -381,6 +381,7 @@ sprites/<pack-name>/
   | nimbus    | blue   |
   | seon      | yellow |
   | tinowl    | purple |
+  | walle     | yellow |
 
 - `install.sh` copies each shipped pack directory into `~/.agent-pet/sprites/` on every install. An installed pack
   with a shipped name is deleted and copied fresh, and an installed pack whose name is not shipped is left alone.
