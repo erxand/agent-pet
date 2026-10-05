@@ -33,8 +33,21 @@ struct PetLifecycleTests {
         #expect(record["mood"] as? String == "needsInput")
     }
 
-    @Test func aSubagentsToolCallLeavesAnotherSubagentsQuestionUp() throws {
+    @Test func aSubagentsToolCallHidesAQuestionByDefault() throws {
         let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(visible: true, extra: ["mood": "needsInput"]))
+        try sandbox.hook(RecordFixtures.hookPayload("PreToolUse", extra: ["agent_id": "agent-two", "tool_name": "Bash"]))
+
+        #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == false)
+    }
+
+    @Test func aSubagentsToolCallLeavesAnotherSubagentsQuestionUpWhenConfigured() throws {
+        let sandbox = try Sandbox()
+        try #"{"subagentToolsKeepNeedsInput":true}"#.write(
+            to: sandbox.stateDirectory.appendingPathComponent("config.json"),
+            atomically: true,
+            encoding: .utf8
+        )
         try sandbox.writeRecord(RecordFixtures.enrolled(visible: true, extra: ["mood": "needsInput"]))
         try sandbox.hook(RecordFixtures.hookPayload("PreToolUse", extra: ["agent_id": "agent-two", "tool_name": "Bash"]))
 
@@ -110,6 +123,30 @@ struct PetLifecycleTests {
 
         try sandbox.hook(RecordFixtures.hookPayload("Stop", sessionId: newSessionId))
         #expect(sandbox.record(newSessionId)?["visible"] as? Bool == true)
+    }
+
+    @Test func aResumeIntoASessionWithItsOwnPetLeavesThatPetAlone() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(extra: ["label": "Mine"]))
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "target", extra: ["label": "Target", "pid": deadProcessIdentifier]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionEnd", extra: ["reason": "resume"]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", sessionId: "target", extra: ["source": "resume"]))
+
+        #expect(sandbox.record("target")?["label"] as? String == "Target")
+        #expect(sandbox.record("target")?["pid"] as? Int == deadProcessIdentifier)
+        #expect(sandbox.record(RecordFixtures.sessionId)?["handoverPendingSince"] != nil)
+    }
+
+    @Test func aResumeBackIntoTheSameSessionKeepsItsPet() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(extra: ["label": "Mine"]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionEnd", extra: ["reason": "resume"]))
+        #expect(sandbox.record(RecordFixtures.sessionId)?["handoverPendingSince"] != nil)
+
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", extra: ["source": "resume"]))
+        let record = try #require(sandbox.record(RecordFixtures.sessionId))
+        #expect(record["handoverPendingSince"] == nil)
+        #expect(record["label"] as? String == "Mine")
     }
 
     @Test func aStartupOrAnotherProcessesPetIsNeverTakenOver() throws {

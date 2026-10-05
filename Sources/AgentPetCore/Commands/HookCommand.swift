@@ -52,8 +52,7 @@ enum HookCommand {
     private static let sourceFieldPrefix = "source="
 
     static func run(flags: ParsedFlags) -> Int32 {
-        let standardInputData = FileHandle.standardInput.readDataToEndOfFile()
-        guard let payload = decodePayload(standardInputData) else { return ExitCode.success }
+        guard let payload = decodePayload(FileHandle.standardInput.readDataToEndOfFile()) else { return ExitCode.success }
         guard let rawEventName = payload.hookEventName,
               let eventName = HookEventName(rawValue: rawEventName) else { return ExitCode.success }
         guard let sessionId = resolveSessionId(payload: payload, flags: flags) else { return ExitCode.success }
@@ -65,12 +64,7 @@ enum HookCommand {
         if let transcriptPath = payload.transcriptPath, !transcriptPath.isEmpty {
             PetTranscriptTracking.recordTranscriptPath(sessionId: sessionId, transcriptPath: transcriptPath)
         }
-        let result = handle(
-            eventName: eventName,
-            payload: payload,
-            payloadData: standardInputData,
-            sessionId: sessionId
-        )
+        let result = handle(eventName: eventName, payload: payload, sessionId: sessionId)
         logCleanupDetails(result.cleanup, sessionId: sessionId)
         HookEventLog.append(
             event: eventName,
@@ -109,7 +103,6 @@ enum HookCommand {
     private static func handle(
         eventName: HookEventName,
         payload: HookPayload,
-        payloadData: Data,
         sessionId: String
     ) -> PetHookResult {
         switch eventName {
@@ -120,19 +113,19 @@ enum HookCommand {
         case .subagentStart:
             return PetSubagentTracking.recordStartAndHide(
                 sessionId: sessionId,
-                identity: subagentIdentity(in: payload, payloadData: payloadData)
+                identity: subagentIdentity(in: payload)
             )
         case .subagentStop:
             return PetSubagentTracking.recordStop(
                 sessionId: sessionId,
-                identity: subagentIdentity(in: payload, payloadData: payloadData)
+                identity: subagentIdentity(in: payload)
             )
         case .userPromptSubmit:
             return PetHookResult(snapshot: PetTurnState.hideAndMarkWorking(sessionId: sessionId))
         case .preToolUse:
             return PetHookResult(snapshot: PetTurnState.hideAndMarkWorking(
                 sessionId: sessionId,
-                keepsNeedsInput: isFromSubagent(payload)
+                keepsNeedsInput: isFromSubagent(payload) && ConfigurationFile.load().subagentToolsKeepNeedsInput
             ))
         case .sessionEnd:
             return PetHookResult(snapshot: PetTurnState.end(
@@ -222,9 +215,9 @@ enum HookCommand {
         DaemonCommand.ensureRunning()
     }
 
-    private static func subagentIdentity(in payload: HookPayload, payloadData: Data) -> SubagentIdentity {
+    private static func subagentIdentity(in payload: HookPayload) -> SubagentIdentity {
         guard let agentId = payload.agentId, !agentId.isEmpty else {
-            return .unreported(fingerprint: HookEventDeduplication.fingerprint(ofPayload: payloadData))
+            return .unreported
         }
         return .reported(agentId)
     }

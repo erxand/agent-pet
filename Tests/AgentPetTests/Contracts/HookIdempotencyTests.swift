@@ -34,31 +34,33 @@ struct HookIdempotencyTests {
         #expect(sandbox.hookLogLines().isEmpty)
     }
 
-    @Test func theSameUnreportedSubagentStartTwiceCountsOnce() throws {
+    @Test func twoSameTypeSubagentsWithoutIdsAreTrackedApart() throws {
         let sandbox = try Sandbox()
-        try sandbox.writeRecord(RecordFixtures.enrolled(visible: true))
+        try sandbox.writeRecord(RecordFixtures.enrolled())
         let start = RecordFixtures.hookPayload("SubagentStart", extra: ["agent_type": "general-purpose", "cwd": "/work"])
+        let stop = RecordFixtures.hookPayload("SubagentStop", extra: ["agent_type": "general-purpose", "cwd": "/work"])
         try sandbox.hook(start)
         try sandbox.hook(start)
+        #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["unknown-1", "unknown-2"])
+
+        try sandbox.hook(stop)
+        try sandbox.hook(RecordFixtures.hookPayload("Stop"))
         #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["unknown-1"])
         #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == false)
-
-        let reordered = try JSONSerialization.data(withJSONObject: start, options: [.sortedKeys])
-        try sandbox.run(["hook"], standardInput: String(decoding: reordered, as: UTF8.self))
-        #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["unknown-1"])
     }
 
-    @Test func theSameUnreportedSubagentStopTwiceForgetsOne() throws {
+    @Test func doubledSubagentEventsWithoutIdsBalanceOut() throws {
         let sandbox = try Sandbox()
-        try sandbox.writeRecord(RecordFixtures.enrolled(activeSubagents: [
-            RecordFixtures.trackedSubagent("unknown-1"),
-            RecordFixtures.trackedSubagent("unknown-2")
-        ]))
+        try sandbox.writeRecord(RecordFixtures.enrolled())
+        let start = RecordFixtures.hookPayload("SubagentStart", extra: ["agent_type": "general-purpose"])
         let stop = RecordFixtures.hookPayload("SubagentStop", extra: ["agent_type": "general-purpose"])
-        try sandbox.hook(stop)
-        try sandbox.hook(stop)
+        for payload in [start, start, stop, stop] {
+            try sandbox.hook(payload)
+        }
+        try sandbox.hook(RecordFixtures.hookPayload("Stop"))
 
-        #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["unknown-1"])
+        #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId).isEmpty)
+        #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == true)
     }
 
     @Test func doubledEventsWithAgentIdsLeaveTheSameStateAsSingleOnes() throws {
@@ -91,7 +93,6 @@ struct HookIdempotencyTests {
         try sandbox.hook(RecordFixtures.hookPayload("Stop"))
 
         let record = try #require(sandbox.record(RecordFixtures.sessionId))
-        #expect(record["handledHookEvents"] == nil)
         #expect(record["focusTarget"] == nil)
     }
 }

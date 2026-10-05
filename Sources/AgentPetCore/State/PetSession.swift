@@ -11,11 +11,6 @@ package enum PetAgent: String, Codable, CaseIterable {
     case pi
 }
 
-package struct HandledHookEvent: Codable, Equatable {
-    package var fingerprint: String
-    package var handledAt: TimeInterval
-}
-
 package struct TrackedSubagent: Codable, Equatable {
     package var id: String
     package var startedAt: TimeInterval
@@ -49,8 +44,8 @@ package struct PetSession: Codable, Equatable {
     /// When the session last started waiting on the user: every show stamps it, a hide removes it. The daemon
     /// holds a pet back until the session has waited `settleSeconds`, see "Settling" in DESIGN.md.
     package var waitingSince: Double?
+    package var handoverPendingSince: Double?
     package var activeSubagents: [TrackedSubagent]
-    package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
     package var transcriptScanOffset: Int
     package var updatedAt: Double
@@ -124,11 +119,11 @@ extension PetSession {
         enrolledAt = try container.decodeIfPresent(Double.self, forKey: .enrolledAt)
         busy = try container.decodeIfPresent(Bool.self, forKey: .busy)
         waitingSince = try container.decodeIfPresent(Double.self, forKey: .waitingSince)
+        handoverPendingSince = try container.decodeIfPresent(Double.self, forKey: .handoverPendingSince)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
             ?? PetSession.initialTranscriptScanOffset
-        handledHookEvents = try container.decodeIfPresent([HandledHookEvent].self, forKey: .handledHookEvents)
         activeSubagents = try container.decodeIfPresent([TrackedSubagent].self, forKey: .activeSubagents)
             ?? PetSession.decodeLegacySubagents(from: decoder, startedAt: updatedAt)
     }
@@ -159,8 +154,8 @@ extension PetSession {
             enrolledAt: nil,
             busy: nil,
             waitingSince: nil,
+            handoverPendingSince: nil,
             activeSubagents: [],
-            handledHookEvents: nil,
             transcriptPath: nil,
             transcriptScanOffset: initialTranscriptScanOffset,
             updatedAt: Date().timeIntervalSince1970

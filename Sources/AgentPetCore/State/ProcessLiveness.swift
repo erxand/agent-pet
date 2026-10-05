@@ -2,6 +2,7 @@ import Foundation
 
 package enum ProcessLiveness {
     private static let missingClaudeSessionGraceInSeconds: TimeInterval = 30
+    private static let unclaimedHandoverGraceInSeconds: TimeInterval = 30
 
     package static func isAlive(processIdentifier: Int32) -> Bool {
         guard processIdentifier > 0 else { return false }
@@ -11,6 +12,10 @@ package enum ProcessLiveness {
 
     package static func isAlive(session: PetSession, claudeSession: ClaudeSessionRecord?) -> Bool {
         if session.isPreview { return true }
+        if let handoverPendingSince = session.handoverPendingSince,
+           Date().timeIntervalSince1970 - handoverPendingSince >= unclaimedHandoverGraceInSeconds {
+            return false
+        }
         if let recordedProcessIdentifier = session.pid {
             return isAlive(processIdentifier: recordedProcessIdentifier)
         }

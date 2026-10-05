@@ -27,7 +27,7 @@ struct PetHookResult {
 
 enum SubagentIdentity {
     case reported(String)
-    case unreported(fingerprint: String?)
+    case unreported
 }
 
 /// Why a session's record is ending, from the `reason` of a `SessionEnd` payload.
@@ -124,7 +124,9 @@ package enum PetTurnState {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
             // Only a record that names its process can be handed over (`PetSessionHandover`), so a
             // record with no pid (the plain `/pet` flow) goes, as it always did.
-            if reason?.continuesInSameProcess == true, record?.pid != nil {
+            if reason?.continuesInSameProcess == true, var session = record, session.pid != nil {
+                session.handoverPendingSince = Date().timeIntervalSince1970
+                record = session
                 markDone(&record)
                 markHidden(&record)
             } else {
@@ -191,11 +193,6 @@ enum PetSubagentTracking {
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             guard var session = record else { return PetHookResult(record: record, cleanup: cleanup) }
             session.busy = true
-            guard HookEventDeduplication.claim(identity: identity, in: &session, now: now) else {
-                session.visible = false
-                record = session
-                return PetHookResult(record: record, cleanup: cleanup)
-            }
             let agentId = startingAgentId(identity: identity, session: session)
             if let existingIndex = session.activeSubagents.firstIndex(where: { trackedSubagent in
                 trackedSubagent.id == agentId
@@ -217,7 +214,6 @@ enum PetSubagentTracking {
             let now = Date().timeIntervalSince1970
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             if var session = record,
-               HookEventDeduplication.claim(identity: identity, in: &session, now: now),
                let agentId = stoppingAgentId(identity: identity, session: session),
                isTracking(agentId, in: session) {
                 session.activeSubagents.removeAll { trackedSubagent in trackedSubagent.id == agentId }
