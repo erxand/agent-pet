@@ -72,12 +72,10 @@ package enum DemoScript {
                     accent: .cyan,
                     mascotSprite: PackName.claude,
                     productName: "Claude Code",
-                    version: "v2.0",
-                    model: "Opus",
                     directory: "~/api",
                     userMessage: "Deploy the api to staging.",
                     reply: "Deployed. The health check passed.",
-                    statusLine: "dir: ~/api \u{00B7} model: opus"
+                    statusLine: "dir: ~/api \u{00B7} branch: main"
                 ))),
                 DemoStep(offsetInSeconds: 4.3, action: .hideCursor),
                 DemoStep(offsetInSeconds: 6, action: .hideTerminal)

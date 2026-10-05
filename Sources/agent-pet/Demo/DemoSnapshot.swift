@@ -44,7 +44,7 @@ enum DemoSnapshot {
     private static let petGap: CGFloat = 48
     private static let clickMomentInSeconds: Double = 2
     private static let revealMomentInSeconds: Double = 4
-    private static let cursorAimHeightFraction: CGFloat = 0.55
+    private static let stateCellCenterFraction: CGFloat = 0.5
 
     private enum FileName {
         static let title = "title.png"
@@ -66,12 +66,17 @@ enum DemoSnapshot {
             FileHandle.standardError.write(Data("agent-pet: cannot create \(directory.path)\n".utf8))
             return failureExitCode
         }
-        let spriteSheets = DemoSpriteSheets()
+        let spriteSheets = DemoSpriteSheets(installedLoader: AgentPetContracts.loaded().spritePackLoader)
         let titleCard = firstTitleCard(in: scenes) ?? firstTitleCard(in: DemoScript.scenes)
         let captionScene = scenes.first { scene in scene.caption != nil } ?? DemoScript.scenes.first { scene in scene.caption != nil }
 
         var written: [URL] = []
-        var expectedCount = 3
+        let composites = [
+            (clickComposite(spriteSheets: spriteSheets), FileName.click),
+            (statesComposite(spriteSheets: spriteSheets), FileName.states),
+            (revealComposite(spriteSheets: spriteSheets), FileName.terminal)
+        ]
+        var expectedCount = composites.count
         if let titleCard {
             expectedCount += 1
             written.append(contentsOf: save(DemoTitleView(card: titleCard, maximumWidth: DemoTitleView.maximumWidth(screenWidth: snapshotScreenWidth)), named: FileName.title, in: directory))
@@ -94,9 +99,9 @@ enum DemoSnapshot {
                 written.append(contentsOf: save(view, named: fileName, in: directory))
             }
         }
-        written.append(contentsOf: save(clickComposite(spriteSheets: spriteSheets), named: FileName.click, in: directory))
-        written.append(contentsOf: save(statesComposite(spriteSheets: spriteSheets), named: FileName.states, in: directory))
-        written.append(contentsOf: save(revealComposite(spriteSheets: spriteSheets), named: FileName.terminal, in: directory))
+        for (view, fileName) in composites {
+            written.append(contentsOf: save(view, named: fileName, in: directory))
+        }
 
         for fileURL in written {
             print(fileURL.path)
@@ -190,7 +195,7 @@ enum DemoSnapshot {
         backdrop.addSubview(caption)
         let rowLeft = ((width - rowWidth) / 2).rounded()
         for (slotIndex, mark) in stage.states.enumerated() {
-            let centerX = rowLeft + stateCellWidth * (CGFloat(slotIndex) + 0.5)
+            let centerX = rowLeft + stateCellWidth * (CGFloat(slotIndex) + stateCellCenterFraction)
             let label = labels[slotIndex]
             label.setFrameOrigin(CGPoint(x: (centerX - label.preferredSize.width / 2).rounded(), y: margin + petHeight + stateLabelGap))
             backdrop.addSubview(label)
@@ -245,10 +250,7 @@ enum DemoSnapshot {
             backdrop.addSubview(pet)
             let sheet = spriteSheets.sheet(forPackNamed: shownStage.pets.first?.session.sprite ?? SpritePackLoader.defaultPackName)
             let spriteSide = PetGeometry.spritePixelSideLength(frameSize: sheet.frameSize)
-            aim = CGPoint(
-                x: pet.frame.midX,
-                y: margin + PetGeometry.spriteBaseline(labelPlacement: .pill) + spriteSide * cursorAimHeightFraction
-            )
+            aim = DemoCursorView.aim(petCenterX: pet.frame.midX, petBottom: margin, spriteSideLength: spriteSide)
         }
         cursor.setFrameOrigin(CGPoint(x: aim.x.rounded(), y: (aim.y - cursor.bounds.height - DemoCursorView.pixelSide).rounded()))
         backdrop.addSubview(cursor)

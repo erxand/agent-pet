@@ -16,6 +16,7 @@ struct DemoTextStyle {
 
 enum DemoPixelPainter {
     private static let substituteCharacter: Character = "?"
+    private static let boldExtraColumns = 1
 
     static func drawable(_ text: String) -> String {
         String(text.map { character in DemoPixelFont.canRender(String(character)) ? character : substituteCharacter })
@@ -39,7 +40,7 @@ enum DemoPixelPainter {
 
     static func boldSize(of text: String, style: DemoTextStyle) -> CGSize {
         let size = size(of: text, style: style)
-        return CGSize(width: size.width + CGFloat(drawable(text).count) * style.pixelSide, height: size.height)
+        return CGSize(width: size.width + CGFloat(drawable(text).count * boldExtraColumns) * style.pixelSide, height: size.height)
     }
 
     static func drawBold(_ text: String, topLeft: CGPoint, style: DemoTextStyle) {
@@ -47,8 +48,8 @@ enum DemoPixelPainter {
         for character in drawable(text) {
             let glyph = String(character)
             draw(glyph, topLeft: CGPoint(x: left, y: topLeft.y), style: style)
-            draw(glyph, topLeft: CGPoint(x: left + style.pixelSide, y: topLeft.y), style: style)
-            left += CGFloat(DemoPixelFont.width(of: glyph) + DemoPixelFont.glyphSpacing + 1) * style.pixelSide
+            draw(glyph, topLeft: CGPoint(x: left + CGFloat(boldExtraColumns) * style.pixelSide, y: topLeft.y), style: style)
+            left += CGFloat(DemoPixelFont.width(of: glyph) + DemoPixelFont.glyphSpacing + boldExtraColumns) * style.pixelSide
         }
     }
 
@@ -56,7 +57,7 @@ enum DemoPixelPainter {
         color.setFill()
         for (rowIndex, row) in rows.enumerated() {
             let rowTop = topLeft.y - CGFloat(rowIndex + 1) * pixelSide
-            for (columnIndex, character) in row.enumerated() where DemoPixelFont.isInk(character) {
+            for (columnIndex, character) in row.enumerated() where PixelFont.isInk(character) {
                 CGRect(x: topLeft.x + CGFloat(columnIndex) * pixelSide, y: rowTop, width: pixelSide, height: pixelSide).fill()
             }
         }

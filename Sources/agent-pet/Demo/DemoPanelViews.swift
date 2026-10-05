@@ -51,6 +51,7 @@ final class DemoCaptionView: DemoPanelView, DemoKeyHintShowing {
     private static let barGap: CGFloat = 6 * unit
     private static let hintGap: CGFloat = 8 * unit
     private static let minimumBarWidth: CGFloat = 60 * unit
+    private static let redrawProgressStep = 0.001
 
     let caption: DemoCaption
     private let captionStyle: DemoTextStyle
@@ -59,7 +60,7 @@ final class DemoCaptionView: DemoPanelView, DemoKeyHintShowing {
 
     var progress: Double = 0 {
         didSet {
-            if abs(progress - oldValue) > 0.001 { needsDisplay = true }
+            if abs(progress - oldValue) > DemoCaptionView.redrawProgressStep { needsDisplay = true }
         }
     }
 
@@ -308,6 +309,7 @@ final class DemoStateLabelView: DemoPanelView {
 final class DemoEmptySpotView: DemoPanelView {
     private static let dashLength: CGFloat = 4 * DemoPanelFrame.unit
     private static let lineWidth = DemoPanelFrame.unit
+    private static let lineOpacity: CGFloat = 0.6
 
     init(sideLength: CGFloat) {
         super.init(frame: CGRect(x: 0, y: 0, width: sideLength, height: sideLength))
@@ -320,7 +322,7 @@ final class DemoEmptySpotView: DemoPanelView {
     override func draw(_ dirtyRect: NSRect) {
         let dash = DemoEmptySpotView.dashLength
         let line = DemoEmptySpotView.lineWidth
-        DemoPalette.mutedText.withAlphaComponent(0.6).setFill()
+        DemoPalette.mutedText.withAlphaComponent(DemoEmptySpotView.lineOpacity).setFill()
         var position: CGFloat = 0
         while position < bounds.width {
             let length = min(dash, bounds.width - position)
@@ -335,6 +337,8 @@ final class DemoEmptySpotView: DemoPanelView {
 
 final class DemoCursorView: DemoPanelView {
     static let pixelSide: CGFloat = 4
+    private static let aimHeightFraction: CGFloat = 0.85
+    private static let aimRightFraction: CGFloat = 0.35
     private static let outline: Character = "O"
     private static let body: Character = "X"
     private static let rows = [
@@ -356,6 +360,13 @@ final class DemoCursorView: DemoPanelView {
         ".....OXXO...",
         "......OO...."
     ]
+
+    static func aim(petCenterX: CGFloat, petBottom: CGFloat, spriteSideLength: CGFloat) -> CGPoint {
+        CGPoint(
+            x: petCenterX + spriteSideLength * aimRightFraction,
+            y: petBottom + PetGeometry.spriteBaseline(labelPlacement: .pill) + spriteSideLength * aimHeightFraction
+        )
+    }
 
     init() {
         let width = CGFloat(DemoCursorView.rows.first?.count ?? 0) * DemoCursorView.pixelSide
@@ -396,6 +407,7 @@ final class DemoTerminalView: DemoPanelView {
     private static let ruleGap: CGFloat = 4 * unit
     private static let ruleHeight: CGFloat = 1 * unit
     private static let ruleOpacity: CGFloat = 0.45
+    private static let blockCursorWidthFraction: CGFloat = 0.7
     private static let wordGap: CGFloat = 6 * unit
     private static let minimumWidth: CGFloat = 240 * unit
     private static let dotAccents: [AccentColor] = [.red, .yellow, .green]
@@ -404,7 +416,6 @@ final class DemoTerminalView: DemoPanelView {
     private let mascot: NSImage?
     private let titleStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.smallPixelSide)
     private let productStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
-    private let versionStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.bodyPixelSide)
     private let detailStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.smallPixelSide)
     private let mutedBodyStyle = DemoTextStyle.muted(pixelSide: DemoPanelFrame.bodyPixelSide)
     private let bodyStyle = DemoTextStyle.text(pixelSide: DemoPanelFrame.bodyPixelSide)
@@ -434,7 +445,7 @@ final class DemoTerminalView: DemoPanelView {
     private var smallLineHeight: CGFloat { DemoPixelPainter.size(of: "A", style: detailStyle).height }
 
     private var headerTextHeight: CGFloat {
-        bodyLineHeight + (DemoTerminalView.headerLineGap + smallLineHeight) * 2
+        bodyLineHeight + DemoTerminalView.headerLineGap + smallLineHeight
     }
 
     private var mascotSize: CGSize { mascot?.size ?? .zero }
@@ -446,7 +457,7 @@ final class DemoTerminalView: DemoPanelView {
     }
 
     private var blockCursorWidth: CGFloat {
-        (CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide * 0.7).rounded()
+        (CGFloat(DemoPixelFont.capHeight) * DemoPanelFrame.bodyPixelSide * DemoTerminalView.blockCursorWidthFraction).rounded()
     }
 
     private func prefixedWidth(_ prefix: String, _ text: String) -> CGFloat {
@@ -455,11 +466,8 @@ final class DemoTerminalView: DemoPanelView {
     }
 
     private func computedSize() -> CGSize {
-        let productLine = DemoPixelPainter.boldSize(of: card.productName, style: productStyle).width
-            + DemoTerminalView.wordGap + DemoPixelPainter.size(of: card.version, style: versionStyle).width
         let headerWidth = headerTextLeft - DemoPanelFrame.padding + max(
-            productLine,
-            DemoPixelPainter.size(of: card.model, style: detailStyle).width,
+            DemoPixelPainter.boldSize(of: card.productName, style: productStyle).width,
             DemoPixelPainter.size(of: card.directory, style: detailStyle).width
         )
         let contentWidth = max(
@@ -496,11 +504,7 @@ final class DemoTerminalView: DemoPanelView {
         }
         var headerTop = top - ((headerHeight - headerTextHeight) / 2).rounded()
         DemoPixelPainter.drawBold(card.productName, topLeft: CGPoint(x: headerTextLeft, y: headerTop), style: productStyle)
-        let versionLeft = headerTextLeft + DemoPixelPainter.boldSize(of: card.productName, style: productStyle).width + DemoTerminalView.wordGap
-        DemoPixelPainter.draw(card.version, topLeft: CGPoint(x: versionLeft, y: headerTop), style: versionStyle)
         headerTop -= bodyLineHeight + DemoTerminalView.headerLineGap
-        DemoPixelPainter.draw(card.model, topLeft: CGPoint(x: headerTextLeft, y: headerTop), style: detailStyle)
-        headerTop -= smallLineHeight + DemoTerminalView.headerLineGap
         DemoPixelPainter.draw(card.directory, topLeft: CGPoint(x: headerTextLeft, y: headerTop), style: detailStyle)
         top -= headerHeight + DemoTerminalView.sectionGap
 

@@ -93,8 +93,6 @@ package struct DemoTerminalCard: Equatable {
     package let accent: AccentColor
     package let mascotSprite: String
     package let productName: String
-    package let version: String
-    package let model: String
     package let directory: String
     package let userMessage: String
     package let reply: String
@@ -105,8 +103,6 @@ package struct DemoTerminalCard: Equatable {
         accent: AccentColor,
         mascotSprite: String,
         productName: String,
-        version: String,
-        model: String,
         directory: String,
         userMessage: String,
         reply: String,
@@ -116,8 +112,6 @@ package struct DemoTerminalCard: Equatable {
         self.accent = accent
         self.mascotSprite = mascotSprite
         self.productName = productName
-        self.version = version
-        self.model = model
         self.directory = directory
         self.userMessage = userMessage
         self.reply = reply
@@ -130,7 +124,7 @@ package struct DemoTerminalCard: Equatable {
 
     package var shownTexts: [String] {
         [
-            title, productName, version, model, directory,
+            title, productName, directory,
             "\(DemoTerminalCard.userPrompt) \(userMessage)",
             "\(DemoTerminalCard.replyBullet) \(reply)",
             DemoTerminalCard.inputChevron,

@@ -58,16 +58,17 @@ enum DemoEasing {
 }
 
 final class DemoSpriteSheets {
-    private let installedLoader = SpritePackLoader()
+    private let installedLoader: SpritePackLoader
     private let installedRegistry: SpritePackRegistry
     private let shippedRegistry: SpritePackRegistry?
     private let shippedPackNames: Set<String>
 
-    init() {
+    init(installedLoader: SpritePackLoader) {
+        self.installedLoader = installedLoader
         installedRegistry = SpritePackRegistry(loader: installedLoader, reportFailure: { _ in })
         _ = installedRegistry.reloadChangedPacks()
         if let shippedDirectory = DemoSpriteDirectories.shippedSpritesDirectory(executablePath: Bundle.main.executablePath) {
-            let shippedLoader = SpritePackLoader(packsDirectory: shippedDirectory)
+            let shippedLoader = SpritePackLoader(packsDirectory: shippedDirectory, extraDirectoryPaths: [])
             let registry = SpritePackRegistry(loader: shippedLoader, reportFailure: { _ in })
             _ = registry.reloadChangedPacks()
             shippedRegistry = registry
@@ -85,6 +86,13 @@ final class DemoSpriteSheets {
         return shippedRegistry?.sheet(forPackNamed: packName) ?? installedRegistry.sheet(forPackNamed: packName)
     }
 
+    func tallestInstalledSpriteSideLength() -> CGFloat {
+        let packNames = installedLoader.availablePackNames() + [SpritePackLoader.defaultPackName]
+        return packNames
+            .map { packName in PetGeometry.spritePixelSideLength(frameSize: installedRegistry.sheet(forPackNamed: packName).frameSize) }
+            .max() ?? 0
+    }
+
     func mascotImage(forPackNamed packName: String) -> NSImage? {
         let sheet = sheet(forPackNamed: packName)
         guard let frame = sheet.idle.first else { return nil }
@@ -94,6 +102,7 @@ final class DemoSpriteSheets {
 
 final class DemoOverlayStage: DemoStage {
     private static let captionBottomAboveGround: CGFloat = 150
+    private static let gapAboveDaemonPets: CGFloat = 16
     private static let titleVerticalFraction: CGFloat = 0.55
     private static let captionWidthFraction: CGFloat = 0.9
     private static let homeEasingPerSecond: CGFloat = 3
@@ -102,7 +111,6 @@ final class DemoOverlayStage: DemoStage {
     private static let cursorStartOffset = CGVector(dx: 260, dy: 300)
     private static let cursorFollowPerSecond: CGFloat = 2.2
     private static let cursorPressSeconds: Double = 0.2
-    private static let cursorAimHeightFraction: CGFloat = 0.55
 
     var onPanelClicked: (() -> Void)?
 
@@ -115,7 +123,9 @@ final class DemoOverlayStage: DemoStage {
         }
     }
 
-    private let spriteSheets = DemoSpriteSheets()
+    private let spriteSheets: DemoSpriteSheets
+    private let displayChooser: DisplayChooser
+    private let groundLift: CGFloat
     private let spriteFrames = PetSpriteFrames()
     private var presencesByPetKey: [String: PetPresence] = [:]
     private var displayedHomeByPetKey: [String: CGFloat] = [:]
@@ -131,6 +141,23 @@ final class DemoOverlayStage: DemoStage {
     private var cursorHotspot: CGPoint?
     private var cursorPressSecondsLeft: Double = 0
 
+    init(contracts: AgentPetContracts) {
+        spriteSheets = DemoSpriteSheets(installedLoader: contracts.spritePackLoader)
+        displayChooser = contracts.displayChooser
+        groundLift = PetGeometry.totalHeight(
+            spriteSideLength: spriteSheets.tallestInstalledSpriteSideLength(),
+            labelPlacement: contracts.configuration.labelPlacement
+        ) + DemoOverlayStage.gapAboveDaemonPets
+    }
+
+    private var currentScreenFrame: CGRect {
+        OverlayScreenFrames.current(chooser: displayChooser).visibleFrame
+    }
+
+    private func ground(in screenFrame: CGRect) -> CGFloat {
+        screenFrame.minY + PetGeometry.windowBottomInset + groundLift
+    }
+
     var isSettled: Bool {
         presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty && statePanels.isEmpty
             && terminalPanels.isEmpty && cursorPanels.isEmpty
@@ -144,7 +171,7 @@ final class DemoOverlayStage: DemoStage {
         }
         for panel in titlePanels { panel.fadeOut() }
         guard let title else { return }
-        let screenWidth = OverlayScreenFrames.current().visibleFrame.width
+        let screenWidth = currentScreenFrame.width
         let panel = clickablePanel(DemoTitleView(card: title, maximumWidth: DemoTitleView.maximumWidth(screenWidth: screenWidth)))
         titlePanels.append(panel)
         placeTitle(panel)
@@ -153,11 +180,11 @@ final class DemoOverlayStage: DemoStage {
     func present(caption: DemoCaption?) {
         for panel in captionPanels { panel.fadeOut() }
         guard let caption else { return }
-        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        let screenFrame = currentScreenFrame
         let view = DemoCaptionView(caption: caption, maximumWidth: screenFrame.width * DemoOverlayStage.captionWidthFraction)
         let panel = clickablePanel(view)
         captionPanels.append(panel)
-        var bottom = screenFrame.minY + DemoOverlayStage.captionBottomAboveGround
+        var bottom = ground(in: screenFrame) + DemoOverlayStage.captionBottomAboveGround
         if let stateLabelsTop {
             bottom = max(bottom, stateLabelsTop + DemoOverlayStage.captionGapAboveStates)
         }
@@ -186,7 +213,7 @@ final class DemoOverlayStage: DemoStage {
         guard let terminal else { return }
         let panel = clickablePanel(DemoTerminalView(card: terminal, mascot: spriteSheets.mascotImage(forPackNamed: terminal.mascotSprite)))
         terminalPanels.append(panel)
-        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        let screenFrame = currentScreenFrame
         panel.place(
             centerX: screenFrame.midX,
             bottom: screenFrame.minY + screenFrame.height * DemoOverlayStage.titleVerticalFraction - panel.view.preferredSize.height / 2
@@ -198,8 +225,8 @@ final class DemoOverlayStage: DemoStage {
         stateMarks = states
         stateLabelsTop = nil
         guard !states.isEmpty else { return }
-        let screenFrame = OverlayScreenFrames.current().visibleFrame
-        let ground = screenFrame.minY + PetGeometry.windowBottomInset
+        let screenFrame = currentScreenFrame
+        let ground = ground(in: screenFrame)
         let sideLengths = states.map { mark in spriteSideLength(forPackNamed: mark.sprite) }
         let petsHeight = sideLengths.map { side in PetGeometry.totalHeight(spriteSideLength: side, labelPlacement: .pill) }.max() ?? 0
         let laneSpacing = screenFrame.width / CGFloat(states.count + 1)
@@ -223,7 +250,7 @@ final class DemoOverlayStage: DemoStage {
         for (petKey, presence) in presencesByPetKey where !shownPetKeys.contains(petKey) {
             presence.animator.requestDive()
         }
-        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        let screenFrame = currentScreenFrame
         for (petIndex, item) in pets.enumerated() {
             let slotIndex = stateMarks.firstIndex { mark in mark.sessionId.map(item.memberSessionIds.contains) ?? false }
             let laneIndex = slotIndex ?? petIndex
@@ -258,7 +285,7 @@ final class DemoOverlayStage: DemoStage {
     }
 
     func advance(elapsedSeconds: Double, sceneProgress: Double) {
-        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        let screenFrame = currentScreenFrame
         for panel in titlePanels { panel.advance(elapsedSeconds: elapsedSeconds) }
         titlePanels.removeAll { panel in panel.isGone }
         for panel in captionPanels {
@@ -304,10 +331,7 @@ final class DemoOverlayStage: DemoStage {
            let presence = presencesByPetKey.values.first(where: { presence in presence.memberSessionIds.contains(sessionId) }) {
             let frame = presence.window.frame
             let spriteSide = PetGeometry.spritePixelSideLength(frameSize: presence.spriteSheet.frameSize)
-            cursorGoal = CGPoint(
-                x: frame.midX,
-                y: frame.minY + PetGeometry.spriteBaseline(labelPlacement: .pill) + spriteSide * DemoOverlayStage.cursorAimHeightFraction
-            )
+            cursorGoal = DemoCursorView.aim(petCenterX: frame.midX, petBottom: frame.minY, spriteSideLength: spriteSide)
         }
         guard let goal = cursorGoal else { return }
         let start = cursorHotspot ?? CGPoint(
@@ -328,7 +352,7 @@ final class DemoOverlayStage: DemoStage {
     }
 
     private func placeTitle(_ panel: DemoPanelWindow) {
-        let screenFrame = OverlayScreenFrames.current().visibleFrame
+        let screenFrame = currentScreenFrame
         let size = panel.view.preferredSize
         panel.place(
             centerX: screenFrame.midX,
@@ -384,7 +408,7 @@ final class DemoOverlayStage: DemoStage {
         presence.window.setFrame(
             CGRect(
                 x: horizontalOrigin.rounded(),
-                y: (screenFrame.minY + PetGeometry.windowBottomInset).rounded(),
+                y: ground(in: screenFrame).rounded(),
                 width: windowSize.width,
                 height: windowSize.height
             ),

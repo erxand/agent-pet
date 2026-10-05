@@ -67,7 +67,7 @@ final class DemoApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let stage = DemoOverlayStage()
+        let stage = DemoOverlayStage(contracts: AgentPetContracts.loaded())
         let focus = DemoAppFocus()
         stage.onPanelClicked = { [weak focus] in focus?.reclaimFocus() }
         self.stage = stage

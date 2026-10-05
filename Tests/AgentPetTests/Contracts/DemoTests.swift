@@ -172,17 +172,42 @@ struct DemoTimelineTests {
         }
     }
 
-    @Test func nothingInTheDemoMovesTheSystemCursor() throws {
+    @Test func nothingInTheDemoMovesTheSystemCursorOrPostsASystemEvent() throws {
         let demoDirectories = ["Sources/agent-pet/Demo", "Sources/AgentPetCore/Demo"]
+        let forbiddenNames = [
+            "CGWarpMouseCursorPosition",
+            "CGDisplayMoveCursorToPoint",
+            "CGAssociateMouseAndMouseCursorPosition",
+            "NSCursor",
+            "CGEvent",
+            "CGPostMouseEvent",
+            "CGPostKeyboardEvent",
+            ".mouseEvent(",
+            ".keyEvent(",
+            ".enterExitEvent(",
+            "AXUIElementPost",
+            "AXUIElementPerformAction",
+            "AXUIElementSetAttributeValue",
+            "IOHIDPostEvent",
+            "NSAppleScript",
+            "osascript"
+        ]
+        var postingFiles: [String] = []
         for directory in demoDirectories {
             let url = Sandbox.packageRoot.appendingPathComponent(directory, isDirectory: true)
             for name in try FileManager.default.contentsOfDirectory(atPath: url.path) where name.hasSuffix(".swift") {
                 let source = try String(contentsOf: url.appendingPathComponent(name), encoding: .utf8)
-                for forbidden in ["CGWarpMouseCursorPosition", "CGDisplayMoveCursorToPoint", "NSCursor", "CGEventPost", "CGEvent("] {
+                for forbidden in forbiddenNames {
                     #expect(!source.contains(forbidden), "\(name) uses \(forbidden)")
+                }
+                if source.contains("postEvent(") {
+                    postingFiles.append(name)
+                    #expect(source.components(separatedBy: "postEvent(").count == 2, "\(name) posts more than one event")
+                    #expect(source.contains("with: .applicationDefined"), "\(name) posts an event that is not app-local")
                 }
             }
         }
+        #expect(postingFiles == ["DemoApplication.swift"])
     }
 
     @Test func interactiveScenesHoldUntilSpaceAndOnlyTheTitleMovesByItself() throws {
@@ -457,7 +482,7 @@ struct DemoCommandTests {
         #expect(run.exitStatus == 0)
         #expect(run.standardOutput.contains("caption: Clicking the pet brings the terminal tab to focus."))
         #expect(run.standardOutput.contains("cursor: clicks demo-deploy-6e2b"))
-        #expect(run.standardOutput.contains("terminal: deploy, Claude Code | v2.0 | Opus | ~/api | > Deploy the api to staging. | \u{25CF} Deployed. The health check passed."))
+        #expect(run.standardOutput.contains("terminal: deploy, Claude Code | ~/api | > Deploy the api to staging. | \u{25CF} Deployed. The health check passed."))
         #expect(try FileManager.default.contentsOfDirectory(atPath: freshHome.path).isEmpty)
     }
 
@@ -472,14 +497,19 @@ struct DemoCommandTests {
         process.standardOutput = outputPipe
         process.standardError = FileHandle.nullDevice
         try process.run()
-        Thread.sleep(forTimeInterval: 0.8)
+        var firstOutput = Data()
+        while !firstOutput.contains(UInt8(ascii: "\n")) {
+            let chunk = outputPipe.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            firstOutput.append(chunk)
+        }
         kill(process.processIdentifier, signalNumber)
         let deadline = Date().addingTimeInterval(5)
         while process.isRunning && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.02)
         }
         if process.isRunning { process.terminate() }
-        let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let output = String(decoding: firstOutput + outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationReason == .exit)
         #expect(process.terminationStatus == 128 + signalNumber)

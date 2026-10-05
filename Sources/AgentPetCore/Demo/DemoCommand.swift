@@ -52,14 +52,14 @@ enum DemoCommand {
     }
 
     private static func runTranscript(scenes: [DemoScene], speed: Double) -> Int32 {
-        let stage = DemoTranscriptStage { line in print(line) }
+        let stage = DemoTranscriptStage(write: writeLine)
         let runner = DemoRunner(scenes: scenes, stage: stage)
         var exitCode: Int32?
         let playback = DemoPlayback(
             runner: runner,
             stage: stage,
             speed: speed,
-            reportStop: { line in print(line) },
+            reportStop: writeLine,
             onFinish: { finishedExitCode in exitCode = finishedExitCode }
         )
         playback.start()
@@ -67,6 +67,11 @@ enum DemoCommand {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(DemoPlayback.idleWaitInSeconds))
         }
         return exitCode ?? ExitCode.success
+    }
+
+    private static func writeLine(_ line: String) {
+        print(line)
+        fflush(stdout)
     }
 
     private static func printList(_ scenes: [DemoScene]) {

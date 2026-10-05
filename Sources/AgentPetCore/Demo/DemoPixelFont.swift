@@ -5,7 +5,6 @@ package enum DemoPixelFont {
     package static let capHeight = 7
     package static let glyphSpacing = 1
 
-    private static let ink: Character = "#"
     private static let blank: Character = "."
 
     private static let compactGlyphsByCharacter: [Character: [String]] = [
@@ -141,9 +140,5 @@ package enum DemoPixelFont {
                 .compactMap { character in glyphsByCharacter[character]?[rowIndex] }
                 .joined(separator: spacer)
         }
-    }
-
-    package static func isInk(_ character: Character) -> Bool {
-        character == ink
     }
 }

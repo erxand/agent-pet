@@ -6,7 +6,7 @@ package enum PetPaths {
 
     private static let stateDirectoryName = ".agent-pet"
     private static let sessionsDirectoryName = "sessions"
-    private static let spritesDirectoryName = "sprites"
+    package static let spritesDirectoryName = "sprites"
     private static let claudeDirectoryName = ".claude"
     private static let claudeSessionsDirectoryName = "sessions"
     private static let daemonProcessIdentifierFileName = "daemon.pid"
