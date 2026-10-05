@@ -349,9 +349,9 @@ own write, `SubagentCleanup` does two things:
      that names someone else, finishes nobody. A teammate whose turn failed (a usage limit) sends this and no
      `SubagentStop`, which held its lead's pet down until the 3 hour expiry. Any `idleReason` counts, because a
      teammate that a message wakes again gets a fresh `SubagentStart` for the same `agent_id`: on 2026-10-05 every
-     wake of three teammates in one lead logged a `SubagentStart` within a second of the lead's `SendMessage`,
-     and the teammate went on in the same transcript file, so the scan running before that start never finishes
-     the new run.
+     turn of three teammates in one lead ended with a `SubagentStop` and every later turn began with a
+     `SubagentStart`, an idle teammate's within a second of the lead's `SendMessage`, while the teammate went on
+     in the same transcript file. The scan runs before that start is recorded, so it never finishes the new run.
    - Every `agent-message from=` followed by `\"ID\"` (the JSON-escaped form) or `"ID"` (the raw form),
      where the marker `[Subagent hand-back]` follows within 400 bytes and before the next
      `agent-message from=`. That makes `.finished(ID)`.
