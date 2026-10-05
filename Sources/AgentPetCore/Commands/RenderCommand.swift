@@ -31,7 +31,6 @@ enum RenderCommand {
         return ExitCode.success
     }
 
-    /// `--accent` previews the sheet a session that chose that accent would get.
     private static func sheet(forPackNamed packName: String, accent: AccentColor?) -> SpriteSheet? {
         switch SpritePackLoader().load(packNamed: packName) {
         case .loaded(let pack):

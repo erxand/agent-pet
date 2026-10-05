@@ -90,6 +90,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "holdWhileBusy": true,
   "accentInks": true,
   "diveOnExit": true,
+  "subagentToolsKeepNeedsInput": true,
   "display": "primary"
 }
 ```
@@ -107,6 +108,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `holdWhileBusy` | `false` | `true` keeps a pet down while Claude Code says the session is busy again after its turn ended, such as during a `!` command, which fires no hook |
 | `accentInks` | `false` | `true` lets a color you choose (`/pet <nickname> <color>`, `--accent`) paint part of the creature too, not only the label dot, the bubble and the prompt bar |
 | `diveOnExit` | `false` | `true` makes a stopping daemon (a launchd restart, Ctrl-C) dive its pets before it exits instead of dropping them. Read when the daemon starts |
+| `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
 The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
@@ -157,7 +159,7 @@ Claude Code events:
 | event | what agent-pet does |
 |---|---|
 | `Stop` | read finished subagents from the transcript and drop stale ones, then show the pet (mood `ready`, with the first line of the last assistant message as its status text) if no background subagents are left, or keep it hidden if any are still running |
-| `Notification` of type `permission_prompt` or `agent_needs_input` | show the pet, mood `needsInput`, whatever the subagents are doing |
+| `Notification` of type `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `elicitation_dialog` or `elicitation_url_dialog` | show the pet, mood `needsInput`, whatever the subagents are doing |
 | `SubagentStart` | record that subagent as running, and hide the pet |
 | `SubagentStop` | record that subagent as finished, and show or hide nothing |
 | `UserPromptSubmit` | hide the pet, and nothing else. A new prompt does not end a running subagent |
@@ -217,13 +219,13 @@ Sessions differ in four ways.
 agent-pet picks one of the installed packs at random among the packs that the fewest other live
 sessions are using, so no two sessions share a pet until there are more sessions than packs.
 The pick is stored in the session's record, so it stays put for the life of the session.
-`sprite:<name>` chooses one explicitly. The repo ships seven: `claude` (the original orange
-critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon` and `tinowl`.
+`sprite:<name>` chooses one explicitly. The repo ships eight: `claude` (the original orange
+critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl` and `walle`.
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
 yours. `/pet <nickname> <color>` overrides it. With `"accentInks": true` in the config, a color you
-choose this way also paints the pet: every shipped pack but `claude` hands one part of the creature to the accent (golem's chest gem,
+choose this way also paints the pet: every shipped pack but `claude` and `walle` hands one part of the creature to the accent (golem's chest gem,
 hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie), so
 sessions that share a creature still look different. A session that only took its pack's color
 keeps the pack's own look.
@@ -237,6 +239,7 @@ keeps the pack's own look.
 | nimbus    | blue   |
 | seon      | yellow |
 | tinowl    | purple |
+| walle     | yellow |
 
 A pack of your own sets its color with the `accent` field in `pack.json`. Without that field,
 agent-pet uses the pack's most common color, leaving out the two darkest ones (the outline and
@@ -286,7 +289,7 @@ session that gets the pack uses it for the label dot, the mood bubble and the pr
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on
 each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling`, `nimbus`,
-`seon` or `tinowl` are overwritten. To customize a shipped pack, copy it under a new name and
+`seon`, `tinowl` or `walle` are overwritten. To customize a shipped pack, copy it under a new name and
 edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
 random pool, so dropping a new directory in is all it takes to add a pet.
 
@@ -349,8 +352,11 @@ Delete a session's record, or run `/pet off` in that session, to remove its pet.
 
 ## Development
 
-`swift build` and `swift test`. The tests run the binary in a temporary home with a stub tmux, so
-they never touch your `~/.agent-pet`, your Claude Code sessions or the running daemon.
+`swift build`, and `scripts/test.sh` for the tests. The script runs `swift test` with the framework
+flags that a machine with only the Command Line Tools needs: there, a plain `swift test` fails with
+`no such module 'Testing'`. Extra arguments go through to `swift test`. The tests run the binary in a
+temporary home with a stub tmux, so they never touch your `~/.agent-pet`, your Claude Code sessions or
+the running daemon.
 
 ## Design notes
 

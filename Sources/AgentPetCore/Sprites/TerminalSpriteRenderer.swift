@@ -6,6 +6,11 @@ package enum TerminalSpriteRenderer {
     private static let blank = " "
     private static let escape = "\u{1B}["
     private static let reset = "\u{1B}[0m"
+    private static let foregroundTrueColor = "38;2;"
+    private static let backgroundTrueColor = "48;2;"
+    private static let parameterSeparator = ";"
+    private static let sgrTerminator = "m"
+    private static let lineSeparator = "\n"
     private static let maximumComponentValue: CGFloat = 255
 
     package struct TerminalColor: Equatable {
@@ -30,7 +35,7 @@ package enum TerminalSpriteRenderer {
             lines.append(line + reset)
             topRow += 2
         }
-        return lines.joined(separator: "\n") + "\n"
+        return lines.joined(separator: lineSeparator) + lineSeparator
     }
 
     private static func cell(top: TerminalColor?, bottom: TerminalColor?) -> String {
@@ -47,11 +52,15 @@ package enum TerminalSpriteRenderer {
     }
 
     private static func foreground(_ color: TerminalColor) -> String {
-        "\(escape)38;2;\(color.red);\(color.green);\(color.blue)m"
+        escape + foregroundTrueColor + components(of: color) + sgrTerminator
     }
 
     private static func background(_ color: TerminalColor) -> String {
-        "\(escape)48;2;\(color.red);\(color.green);\(color.blue)m"
+        escape + backgroundTrueColor + components(of: color) + sgrTerminator
+    }
+
+    private static func components(of color: TerminalColor) -> String {
+        [color.red, color.green, color.blue].map { component in String(component) }.joined(separator: parameterSeparator)
     }
 
     package static func color(_ inkColor: NSColor?) -> TerminalColor? {

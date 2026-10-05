@@ -7,8 +7,6 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private static let animationIntervalInSeconds: TimeInterval = 1.0 / 30.0
     private static let maximumAnimationStepInSeconds: TimeInterval = 0.25
     private static let substituteGroundFrameIndex = 0
-    // How long a stopping daemon waits for its pets to dive before it exits
-    // anyway. A dive is 450 ms; this only matters when the main thread is stuck.
     private static let shutdownDeadlineInSeconds: TimeInterval = 2
 
     private let store: PetSessionStore
@@ -61,10 +59,6 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
     }
 
-    /// A display was attached, removed, rearranged or resized, or the primary display changed.
-    /// Every pet, a diving one included, moves to the chosen display at the same lane fraction,
-    /// with its animation left running, so none is left on a display that went away. The
-    /// `focused` default keeps upstream's behavior and does nothing here.
     private func displaysDidChange() {
         guard contracts.configuration.display != .focused else { return }
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
@@ -80,11 +74,6 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
     }
 
-    /// Dives every pet, then calls `completion` once they are all under (or at
-    /// the deadline). A daemon stopped by launchd (a restart onto a new build,
-    /// an uninstall) used to take its pets off the screen in the same instant;
-    /// now they dig back down first. Records are left as they are, so a daemon
-    /// that starts again brings the visible ones back up.
     func beginShutdown(completion: @escaping () -> Void) {
         guard !isShuttingDown else { return }
         shutdownCompletion = completion
@@ -183,14 +172,12 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         lastClaudeSessionsSignature = claudeSessionsSignature
         let settleDue = nextSettleDeadline.map { deadline in Date().timeIntervalSince1970 >= deadline } ?? false
 
-        // A Claude session file changes when its label does, and also when its status does: a `!`
-        // command that makes a settling session busy again has to be seen at once, so it re-plans too.
         if petSessionsChanged || claudeSessionsChanged || settleDue {
-            applyRecords(store.list())
+            applyRecords(store.list(), claudeSessions: contracts.sessionSource.recordsBySessionId(in: claudeSessionsSignature))
         }
     }
 
-    private func applyRecords(_ records: [PetSession]) {
+    private func applyRecords(_ records: [PetSession], claudeSessions: [String: ClaudeSessionRecord]) {
         let now = Date().timeIntervalSince1970
         let planner = contracts.displayPlanner
         let shownPetKeys = Set(presencesBySessionId.compactMap { petKey, presence in
@@ -198,7 +185,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         })
         let items = planner.displayItems(
             records: records,
-            claudeSessions: contracts.sessionSource.recordsBySessionId(),
+            claudeSessions: claudeSessions,
             now: now,
             shownPetKeys: shownPetKeys
         )
@@ -316,13 +303,6 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 continue
             }
             renderSprite(for: presence)
-            // A diving pet stays where it is. Nothing moves it sideways during
-            // a dive, and with the `focused` display re-placing it would follow
-            // NSScreen.main, which moves to whichever display has keyboard focus:
-            // focusing a terminal on another display (one of the things that
-            // hides a pet) would carry the pet there to dive, so it vanished
-            // from the one being watched. Under the other `display`
-            // values a display change re-places it anyway.
             guard !presence.animator.isDiving else { continue }
             applyGeometry(to: presence, screenFrames: screenFrames)
         }

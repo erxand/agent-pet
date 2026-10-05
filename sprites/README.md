@@ -60,3 +60,4 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 | nimbus       | blue   | `A`/`a`, the lightning bolts |
 | seon         | yellow | `A`/`a`, the face mark       |
 | tinowl       | purple | `A`/`a`, the bow tie         |
+| walle        | yellow | none                         |

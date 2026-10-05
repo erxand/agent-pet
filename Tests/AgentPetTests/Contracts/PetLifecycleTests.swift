@@ -186,8 +186,21 @@ struct PetLifecycleTests {
         #expect(record["mood"] as? String == "needsInput")
     }
 
-    @Test func aSubagentsToolCallLeavesAnotherSubagentsQuestionUp() throws {
+    @Test func aSubagentsToolCallHidesAQuestionByDefault() throws {
         let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(visible: true, extra: ["mood": "needsInput"]))
+        try sandbox.hook(RecordFixtures.hookPayload("PreToolUse", extra: ["agent_id": "agent-two", "tool_name": "Bash"]))
+
+        #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == false)
+    }
+
+    @Test func aSubagentsToolCallLeavesAnotherSubagentsQuestionUpWhenConfigured() throws {
+        let sandbox = try Sandbox()
+        try #"{"subagentToolsKeepNeedsInput":true}"#.write(
+            to: sandbox.stateDirectory.appendingPathComponent("config.json"),
+            atomically: true,
+            encoding: .utf8
+        )
         try sandbox.writeRecord(RecordFixtures.enrolled(visible: true, extra: ["mood": "needsInput"]))
         try sandbox.hook(RecordFixtures.hookPayload("PreToolUse", extra: ["agent_id": "agent-two", "tool_name": "Bash"]))
 
@@ -266,6 +279,30 @@ struct PetLifecycleTests {
         #expect(sandbox.record(newSessionId)?["visible"] as? Bool == true)
     }
 
+    @Test func aResumeIntoASessionWithItsOwnPetLeavesThatPetAlone() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(extra: ["label": "Mine"]))
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "target", extra: ["label": "Target", "pid": deadProcessIdentifier]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionEnd", extra: ["reason": "resume"]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", sessionId: "target", extra: ["source": "resume"]))
+
+        #expect(sandbox.record("target")?["label"] as? String == "Target")
+        #expect(sandbox.record("target")?["pid"] as? Int == deadProcessIdentifier)
+        #expect(sandbox.record(RecordFixtures.sessionId)?["handoverPendingSince"] != nil)
+    }
+
+    @Test func aResumeBackIntoTheSameSessionKeepsItsPet() throws {
+        let sandbox = try Sandbox()
+        try sandbox.writeRecord(RecordFixtures.enrolled(extra: ["label": "Mine"]))
+        try sandbox.hook(RecordFixtures.hookPayload("SessionEnd", extra: ["reason": "resume"]))
+        #expect(sandbox.record(RecordFixtures.sessionId)?["handoverPendingSince"] != nil)
+
+        try sandbox.hook(RecordFixtures.hookPayload("SessionStart", extra: ["source": "resume"]))
+        let record = try #require(sandbox.record(RecordFixtures.sessionId))
+        #expect(record["handoverPendingSince"] == nil)
+        #expect(record["label"] as? String == "Mine")
+    }
+
     @Test func aStartupOrAnotherProcessesPetIsNeverTakenOver() throws {
         let sandbox = try Sandbox()
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "elsewhere", extra: ["pid": deadProcessIdentifier]))
@@ -281,8 +318,6 @@ struct PetLifecycleTests {
         #expect(sandbox.hookLogLines().isEmpty)
     }
 
-    /// A Claude started from another Claude's Bash tool (`claude -p --resume`, say) runs its hooks with
-    /// the parent Claude two levels up. The parent's pet stays the parent's.
     @Test(arguments: ["resume", "clear"])
     func aClaudeStartedFromAnotherClaudesShellNeverTakesTheParentsPet(source: String) throws {
         let sandbox = try Sandbox()
@@ -304,7 +339,6 @@ struct PetLifecycleTests {
         #expect(sandbox.exists(sandbox.recordURL("parent")))
     }
 
-    /// Claude Code's session file names the process, however far up the hook it sits.
     @Test func theSessionFileForTheNewIdNamesTheProcessThatTakesThePet() throws {
         let sandbox = try Sandbox()
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "before", extra: ["label": "Mine"]))
@@ -365,8 +399,6 @@ struct PetLifecycleTests {
         return "{\"type\":\"user\",\"message\":{\"content\":\"\(opening)\(payload)\"}}\n"
     }
 
-    /// The lead spawned a second `fixer` after the first one went idle. The first one's notice says
-    /// nothing about the second, which is still working.
     @Test func anEarlierTeammateOfTheSameNameGoingIdleLeavesANewOneWorking() throws {
         let sandbox = try Sandbox()
         let transcript = sandbox.home.appendingPathComponent("transcript.jsonl")
@@ -387,8 +419,6 @@ struct PetLifecycleTests {
         #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["afixer-1111222233334444"])
     }
 
-    /// Only a real teammate message counts: a payload quoted with no envelope (a Read of a fixture), or
-    /// one whose envelope names somebody else, finishes nobody.
     @Test(arguments: [nil, "reviewer"] as [String?])
     func aQuotedIdleNotificationFinishesNobody(envelope: String?) throws {
         let sandbox = try Sandbox()

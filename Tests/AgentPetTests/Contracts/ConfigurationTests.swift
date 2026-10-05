@@ -26,6 +26,12 @@ struct ConfigurationTests {
         #expect(!AgentPetConfiguration.defaults.holdsWhileBusy)
         #expect(!AgentPetConfiguration.defaults.paintsAccentInks)
         #expect(!AgentPetConfiguration.defaults.divesOnExit)
+        #expect(!AgentPetConfiguration.defaults.subagentToolsKeepNeedsInput)
+    }
+
+    @Test func subagentToolsKeepNeedsInputIsOffUnlessTheConfigTurnsItOn() {
+        #expect(parse(#"{"subagentToolsKeepNeedsInput":true}"#).subagentToolsKeepNeedsInput)
+        #expect(!parse(#"{"subagentToolsKeepNeedsInput":1}"#).subagentToolsKeepNeedsInput)
     }
 
     @Test func diveOnExitIsOffUnlessTheConfigTurnsItOn() {

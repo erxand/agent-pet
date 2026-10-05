@@ -30,12 +30,6 @@ protocol PetViewInteractionHandler: AnyObject {
 
 final class PetView: NSView {
     private static let redrawEpsilon: CGFloat = 0.01
-    // macOS sends a click on a fully transparent pixel to whatever is under
-    // the window, which for a pet walking along the bottom of the screen is
-    // usually the Dock. A pixel-art sprite is mostly gaps (around the outline,
-    // between legs and ears), so a click on the pet opened the app behind it.
-    // The sprite's whole square is filled with this before the sprite is drawn:
-    // too faint to see, but not clear, so every click on the pet lands here.
     private static let clickTargetColor = NSColor(calibratedWhite: 0, alpha: 0.01)
     private static let boldMonospacedFontName = "Menlo-Bold"
 
@@ -114,8 +108,6 @@ final class PetView: NSView {
         drawChrome()
     }
 
-    // The pet's window never becomes key, so without this the first click on
-    // it could be spent on the window instead of on the pet.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }

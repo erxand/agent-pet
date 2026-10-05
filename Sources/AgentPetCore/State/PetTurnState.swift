@@ -29,10 +29,9 @@ struct PetHookResult {
 
 enum SubagentIdentity {
     case reported(String)
-    case unreported(fingerprint: String?)
+    case unreported
 }
 
-/// Why a session's record is ending, from the `reason` of a `SessionEnd` payload.
 enum SessionEndReason: String {
     case clear
     case resume
@@ -40,7 +39,6 @@ enum SessionEndReason: String {
     case promptInputExit = "prompt_input_exit"
     case other
 
-    /// The process goes on under a new session id, which the `SessionStart` that follows hands the pet to.
     var continuesInSameProcess: Bool {
         switch self {
         case .clear, .resume:
@@ -52,7 +50,6 @@ enum SessionEndReason: String {
 }
 
 package enum PetTurnState {
-    /// Shows the pet unconditionally: the `show` command, which a person or an integration asked for.
     @discardableResult
     static func show(sessionId: String, mood: PetMood?, message: String?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -61,8 +58,6 @@ package enum PetTurnState {
         }
     }
 
-    /// Shows the pet for a hook, unless its pane is the one in front: then it is held back until the
-    /// user leaves that pane (`release`), because he is already looking at it.
     @discardableResult
     static func showUnlessInFront(sessionId: String, mood: PetMood, message: String?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -94,9 +89,6 @@ package enum PetTurnState {
         }
     }
 
-    /// A prompt, or a tool call, means the session is working again. A tool call from a subagent
-    /// (`keepsNeedsInput`) leaves a `needsInput` pet up: another subagent may still be waiting on
-    /// a permission prompt, and nothing the first one does answers it.
     @discardableResult
     static func hideAndMarkWorking(sessionId: String, keepsNeedsInput: Bool = false) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -108,8 +100,6 @@ package enum PetTurnState {
         }
     }
 
-    /// The session sat at its prompt long enough for Claude Code to say so: whatever turn it was in
-    /// is over, even one an interrupt ended without a `Stop`. Never shows anything.
     @discardableResult
     static func markIdle(sessionId: String) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -126,10 +116,6 @@ package enum PetTurnState {
         }
     }
 
-    /// The user left the pane a pet was held back for. It comes up after all when the session still
-    /// wants him (enabled, not working, not already up) and, with a `grace`, when he left within
-    /// that many seconds of the hold: staying longer counts as having seen it. Otherwise the hold
-    /// is just dropped, so the pet stays down for the rest of that turn.
     @discardableResult
     static func release(sessionId: String, grace: TimeInterval? = nil) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -156,15 +142,12 @@ package enum PetTurnState {
         }
     }
 
-    /// `SessionEnd`: the record goes, except when the same Claude process carries on under a new
-    /// session id (`/clear`, `/resume`). Then the pet dives and the record waits for the
-    /// `SessionStart` that hands it over (`PetSessionHandover`).
     @discardableResult
     static func end(sessionId: String, reason: SessionEndReason?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            // Only a record that names its process can be handed over (`PetSessionHandover`), so a
-            // record with no pid (the plain `/pet` flow) goes, as it always did.
-            if reason?.continuesInSameProcess == true, record?.pid != nil {
+            if reason?.continuesInSameProcess == true, var session = record, session.pid != nil {
+                session.handoverPendingSince = Date().timeIntervalSince1970
+                record = session
                 markDone(&record)
                 markHidden(&record)
             } else {
@@ -259,13 +242,6 @@ enum PetSubagentTracking {
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             guard var session = record else { return PetHookResult(record: record, cleanup: cleanup) }
             session.busy = true
-            guard HookEventDeduplication.claim(identity: identity, in: &session, now: now) else {
-                session.visible = false
-                session.held = nil
-                session.heldAt = nil
-                record = session
-                return PetHookResult(record: record, cleanup: cleanup)
-            }
             let agentId = startingAgentId(identity: identity, session: session)
             if let existingIndex = session.activeSubagents.firstIndex(where: { trackedSubagent in
                 trackedSubagent.id == agentId
@@ -289,7 +265,6 @@ enum PetSubagentTracking {
             let now = Date().timeIntervalSince1970
             let cleanup = SubagentCleanup.apply(to: &record, now: now)
             if var session = record,
-               HookEventDeduplication.claim(identity: identity, in: &session, now: now),
                let agentId = stoppingAgentId(identity: identity, session: session),
                isTracking(agentId, in: session) {
                 session.activeSubagents.removeAll { trackedSubagent in trackedSubagent.id == agentId }

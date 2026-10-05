@@ -8,6 +8,11 @@ enum PacksCommand {
     private static let nameColumnWidth = 12
     private static let accentColumnWidth = 8
     private static let reservedColumnWidth = 9
+    private static let packHeader = "PACK"
+    private static let accentHeader = "ACCENT"
+    private static let reservedHeader = "RESERVED"
+    private static let livePetsHeader = "PETS"
+    private static let lineEnding = "\n"
 
     struct PackEntry: Encodable {
         let name: String
@@ -40,10 +45,10 @@ enum PacksCommand {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             guard let payload = try? encoder.encode(PacksReport(packs: entries)) else { return CommandFeedback.reportUsage() }
             FileHandle.standardOutput.write(payload)
-            FileHandle.standardOutput.write(Data("\n".utf8))
+            FileHandle.standardOutput.write(Data(lineEnding.utf8))
             return ExitCode.success
         }
-        print(row(name: "PACK", accent: "ACCENT", reserved: "RESERVED", livePets: "PETS"))
+        print(row(name: packHeader, accent: accentHeader, reserved: reservedHeader, livePets: livePetsHeader))
         for entry in entries {
             print(row(
                 name: entry.name,

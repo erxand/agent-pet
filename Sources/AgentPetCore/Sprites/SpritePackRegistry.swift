@@ -17,8 +17,6 @@ package final class SpritePackRegistry {
         let accent: AccentColor
     }
 
-    /// A pack's sheet as a session sees it: `tint` is the accent its accent inks are painted in, nil
-    /// when the sheet is the pack's own palette.
     package struct SessionSheet {
         package let sheet: SpriteSheet
         package let tint: AccentColor?
@@ -44,13 +42,10 @@ package final class SpritePackRegistry {
         return sheetsByPackName[resolvedName] ?? fallbackSheet
     }
 
-    /// The accent `on` fills from this pack (`LoadedSpritePack.ownAccent`), nil for a pack not loaded.
     package func ownAccent(forPackNamed packName: String?) -> AccentColor? {
         ownAccentByPackName[packName ?? SpritePackLoader.defaultPackName]
     }
 
-    /// The sheet for a session whose chosen accent is `chosenAccent` (`PetSession.chosenAccent`).
-    /// Each pack and accent pair is recolored once and kept until the pack reloads.
     package func sheet(forPackNamed packName: String?, chosenAccent: AccentColor?) -> SessionSheet {
         let resolvedName = packName ?? SpritePackLoader.defaultPackName
         let baseSheet = sheet(forPackNamed: resolvedName)
@@ -65,14 +60,13 @@ package final class SpritePackRegistry {
         return SessionSheet(sheet: tinted, tint: tint)
     }
 
-    /// Rescans every pack folder and reloads the packs whose directory moved or changed. Pass a
-    /// loader when the configuration changed, so new `spriteDirectories` take effect at once.
     package func reloadChangedPacks(using replacementLoader: SpritePackLoader? = nil) -> Bool {
         if let replacementLoader { loader = replacementLoader }
-        reportNewDirectoryIssues()
+        let scan = loader.scan()
+        reportNewDirectoryIssues(scan.issues)
         var anythingChanged = false
         var seenPackNames: Set<String> = []
-        for (packName, packDirectory) in loader.packDirectoriesByName() {
+        for (packName, packDirectory) in scan.directoryByPackName {
             seenPackNames.insert(packName)
             let currentState = PackDirectoryState(
                 path: packDirectory.standardizedFileURL.path,
@@ -80,7 +74,7 @@ package final class SpritePackRegistry {
             )
             if packDirectoryStateByPackName[packName] == currentState { continue }
             packDirectoryStateByPackName[packName] = currentState
-            applyOutcome(loader.load(packNamed: packName), packName: packName)
+            applyOutcome(loader.load(packDirectory: packDirectory), packName: packName)
             anythingChanged = true
         }
         for knownPackName in Set(sheetsByPackName.keys).union(packDirectoryStateByPackName.keys)
@@ -92,8 +86,7 @@ package final class SpritePackRegistry {
         return anythingChanged
     }
 
-    private func reportNewDirectoryIssues() {
-        let currentIssues = loader.directoryIssues()
+    private func reportNewDirectoryIssues(_ currentIssues: [String]) {
         for issue in currentIssues where !reportedDirectoryIssues.contains(issue) {
             reportFailure(issue)
         }

@@ -12,8 +12,6 @@ struct PetDiveTests {
         var offsets: [Double] = []
         var ticks = 0
 
-        // The overlay spreads the dive frames evenly over the progress, so a
-        // frame is shown when some tick lands in its third.
         var framesShown: Set<Int> {
             Set(progresses.map { progress in min(2, Int(progress * 3)) })
         }
@@ -59,11 +57,9 @@ struct PetDiveTests {
     @Test func aLateTickSlowsTheDiveInsteadOfSkippingIt() {
         let animator = grounded()
         animator.requestDive()
-        // The main thread was busy for a whole second before the next tick.
         animator.advance(elapsedSeconds: 1, mood: .ready)
         #expect(!animator.isSubmerged)
         #expect(animator.groundAnimationProgress < 1.0 / 3.0)
-        // Every tick is late from here on: still every frame, never a jump.
         let trace = traceDive(animator, step: 0.25)
         #expect(trace.framesShown == [0, 1, 2])
     }

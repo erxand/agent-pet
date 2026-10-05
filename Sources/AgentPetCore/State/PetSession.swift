@@ -11,11 +11,6 @@ package enum PetAgent: String, Codable, CaseIterable {
     case pi
 }
 
-package struct HandledHookEvent: Codable, Equatable {
-    package var fingerprint: String
-    package var handledAt: TimeInterval
-}
-
 package struct TrackedSubagent: Codable, Equatable {
     package var id: String
     package var startedAt: TimeInterval
@@ -32,8 +27,6 @@ package struct PetSession: Codable, Equatable {
     package var nickname: String?
     package var label: String?
     package var accent: AccentColor?
-    /// True when `on` or `preview` filled `accent` from the sprite pack, false when a caller chose it
-    /// (`--accent`). Absent on records written before the flag existed.
     package var accentFromPack: Bool?
     package var mood: PetMood
     package var message: String?
@@ -46,15 +39,11 @@ package struct PetSession: Codable, Equatable {
     package var owner: Bool?
     package var enrolledAt: Double?
     package var busy: Bool?
-    /// True while a pet that wanted to come up is held back because its pane was the one in front.
     package var held: Bool?
-    /// When `held` was set, so a release can tell a pet he just glanced at from one he sat with.
     package var heldAt: Double?
-    /// When the session last started waiting on the user: every show stamps it, a hide removes it. The daemon
-    /// holds a pet back until the session has waited `settleSeconds`, see "Settling" in DESIGN.md.
     package var waitingSince: Double?
+    package var handoverPendingSince: Double?
     package var activeSubagents: [TrackedSubagent]
-    package var handledHookEvents: [HandledHookEvent]?
     package var transcriptPath: String?
     package var transcriptScanOffset: Int
     package var updatedAt: Double
@@ -83,9 +72,6 @@ package struct PetSession: Codable, Equatable {
         accent ?? AccentColor.derived(fromSessionId: sessionId)
     }
 
-    /// The accent the session chose for itself: `accent`, unless it was only filled from the pack.
-    /// A record from before `accentFromPack` existed had its accent filled from the pack whenever it
-    /// matches `packAccent` (the pack's own accent), so it keeps the pack's palette.
     package func chosenAccent(packAccent: AccentColor?) -> AccentColor? {
         switch accentFromPack {
         case true?:
@@ -130,11 +116,11 @@ extension PetSession {
         held = try container.decodeIfPresent(Bool.self, forKey: .held)
         heldAt = try container.decodeIfPresent(Double.self, forKey: .heldAt)
         waitingSince = try container.decodeIfPresent(Double.self, forKey: .waitingSince)
+        handoverPendingSince = try container.decodeIfPresent(Double.self, forKey: .handoverPendingSince)
         updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt) ?? Date().timeIntervalSince1970
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         transcriptScanOffset = try container.decodeIfPresent(Int.self, forKey: .transcriptScanOffset)
             ?? PetSession.initialTranscriptScanOffset
-        handledHookEvents = try container.decodeIfPresent([HandledHookEvent].self, forKey: .handledHookEvents)
         activeSubagents = try container.decodeIfPresent([TrackedSubagent].self, forKey: .activeSubagents)
             ?? PetSession.decodeLegacySubagents(from: decoder, startedAt: updatedAt)
     }
@@ -167,8 +153,8 @@ extension PetSession {
             held: nil,
             heldAt: nil,
             waitingSince: nil,
+            handoverPendingSince: nil,
             activeSubagents: [],
-            handledHookEvents: nil,
             transcriptPath: nil,
             transcriptScanOffset: initialTranscriptScanOffset,
             updatedAt: Date().timeIntervalSince1970

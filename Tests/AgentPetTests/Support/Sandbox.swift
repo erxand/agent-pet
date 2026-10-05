@@ -69,8 +69,6 @@ final class Sandbox {
     ) throws -> CommandRun {
         let process = Process()
         if throughShell {
-            // A shell that does not exec its command sits between this process and agent-pet, the
-            // way a Bash tool's shell sits between a parent Claude and a Claude it started.
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             process.arguments = ["-c", "\"$0\" \"$@\"; exit $?", try Sandbox.binaryURL().path] + arguments
         } else {

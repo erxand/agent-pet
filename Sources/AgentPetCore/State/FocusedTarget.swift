@@ -1,11 +1,5 @@
 import Foundation
 
-/// What a terminal says the user is looking at right now, from `~/.agent-pet/focus.json`.
-///
-/// A terminal integration writes `{"focusTarget": "<target>", "pid": <its own pid>}` whenever the
-/// pane in front changes, and `"focusTarget": null` when nothing of its own is in front. The value
-/// is compared with a record's `focusTarget`, so it means whatever the integration stamped there.
-/// The writer's pid must be alive, so a terminal that crashed while focused holds nothing back.
 package enum FocusedTarget {
     private struct FocusFile: Decodable {
         let focusTarget: String?

@@ -28,7 +28,6 @@ private struct TranscriptScanResult {
 
     let finishedTaskIds: Set<String>
     let interimTaskIds: Set<String>
-    /// Each idle teammate's name and when it last went idle; nil when a notification carried no time.
     let idleTeammates: [String: TimeInterval?]
     let skippedByteCount: Int
 
@@ -61,15 +60,12 @@ private struct TranscriptScanResult {
         )
     }
 
-    /// An untimed notification outranks a timed one, since it may be the latest.
     private static func later(_ known: TimeInterval??, _ seen: TimeInterval?) -> TimeInterval? {
         guard let known else { return seen }
         guard let knownTime = known, let seenTime = seen else { return nil }
         return max(knownTime, seenTime)
     }
 
-    /// A teammate is finished by an idle notification of its name sent after it started. An earlier
-    /// teammate of the same name going idle says nothing about one spawned since.
     func finishedIds(among trackedSubagents: [TrackedSubagent]) -> Set<String> {
         var finished = finishedTaskIds
         for trackedSubagent in trackedSubagents {

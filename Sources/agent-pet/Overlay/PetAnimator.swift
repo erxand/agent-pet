@@ -15,12 +15,6 @@ final class PetAnimator {
     private static let emergeChromeFadeInDurationInSeconds: Double = 0.15
     private static let diveChromeFadeOutDurationInSeconds: Double = 0.1
     private static let diveDescentDurationInSeconds: Double = 0.35
-    // The longest step an emerge or a dive takes in one tick. The overlay's
-    // animation timer is charged for whatever the main thread did between two
-    // ticks (a reconcile, a slow pack folder, a busy Mac), and a dive is only
-    // 450 ms long, so without this one late tick could carry a pet straight
-    // through its dive frames and it would seem to vanish. A slow tick now
-    // slows the dive down instead of skipping it.
     static let maximumGroundStepInSeconds: Double = 1.0 / 15.0
     private static let minimumPauseInSeconds: Double = 1
     private static let maximumPauseInSeconds: Double = 3
@@ -124,13 +118,6 @@ final class PetAnimator {
         beginGroundAnimation(named: .emerge)
     }
 
-    // A dive always plays every dive frame, from wherever the pet is. A pet
-    // hidden while it was still coming up (a click, a prompt, or its pane being
-    // focused mid-emerge) used to start its dive at the point that matched its
-    // height, which skipped the first frames and, early in an emerge, all of
-    // them. Now it sinks from its current height over the whole descent, and
-    // its label fades from its current opacity. Only a pet with nothing above
-    // ground yet goes straight under, since there is nothing to see dive.
     private func startDiving(fromGroundOffsetFraction startingFraction: Double) {
         groundPhase = .diving
         diveStartGroundOffsetFraction = PetAnimator.clampedUnitValue(startingFraction)

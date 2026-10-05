@@ -90,8 +90,6 @@ enum LaneLayout {
         return screenFrame.minX + screenFrame.width * fraction
     }
 
-    /// Where a home on `oldFrame` lands on `newFrame`, at the same fraction of the width, so a
-    /// pet that moves to another display keeps its lane.
     static func carriedHorizontalCenter(_ horizontalCenter: CGFloat, from oldFrame: CGRect, to newFrame: CGRect) -> CGFloat {
         guard oldFrame.width > 0 else { return newFrame.midX }
         let fraction = (horizontalCenter - oldFrame.minX) / oldFrame.width
