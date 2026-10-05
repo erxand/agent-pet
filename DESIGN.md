@@ -97,9 +97,9 @@ file on every write (temp file in the same dir, then rename).
   when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
 - `focusTarget` is optional and opaque: `--focus-target` stores it and the command focuser hands it on as
   `AGENT_PET_FOCUS_TARGET`. agent-pet never interprets it.
-- `handledHookEvents` is optional and present only after a `SubagentStart` or `SubagentStop` without an
-  `agent_id`: one `{fingerprint, handledAt}` per such payload in the last 30 s, at most 16, so the same event
-  delivered twice is applied once. See "`hook` dispatch".
+- `handoverPendingSince` is optional and present only on a record a `SessionEnd` with `reason` `clear` or
+  `resume` kept for its process. The `SessionStart` that hands the record over, or one that resumes the same
+  session id, removes it. A record still carrying it 30 s later counts as dead, see "Enrichment".
 - `transcriptPath` is the last `transcript_path` a hook payload carried, and `transcriptScanOffset` (default 0) is the
   byte offset in that file up to which task notifications were already read. Storing a different path resets the
   offset to 0.
@@ -134,6 +134,7 @@ adds others, such as the `sessions/` directory of a second Claude config root.
 
 `ProcessLiveness.isAlive(session:claudeSession:)` is the one liveness rule, and the daemon sweep and
 the `status` table both call it, so they cannot disagree. A `preview-` record is always alive. A
+record whose `handoverPendingSince` is 30 s old or more is dead, because no `SessionStart` claimed it. A
 record with its own `pid` is alive while `kill(pid, 0)` says so. A `claude-code` record without a
 `pid` is alive only while a Claude session file carries its `sessionId` and that file's pid is alive,
 with the 30 s grace above for a record whose file is not there at all. Any other agent without a
@@ -282,18 +283,18 @@ enrolled and goes through the table below.
 | `SubagentStart` | scan and expire, then `PetSubagentTracking.recordStartAndHide` with the payload's `agent_id`: records the id, sets `busy` and hides, in one locked write |
 | `SubagentStop` | scan and expire, then `PetSubagentTracking.recordStop` with the payload's `agent_id`; shows and hides nothing |
 | `UserPromptSubmit` | set `busy` and `hide`, in one locked write. The subagent set is left as it is, because a new prompt does not end a running subagent |
-| `PreToolUse` | set `busy` and `hide`. From a subagent (the payload has an `agent_id`) a visible `needsInput` pet stays up: another subagent may still be waiting on a permission prompt, and nothing the first one does answers it |
-| `SessionEnd` | `remove`, except with `reason` `clear` or `resume` on a record that has a `pid`: then clear `busy`, hide and keep the record, because the same process goes on under a new session id and the `SessionStart` that follows hands it over. A record with no `pid` (the plain `/pet` flow) can never be handed over, so it is removed as before |
-| `SessionStart` with `source` `clear` or `resume` | the one event that may act for a session with no record: the record whose `pid` is the process of the new session id moves to that id, keeping its identity (label, sprite, accent, group, owner, focus target, pid) and starting its turn state fresh. The process is the `pid` in Claude Code's own session file for the new session id (any `sessionDirectories`), and, until Claude Code has written that file, the hook's parent, since Claude Code runs a hook as its child. No other ancestor counts: a Claude started from another Claude's Bash tool (`claude -p --resume`, say) has the parent Claude a few levels up, and must never take the parent's pet. Logged as `SessionStart <new> - ... source=<source>`. Any other source, or no such record, writes nothing |
+| `PreToolUse` | set `busy` and `hide`. With `subagentToolsKeepNeedsInput` in the config, a call from a subagent (the payload has an `agent_id`) leaves a visible `needsInput` pet up: another subagent may still be waiting on a permission prompt, and nothing the first one does answers it. Without it, a subagent's tool call hides the pet like any other |
+| `SessionEnd` | `remove`, except with `reason` `clear` or `resume` on a record that has a `pid`: then clear `busy`, hide, stamp `handoverPendingSince` and keep the record, because the same process goes on under a new session id and the `SessionStart` that follows hands it over. A record with no `pid` (the plain `/pet` flow) can never be handed over, so it is removed as before. A kept record that no `SessionStart` claims dies 30 s later |
+| `SessionStart` with `source` `clear` or `resume` | the one event that may act for a session with no record: the record whose `pid` is the process of the new session id moves to that id, keeping its identity (label, sprite, accent, group, owner, focus target, pid) and starting its turn state fresh. The process is the `pid` in Claude Code's own session file for the new session id (any `sessionDirectories`), and, until Claude Code has written that file, the hook's parent, since Claude Code runs a hook as its child. No other ancestor counts: a Claude started from another Claude's Bash tool (`claude -p --resume`, say) has the parent Claude a few levels up, and must never take the parent's pet. A new session id that already has a record of its own keeps it: a `SessionStart` that resumes the same id removes that record's `handoverPendingSince`, and a handover never overwrites a record. Logged as `SessionStart <new> - ... source=<source>`. Any other source, or no such record, writes nothing |
 | anything else | nothing |
 
 A session that has both global hooks and `/pet` skill hooks sees every event twice. Every action above is
 idempotent for a repeated payload: show and hide land on the same state, a second `Stop` scans an already
-scanned transcript, and a `SubagentStart` or `SubagentStop` with an `agent_id` touches the same entry. The one
-exception was a subagent event without an `agent_id`, which counts with a synthetic `unknown-<n>` id. Such an
-event is fingerprinted (FNV-1a over the payload re-serialized with sorted keys) under the record lock, and a
-fingerprint already in `handledHookEvents` from the last 30 s changes nothing. Two different subagents
-without ids still count twice, because their payloads differ.
+scanned transcript, and a `SubagentStart` or `SubagentStop` with an `agent_id` touches the same entry. A
+subagent event without an `agent_id` is not idempotent, and is not deduplicated either: two same-type subagents
+send byte-identical `SubagentStart` payloads, so a duplicate cannot be told from a second subagent. It does not
+need to be. A doubled delivery adds two `unknown-<n>` ids and removes two, so the set ends where a single
+delivery leaves it.
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
@@ -340,18 +341,22 @@ own write, `SubagentCleanup` does two things:
      `.finished(ID)`.
    - Every `<teammate-message teammate_id="NAME">` envelope whose payload, within 120 bytes, starts
      `{"type":"idle_notification"` and names the same `from":"NAME"` within 160 bytes after that (JSON-escaped
-     or raw): a named teammate went idle. It makes `.teammateIdle(NAME, at:)`, with the payload's own
+     or raw): a named teammate went idle, whatever its `idleReason`. It makes `.teammateIdle(NAME, at:)`, with the payload's own
      `timestamp` when it has one, and it finishes every tracked id that is `a`, NAME, `-` and 16 hex digits
      (the shape of a teammate's `agent_id`) whose `startedAt` is at or before that time. An earlier teammate of
      the same name going idle says nothing about one spawned since. A notification with no timestamp finishes
      every such id. A payload quoted outside its envelope (a Read of a fixture, say), or under an envelope
      that names someone else, finishes nobody. A teammate whose turn failed (a usage limit) sends this and no
-     `SubagentStop`, which held its lead's pet down until the 3 hour expiry.
+     `SubagentStop`, which held its lead's pet down until the 3 hour expiry. Any `idleReason` counts, because a
+     teammate that a message wakes again gets a fresh `SubagentStart` for the same `agent_id`: on 2026-10-05 every
+     wake of three teammates in one lead logged a `SubagentStart` within a second of the lead's `SendMessage`,
+     and the teammate went on in the same transcript file, so the scan running before that start never finishes
+     the new run.
    - Every `agent-message from=` followed by `\"ID\"` (the JSON-escaped form) or `"ID"` (the raw form),
      where the marker `[Subagent hand-back]` follows within 400 bytes and before the next
      `agent-message from=`. That makes `.finished(ID)`.
 
-   The three markers are named constants on the scanner. Only a `.finished` id leaves the set. An
+   The four markers are named constants on the scanner. Only a `.finished` id leaves the set. An
    `.interim` id stays tracked, and the cleanup reports how many tracked ids the scan saw as interim
    without a `.finished` for them. The offset moves to the end of the last complete line read, so a line
    still being written is read again next time. A missing or unreadable transcript is a no-op.
@@ -623,7 +628,7 @@ With `"focuser": {"kind": "command", "command": [ARGV]}` a click runs ARGV inste
 AppleScript. The child inherits the daemon's environment plus `AGENT_PET_SESSION_ID`, `AGENT_PET_PID` (the
 record's pid, else the Claude session file's, else empty), `AGENT_PET_FOCUS_TARGET` (empty when unset),
 `AGENT_PET_GROUP` (the session id until grouping exists) and `AGENT_PET_AGENT`. Stdin, stdout and stderr are
-`/dev/null`. After 5 seconds it is terminated. The exit status is ignored except for one stderr line
+`/dev/null`. After 5 seconds it gets SIGTERM, and SIGKILL when it is still running a second later. The exit status is ignored except for one stderr line
 (`daemon.log` for a click) when it is not 0, when it timed out, or when it could not start. The daemon
 supervises the child on a background thread, so a slow command never stalls the animation; the `focus`
 command waits for it.
@@ -713,6 +718,7 @@ the defaults.
 | Hold while busy | off | a ready pet stays down while Claude Code's own status says `busy` (a `!` command) | `holdWhileBusy` |
 | Accent inks | off: a chosen accent colors the dot, bubble and prompt bar only | the sprite's accent inks take the chosen accent too | `accentInks` |
 | Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
+| Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
@@ -739,6 +745,7 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "holdWhileBusy": true,
   "accentInks": true,
   "diveOnExit": true,
+  "subagentToolsKeepNeedsInput": true,
   "display": "primary"
 }
 ```
@@ -770,6 +777,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "Accent on the sprite".
 - `diveOnExit` is a boolean, default `false`: a daemon stopped by SIGTERM or SIGINT dives its pets
   before it exits, see "Emerge and dive". Read when the daemon starts, so a change needs a restart.
+- `subagentToolsKeepNeedsInput` is a boolean, default `false`: a `PreToolUse` from a subagent leaves a visible
+  `needsInput` pet up, see "`hook` dispatch".
 - `display` is `focused` (the default), `primary` or `name:<localizedName>`. `primary` is
   `NSScreen.screens.first`, the display with the menu bar, so it follows macOS when the primary changes.
   `name:` matches `NSScreen.localizedName` exactly and falls back to the primary display while no
@@ -780,7 +789,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
 
 ## Tests
 
-`swift test` runs `AgentPetTests`. The characterization tests run the built `agent-pet` binary in a
+`scripts/test.sh` runs `swift test` for `AgentPetTests`, adding the framework flags `swift test` needs on a
+machine with only the Command Line Tools, where Swift Testing is not on the default search path. The characterization tests run the built `agent-pet` binary in a
 temporary home (`HOME` and `CFFIXED_USER_HOME`, since `NSHomeDirectory` ignores `HOME`), with
 `TMUX_EXECUTABLE` pointing at a stub that records its arguments and a `daemon.pid` naming the test process,
 so no test reads or writes `~/.agent-pet` or `~/.claude`, calls `launchctl` or starts a daemon. The three
