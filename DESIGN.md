@@ -294,7 +294,9 @@ scanned transcript, and a `SubagentStart` or `SubagentStop` with an `agent_id` t
 subagent event without an `agent_id` is not idempotent, and is not deduplicated either: two same-type subagents
 send byte-identical `SubagentStart` payloads, so a duplicate cannot be told from a second subagent. It does not
 need to be. A doubled delivery adds two `unknown-<n>` ids and removes two, so the set ends where a single
-delivery leaves it.
+delivery leaves it. A test replays a whole session, every event above at least once, a `/clear` handover
+included, with each payload delivered once in one home and twice in another, and the records match after every
+step.
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
