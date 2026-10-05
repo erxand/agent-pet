@@ -30,7 +30,6 @@ enum SubagentIdentity {
     case unreported
 }
 
-/// Why a session's record is ending, from the `reason` of a `SessionEnd` payload.
 enum SessionEndReason: String {
     case clear
     case resume
@@ -38,7 +37,6 @@ enum SessionEndReason: String {
     case promptInputExit = "prompt_input_exit"
     case other
 
-    /// The process goes on under a new session id, which the `SessionStart` that follows hands the pet to.
     var continuesInSameProcess: Bool {
         switch self {
         case .clear, .resume:
@@ -76,9 +74,6 @@ package enum PetTurnState {
         }
     }
 
-    /// A prompt, or a tool call, means the session is working again. A tool call from a subagent
-    /// (`keepsNeedsInput`) leaves a `needsInput` pet up: another subagent may still be waiting on
-    /// a permission prompt, and nothing the first one does answers it.
     @discardableResult
     static func hideAndMarkWorking(sessionId: String, keepsNeedsInput: Bool = false) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -90,8 +85,6 @@ package enum PetTurnState {
         }
     }
 
-    /// The session sat at its prompt long enough for Claude Code to say so: whatever turn it was in
-    /// is over, even one an interrupt ended without a `Stop`. Never shows anything.
     @discardableResult
     static func markIdle(sessionId: String) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
@@ -116,14 +109,9 @@ package enum PetTurnState {
         }
     }
 
-    /// `SessionEnd`: the record goes, except when the same Claude process carries on under a new
-    /// session id (`/clear`, `/resume`). Then the pet dives and the record waits for the
-    /// `SessionStart` that hands it over (`PetSessionHandover`).
     @discardableResult
     static func end(sessionId: String, reason: SessionEndReason?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            // Only a record that names its process can be handed over (`PetSessionHandover`), so a
-            // record with no pid (the plain `/pet` flow) goes, as it always did.
             if reason?.continuesInSameProcess == true, var session = record, session.pid != nil {
                 session.handoverPendingSince = Date().timeIntervalSince1970
                 record = session

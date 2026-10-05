@@ -3,9 +3,6 @@ import Foundation
 enum TranscriptCompletionEvent: Equatable {
     case finished(String)
     case interim(String)
-    /// A named teammate went idle. It carries the teammate's name, not its agent id: the tracked id
-    /// of a teammate is `a<name>-<16 hex>`, see `TeammateAgentId`. `at` is when, in seconds since
-    /// 1970, from the notification's own timestamp, nil when it has none.
     case teammateIdle(String, at: TimeInterval?)
 
     var agentId: String {
@@ -16,7 +13,6 @@ enum TranscriptCompletionEvent: Equatable {
     }
 }
 
-/// A named teammate's agent id is `a`, its name, `-`, then 16 hex digits (`afixer-7-d035f68f1e116378`).
 enum TeammateAgentId {
     private static let prefix = "a"
     private static let separator = "-"
@@ -146,11 +142,6 @@ enum TranscriptCompletionScanner {
         return matches
     }
 
-    /// A teammate message whose payload is `{"type":"idle_notification","from":"NAME","timestamp":...}`,
-    /// inside the `<teammate-message teammate_id="NAME">` envelope Claude Code wraps it in, JSON-escaped
-    /// inside the transcript line or raw. A teammate whose turn failed (a usage limit) sends this and no
-    /// `SubagentStop`, so it is the one completion signal that always arrives. The envelope must name the
-    /// same teammate as the payload, so a file that only quotes a payload (a Read of a fixture) is not one.
     private static func teammateIdleMatches(in bytes: Data) -> [TranscriptCompletionMatch] {
         var matches: [TranscriptCompletionMatch] = []
         var searchStart = bytes.startIndex

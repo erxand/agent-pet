@@ -84,10 +84,6 @@ enum ExitCode {
     static let usage: Int32 = 2
 }
 
-/// The records `hide` and `remove` act on: `--session`, else every record whose
-/// `focusTarget` is `--focus-target` (what a terminal knows about a pane), else every record whose
-/// `pid` is `--pid` (what knows the process, after a `/clear` changed its session id), else
-/// `$CLAUDE_CODE_SESSION_ID`. Nil when none of them is given.
 enum RecordSelection {
     static func sessionIds(flags: ParsedFlags, store: PetSessionStore = PetSessionStore()) -> [String]? {
         if let explicit = flags.value(for: .session) { return [explicit] }

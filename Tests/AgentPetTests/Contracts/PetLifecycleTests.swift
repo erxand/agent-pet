@@ -164,8 +164,6 @@ struct PetLifecycleTests {
         #expect(sandbox.hookLogLines().isEmpty)
     }
 
-    /// A Claude started from another Claude's Bash tool (`claude -p --resume`, say) runs its hooks with
-    /// the parent Claude two levels up. The parent's pet stays the parent's.
     @Test(arguments: ["resume", "clear"])
     func aClaudeStartedFromAnotherClaudesShellNeverTakesTheParentsPet(source: String) throws {
         let sandbox = try Sandbox()
@@ -187,7 +185,6 @@ struct PetLifecycleTests {
         #expect(sandbox.exists(sandbox.recordURL("parent")))
     }
 
-    /// Claude Code's session file names the process, however far up the hook it sits.
     @Test func theSessionFileForTheNewIdNamesTheProcessThatTakesThePet() throws {
         let sandbox = try Sandbox()
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "before", extra: ["label": "Mine"]))
@@ -259,8 +256,6 @@ struct PetLifecycleTests {
         return "{\"type\":\"user\",\"message\":{\"content\":\"\(opening)\(payload)\"}}\n"
     }
 
-    /// The lead spawned a second `fixer` after the first one went idle. The first one's notice says
-    /// nothing about the second, which is still working.
     @Test func anEarlierTeammateOfTheSameNameGoingIdleLeavesANewOneWorking() throws {
         let sandbox = try Sandbox()
         let transcript = sandbox.home.appendingPathComponent("transcript.jsonl")
@@ -281,8 +276,6 @@ struct PetLifecycleTests {
         #expect(sandbox.activeSubagentIds(RecordFixtures.sessionId) == ["afixer-1111222233334444"])
     }
 
-    /// Only a real teammate message counts: a payload quoted with no envelope (a Read of a fixture), or
-    /// one whose envelope names somebody else, finishes nobody.
     @Test(arguments: [nil, "reviewer"] as [String?])
     func aQuotedIdleNotificationFinishesNobody(envelope: String?) throws {
         let sandbox = try Sandbox()

@@ -78,9 +78,6 @@ enum HookCommand {
         return ExitCode.success
     }
 
-    /// The one event that may act for a session with no record: a `/clear` or `/resume` gives the
-    /// running process a new session id, and the process's pet moves to it. Anything else, and a
-    /// process with no pet, ends here with nothing written, like every other unenrolled event.
     private static func handleSessionStart(payload: HookPayload, sessionId: String) -> Int32 {
         guard let rawSource = payload.source,
               let source = SessionStartSource(rawValue: rawSource),

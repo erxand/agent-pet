@@ -27,8 +27,6 @@ package struct PetSession: Codable, Equatable {
     package var nickname: String?
     package var label: String?
     package var accent: AccentColor?
-    /// True when `on` or `preview` filled `accent` from the sprite pack, false when a caller chose it
-    /// (`--accent`). Absent on records written before the flag existed.
     package var accentFromPack: Bool?
     package var mood: PetMood
     package var message: String?
@@ -41,8 +39,6 @@ package struct PetSession: Codable, Equatable {
     package var owner: Bool?
     package var enrolledAt: Double?
     package var busy: Bool?
-    /// When the session last started waiting on the user: every show stamps it, a hide removes it. The daemon
-    /// holds a pet back until the session has waited `settleSeconds`, see "Settling" in DESIGN.md.
     package var waitingSince: Double?
     package var handoverPendingSince: Double?
     package var activeSubagents: [TrackedSubagent]
@@ -74,9 +70,6 @@ package struct PetSession: Codable, Equatable {
         accent ?? AccentColor.derived(fromSessionId: sessionId)
     }
 
-    /// The accent the session chose for itself: `accent`, unless it was only filled from the pack.
-    /// A record from before `accentFromPack` existed had its accent filled from the pack whenever it
-    /// matches `packAccent` (the pack's own accent), so it keeps the pack's palette.
     package func chosenAccent(packAccent: AccentColor?) -> AccentColor? {
         switch accentFromPack {
         case true?:

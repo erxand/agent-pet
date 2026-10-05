@@ -17,8 +17,6 @@ package struct SpritePackLoader {
         let unknownAccentName: String?
         let accentInks: AccentInks?
 
-        /// The accent `on` fills for a session that gets this pack: the declared `accent`, else the
-        /// accent nearest the pack's dominant color.
         var ownAccent: AccentColor? {
             declaredAccent
                 ?? PackAccentResolver.dominantAccent(
@@ -189,8 +187,6 @@ package struct SpritePackLoader {
         let shade: String?
     }
 
-    /// `accentInks` counts only when `accent` is one character the palette holds. A `shade` that is not
-    /// one palette character is dropped, and the accent ink is still recolored.
     private static func parseAccentInks(
         _ rawInks: AccentInksManifest?,
         colorsByCharacter: [Character: NSColor]

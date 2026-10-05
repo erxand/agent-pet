@@ -9,15 +9,9 @@ package struct ClaudeSessionRecord: Codable {
     package let cwd: String?
     package let name: String?
     package let tmux: String?
-    /// Claude Code's own `busy`, `shell`, `idle` or `waiting`. Only `busy` is ever read, and only when it was
-    /// written after a given moment, because an older value is stale by definition.
     package var status: String? = nil
-    /// Milliseconds since 1970, when Claude Code last wrote `status`.
     package var statusUpdatedAt: Double? = nil
 
-    /// Claude Code wrote `busy` at or after `moment` (seconds since 1970): the session started working
-    /// again after that moment, with or without a hook to say so. A `!` command typed or queued in the
-    /// prompt fires no hook at all, and this is the only sign of it.
     package func wentBusy(since moment: TimeInterval) -> Bool {
         guard status == ClaudeSessionRecord.busyStatus, let statusUpdatedAt else { return false }
         return statusUpdatedAt / ClaudeSessionRecord.millisecondsPerSecond >= moment

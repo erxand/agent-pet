@@ -17,9 +17,6 @@ package enum LabelPlacement: String, Equatable {
 
 package struct AgentPetConfiguration: Equatable {
     package static let defaultSessionDirectoryPatterns = ["~/.claude/sessions"]
-    /// How long a session must stay waiting before its pet comes up. None by default, as upstream: a pet
-    /// comes up at once. A queued message is submitted about 0.1 s after the `Stop` that ends the turn
-    /// before it, so a config that wants that flash gone sets about one second.
     package static let defaultSettleSeconds: TimeInterval = 0
 
     package static let defaults = AgentPetConfiguration(
@@ -36,14 +33,8 @@ package struct AgentPetConfiguration: Equatable {
     package var reservedSprites: [String]
     package var spriteDirectories: [String]
     package var settleSeconds: TimeInterval
-    /// A ready pet stays down while Claude Code's own session file says the session went busy after the
-    /// pet's turn ended (a `!` command fires no hook). Off by default.
     package var holdsWhileBusy: Bool
-    /// A chosen accent (`--accent`) also paints the pack's accent inks in the sprite, not only the label
-    /// dot, the bubble and the prompt bar. Off by default.
     package var paintsAccentInks: Bool
-    /// A daemon stopped by SIGTERM or SIGINT dives its pets before it exits, instead of dropping them.
-    /// Read when the daemon starts. Off by default.
     package var divesOnExit: Bool
     package var subagentToolsKeepNeedsInput: Bool
     package var display: DisplayChoice

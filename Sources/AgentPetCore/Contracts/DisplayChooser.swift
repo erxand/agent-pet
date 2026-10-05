@@ -9,7 +9,6 @@ package enum DisplayChoice: Equatable {
     package static let primaryValue = "primary"
     package static let namePrefix = "name:"
 
-    /// `nil` for anything agent-pet does not understand, so the caller keeps the default.
     package init?(configValue: String) {
         switch configValue {
         case DisplayChoice.focusedValue:
@@ -25,8 +24,6 @@ package enum DisplayChoice: Equatable {
     }
 }
 
-/// The displays attached right now, in the order macOS lists them. The first is the primary
-/// display, the one with the menu bar in System Settings.
 package struct AttachedDisplays: Equatable {
     package let names: [String]
     package let focusedIndex: Int?
@@ -38,7 +35,6 @@ package struct AttachedDisplays: Equatable {
 }
 
 package protocol DisplayChooser {
-    /// The index into `displays.names` the pets live on, or `nil` when no display is attached.
     func chosenIndex(among displays: AttachedDisplays) -> Int?
 }
 
@@ -48,7 +44,6 @@ private func primaryIndex(of displays: AttachedDisplays) -> Int? {
     displays.names.isEmpty ? nil : primaryDisplayIndex
 }
 
-/// Today's behavior: the display holding the window with keyboard focus, else the primary one.
 package struct FocusedDisplayChooser: DisplayChooser {
     package init() {}
 
@@ -68,7 +63,6 @@ package struct PrimaryDisplayChooser: DisplayChooser {
     }
 }
 
-/// One display by its macOS name, and the primary display while that one is not attached.
 package struct NamedDisplayChooser: DisplayChooser {
     package let displayName: String
 

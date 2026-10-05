@@ -103,8 +103,6 @@ struct SpriteAccentTintTests {
         #expect(registry.sheet(forPackNamed: "mossling", chosenAccent: chosenRed.chosenAccent(packAccent: packAccent)).tint == .red)
     }
 
-    /// A record written before `accentFromPack` existed carries the accent `on` copied from its pack and
-    /// no flag. It keeps the pack's palette; one whose accent differs from the pack's was chosen.
     @Test func aRecordFromBeforeTheFlagKeepsThePacksPalette() throws {
         let sandbox = try Sandbox()
         try sandbox.installPack("golem")

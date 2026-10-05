@@ -33,8 +33,6 @@ package struct PetDisplayPlanner {
         self.holdsWhileBusy = holdsWhileBusy
     }
 
-    /// `shownPetKeys` are the pets already up (not diving): the settle delay only holds a pet back from
-    /// coming up, it never takes one down that is already showing.
     package func displayItems(
         records: [PetSession],
         claudeSessions: [String: ClaudeSessionRecord],
@@ -59,8 +57,6 @@ package struct PetDisplayPlanner {
         return disambiguatesLabels ? PetDisplayPlanner.disambiguated(items) : items
     }
 
-    /// The earliest moment a pet the settle delay is holding back becomes due, so the daemon plans again then
-    /// even when no file changed. `nil` when nothing is settling.
     package func nextSettleDeadline(records: [PetSession], now: TimeInterval = Date().timeIntervalSince1970) -> TimeInterval? {
         records
             .compactMap { record -> TimeInterval? in
