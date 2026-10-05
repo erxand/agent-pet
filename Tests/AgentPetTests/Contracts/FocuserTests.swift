@@ -136,4 +136,19 @@ struct FocuserTests {
         #expect(Date().timeIntervalSince(started) < 3)
         #expect(reports == ["focus command /bin/sleep timed out after 0.3 s and was terminated"])
     }
+
+    @Test func commandFocuserKillsACommandThatIgnoresTermination() {
+        var reports: [String] = []
+        let started = Date()
+        CommandFocuser(
+            arguments: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.05; done"],
+            timeoutInSeconds: 0.3,
+            waitsForCompletion: true
+        ) { line in
+            reports.append(line)
+        }.focus(request())
+
+        #expect(Date().timeIntervalSince(started) < 4)
+        #expect(reports == ["focus command /bin/sh timed out after 0.3 s and was killed"])
+    }
 }

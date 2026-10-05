@@ -1,9 +1,16 @@
 import Foundation
 
 package struct CommandFocuser: Focuser {
+    private enum TimeoutOutcome: String {
+        case terminated
+        case killed
+    }
+
     package static let defaultTimeoutInSeconds: TimeInterval = 5
 
     private static let pollIntervalInSeconds: TimeInterval = 0.02
+    private static let terminationGraceInSeconds: TimeInterval = 1
+    private static let secondsFormat = "%g"
     private static let missingValue = ""
 
     private let arguments: [String]
@@ -77,20 +84,32 @@ package struct CommandFocuser: Focuser {
         timeoutInSeconds: TimeInterval,
         report: (String) -> Void
     ) {
-        let deadline = Date().addingTimeInterval(timeoutInSeconds)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: pollIntervalInSeconds)
-        }
+        waitForExit(of: process, upTo: timeoutInSeconds)
         if process.isRunning {
             process.terminate()
-            report("focus command \(executablePath) timed out after \(formattedSeconds(timeoutInSeconds)) s and was terminated")
+            waitForExit(of: process, upTo: terminationGraceInSeconds)
+            let outcome: TimeoutOutcome
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                outcome = .killed
+            } else {
+                outcome = .terminated
+            }
+            report("focus command \(executablePath) timed out after \(formattedSeconds(timeoutInSeconds)) s and was \(outcome.rawValue)")
             return
         }
         guard process.terminationStatus != ExitCode.success else { return }
         report("focus command \(executablePath) exited \(process.terminationStatus)")
     }
 
+    private static func waitForExit(of process: Process, upTo seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: pollIntervalInSeconds)
+        }
+    }
+
     private static func formattedSeconds(_ seconds: TimeInterval) -> String {
-        String(format: "%g", seconds)
+        String(format: secondsFormat, seconds)
     }
 }

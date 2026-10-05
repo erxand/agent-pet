@@ -38,31 +38,18 @@ package struct SpritePackLoader {
     private let homeDirectory: URL
     private let fileManager = FileManager.default
 
-    /// `packsDirectory` is `~/.agent-pet/sprites`. `extraDirectoryPaths` are the config's
-    /// `spriteDirectories`, searched after it in order; the first folder that holds a pack name wins.
     package init(
         packsDirectory: URL = PetPaths.spritesDirectory,
-        extraDirectoryPaths: [String] = ConfigurationFile.load().spriteDirectories,
+        extraDirectoryPaths: [String]? = nil,
         homeDirectory: URL = PetPaths.homeDirectory
     ) {
         self.packsDirectory = packsDirectory
-        self.extraDirectoryPaths = extraDirectoryPaths
+        self.extraDirectoryPaths = extraDirectoryPaths ?? ConfigurationFile.load().spriteDirectories
         self.homeDirectory = homeDirectory
     }
 
     package func availablePackNames() -> [String] {
         scan().directoryByPackName.keys.sorted()
-    }
-
-    /// Every loadable pack name and the folder it is read from, after the clash rule.
-    package func packDirectoriesByName() -> [String: URL] {
-        scan().directoryByPackName
-    }
-
-    /// Problems with the extra folders: a folder that is missing or unreadable, and a pack name that
-    /// an earlier folder already holds. Each is one log line; the caller decides how often to say it.
-    package func directoryIssues() -> [String] {
-        scan().issues
     }
 
     package func directory(forPackNamed packName: String) -> URL {
@@ -79,12 +66,12 @@ package struct SpritePackLoader {
         return attributes?[.modificationDate] as? Date
     }
 
-    private struct Scan {
-        var directoryByPackName: [String: URL] = [:]
-        var issues: [String] = []
+    package struct Scan {
+        package var directoryByPackName: [String: URL] = [:]
+        package var issues: [String] = []
     }
 
-    private func scan(lookingFor wantedPackName: String? = nil) -> Scan {
+    package func scan(lookingFor wantedPackName: String? = nil) -> Scan {
         var result = Scan()
         var seenRootPaths: Set<String> = []
         for (rootIndex, root) in searchRoots().enumerated() {
@@ -133,7 +120,10 @@ package struct SpritePackLoader {
     }
 
     package func load(packNamed packName: String) -> LoadOutcome {
-        let packDirectory = directory(forPackNamed: packName)
+        load(packDirectory: directory(forPackNamed: packName))
+    }
+
+    package func load(packDirectory: URL) -> LoadOutcome {
         guard let manifestData = try? Data(contentsOf: packDirectory.appendingPathComponent(SpritePackLoader.manifestFileName)) else {
             return .failed(reason: "missing \(SpritePackLoader.manifestFileName)")
         }

@@ -69,10 +69,11 @@ package final class SpritePackRegistry {
     /// loader when the configuration changed, so new `spriteDirectories` take effect at once.
     package func reloadChangedPacks(using replacementLoader: SpritePackLoader? = nil) -> Bool {
         if let replacementLoader { loader = replacementLoader }
-        reportNewDirectoryIssues()
+        let scan = loader.scan()
+        reportNewDirectoryIssues(scan.issues)
         var anythingChanged = false
         var seenPackNames: Set<String> = []
-        for (packName, packDirectory) in loader.packDirectoriesByName() {
+        for (packName, packDirectory) in scan.directoryByPackName {
             seenPackNames.insert(packName)
             let currentState = PackDirectoryState(
                 path: packDirectory.standardizedFileURL.path,
@@ -80,7 +81,7 @@ package final class SpritePackRegistry {
             )
             if packDirectoryStateByPackName[packName] == currentState { continue }
             packDirectoryStateByPackName[packName] = currentState
-            applyOutcome(loader.load(packNamed: packName), packName: packName)
+            applyOutcome(loader.load(packDirectory: packDirectory), packName: packName)
             anythingChanged = true
         }
         for knownPackName in Set(sheetsByPackName.keys).union(packDirectoryStateByPackName.keys)
@@ -92,8 +93,7 @@ package final class SpritePackRegistry {
         return anythingChanged
     }
 
-    private func reportNewDirectoryIssues() {
-        let currentIssues = loader.directoryIssues()
+    private func reportNewDirectoryIssues(_ currentIssues: [String]) {
         for issue in currentIssues where !reportedDirectoryIssues.contains(issue) {
             reportFailure(issue)
         }

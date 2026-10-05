@@ -186,11 +186,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         // A Claude session file changes when its label does, and also when its status does: a `!`
         // command that makes a settling session busy again has to be seen at once, so it re-plans too.
         if petSessionsChanged || claudeSessionsChanged || settleDue {
-            applyRecords(store.list())
+            applyRecords(store.list(), claudeSessions: contracts.sessionSource.recordsBySessionId(in: claudeSessionsSignature))
         }
     }
 
-    private func applyRecords(_ records: [PetSession]) {
+    private func applyRecords(_ records: [PetSession], claudeSessions: [String: ClaudeSessionRecord]) {
         let now = Date().timeIntervalSince1970
         let planner = contracts.displayPlanner
         let shownPetKeys = Set(presencesBySessionId.compactMap { petKey, presence in
@@ -198,7 +198,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         })
         let items = planner.displayItems(
             records: records,
-            claudeSessions: contracts.sessionSource.recordsBySessionId(),
+            claudeSessions: claudeSessions,
             now: now,
             shownPetKeys: shownPetKeys
         )

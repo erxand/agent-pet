@@ -3,6 +3,13 @@ import Foundation
 package protocol SessionSource {
     func recordsBySessionId() -> [String: ClaudeSessionRecord]
     func signature() -> SessionSourceSignature
+    func recordsBySessionId(in signature: SessionSourceSignature) -> [String: ClaudeSessionRecord]
+}
+
+extension SessionSource {
+    package func recordsBySessionId(in signature: SessionSourceSignature) -> [String: ClaudeSessionRecord] {
+        recordsBySessionId()
+    }
 }
 
 package struct SessionSourceSignature: Equatable {
@@ -32,8 +39,16 @@ package struct DirectorySessionSource: SessionSource {
     }
 
     package func recordsBySessionId() -> [String: ClaudeSessionRecord] {
+        records(in: directories())
+    }
+
+    package func recordsBySessionId(in signature: SessionSourceSignature) -> [String: ClaudeSessionRecord] {
+        records(in: signature.directories)
+    }
+
+    private func records(in directories: [URL]) -> [String: ClaudeSessionRecord] {
         var merged: [String: ClaudeSessionRecord] = [:]
-        for directory in directories() {
+        for directory in directories {
             for (sessionId, record) in ClaudeSessionDirectory(directory: directory).recordsBySessionId()
             where merged[sessionId] == nil {
                 merged[sessionId] = record
