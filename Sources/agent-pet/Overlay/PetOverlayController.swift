@@ -25,6 +25,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var nextSettleDeadline: TimeInterval?
     private var lastAnimationTimestamp = Date()
     private var timers: [Timer] = []
+    private var displayChangeObserver: NSObjectProtocol?
+    private var homeScreenFrame: CGRect?
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
@@ -34,6 +36,36 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         lastConfigurationModification = ConfigurationFile.modificationDate(of: configurationFile)
         reconcile(forceReload: true)
         scheduleTimers()
+        observeDisplayChanges()
+    }
+
+    private func observeDisplayChanges() {
+        displayChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.displaysDidChange()
+        }
+    }
+
+    /// A display was attached, removed, rearranged or resized, or the primary display changed.
+    /// Every pet, a diving one included, moves to the chosen display at the same lane fraction,
+    /// with its animation left running, so none is left on a display that went away. The
+    /// `focused` default keeps upstream's behavior and does nothing here.
+    private func displaysDidChange() {
+        guard contracts.configuration.display != .focused else { return }
+        let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
+        let oldFrame = homeScreenFrame ?? screenFrames.visibleFrame
+        homeScreenFrame = screenFrames.visibleFrame
+        for presence in presencesBySessionId.values {
+            presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
+                presence.homeHorizontalCenter,
+                from: oldFrame,
+                to: screenFrames.visibleFrame
+            )
+            applyGeometry(to: presence, screenFrames: screenFrames)
+        }
     }
 
     /// Dives every pet, then calls `completion` once they are all under (or at
@@ -165,7 +197,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             beginDive(sessionId: petKey)
         }
 
-        let screenFrames = OverlayScreenFrames.current()
+        let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
+        homeScreenFrame = screenFrames.visibleFrame
         for (laneIndex, item) in items.enumerated() {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
@@ -259,7 +292,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             return
         }
 
-        let screenFrames = OverlayScreenFrames.current()
+        let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         var submergedSessionIds: [String] = []
         for presence in presencesBySessionId.values {
             presence.animator.advance(elapsedSeconds: elapsedSeconds, mood: presence.view.petAppearance.mood)
@@ -269,10 +302,12 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             }
             renderSprite(for: presence)
             // A diving pet stays where it is. Nothing moves it sideways during
-            // a dive, and re-placing it would follow NSScreen.main, which moves
-            // to whichever display has keyboard focus: focusing a terminal on
-            // another display (one of the things that hides a pet) would carry
-            // the pet there to dive, so it vanished from the one being watched.
+            // a dive, and with the `focused` display re-placing it would follow
+            // NSScreen.main, which moves to whichever display has keyboard focus:
+            // focusing a terminal on another display (one of the things that
+            // hides a pet) would carry the pet there to dive, so it vanished
+            // from the one being watched. Under the other `display`
+            // values a display change re-places it anyway.
             guard !presence.animator.isDiving else { continue }
             applyGeometry(to: presence, screenFrames: screenFrames)
         }

@@ -86,7 +86,8 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "disambiguateLabels": true,
   "reservedSprites": ["claude"],
   "spriteDirectories": ["~/Library/Mobile Documents/com~apple~CloudDocs/pets"],
-  "settleSeconds": 1
+  "settleSeconds": 1,
+  "display": "primary"
 }
 ```
 
@@ -100,8 +101,13 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
 | `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
 | `settleSeconds` | `1` | how long a session must stay waiting before its pet comes up, so a queued message or `!` command that starts right after Claude finishes never flashes a pet. `0` shows at once |
+| `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
-The daemon rereads the file when it changes, so there is nothing to restart.
+The daemon rereads the file when it changes, so there is nothing to restart. With `primary` or
+`name:`, the pets also move when a display is attached, removed or rearranged, keep their lanes and
+their animation, and are never left on a display that went away. `primary` may be the better
+default; it is left as `focused` so that no config keeps the behavior from before, and the choice is
+the maintainer's.
 
 A `command` focuser gets the session in its environment: `AGENT_PET_SESSION_ID`, `AGENT_PET_PID`,
 `AGENT_PET_FOCUS_TARGET`, `AGENT_PET_GROUP` and `AGENT_PET_AGENT`. Its first entry must be an

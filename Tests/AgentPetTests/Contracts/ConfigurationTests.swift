@@ -21,6 +21,7 @@ struct ConfigurationTests {
         #expect(AgentPetConfiguration.defaults.labelPlacement == .pill)
         #expect(AgentPetConfiguration.defaults.disambiguatesLabels == false)
         #expect(AgentPetConfiguration.defaults.reservedSprites.isEmpty)
+        #expect(AgentPetConfiguration.defaults.display == .focused)
     }
 
     @Test func anEmptyObjectUnreadableJsonAndUnknownKeysAreTheDefaults() {
@@ -28,6 +29,8 @@ struct ConfigurationTests {
         #expect(parse("not json") == .defaults)
         #expect(parse("[1, 2]") == .defaults)
         #expect(parse(#"{"somethingNew":{"a":1},"labelPlacement":"sideways"}"#) == .defaults)
+        #expect(parse(#"{"display":"sideways"}"#) == .defaults)
+        #expect(parse(#"{"display":"focused"}"#) == .defaults)
     }
 
     @Test func everyKeyIsRead() {
@@ -38,9 +41,11 @@ struct ConfigurationTests {
           "colorSync": "none",
           "labelPlacement": "nametag",
           "disambiguateLabels": true,
-          "reservedSprites": ["claude", 4, ""]
+          "reservedSprites": ["claude", 4, ""],
+          "display": "primary"
         }
         """)
+        #expect(configuration.display == .primary)
         #expect(configuration.labelPlacement == .nametag)
         #expect(configuration.disambiguatesLabels == true)
         #expect(configuration.reservedSprites == ["claude"])
@@ -57,9 +62,11 @@ struct ConfigurationTests {
           "colorSync": "rainbow",
           "labelPlacement": "sideways",
           "disambiguateLabels": "yes",
-          "reservedSprites": "claude"
+          "reservedSprites": "claude",
+          "display": ["primary"]
         }
         """)
+        #expect(configuration.display == .focused)
         #expect(configuration.labelPlacement == .pill)
         #expect(configuration.disambiguatesLabels == false)
         #expect(configuration.reservedSprites.isEmpty)
@@ -88,6 +95,7 @@ struct ConfigurationTests {
         #expect(contracts.spriteStrategy is LeastUsedSpriteStrategy)
         #expect(contracts.grouping is SharedKeyGrouping)
         #expect(contracts.sessionSource is DirectorySessionSource)
+        #expect(contracts.displayChooser is FocusedDisplayChooser)
 
         let home = try TemporaryDirectory()
         let source = DirectorySessionSource(patterns: AgentPetConfiguration.defaults.sessionDirectoryPatterns, homeDirectory: home.url)
