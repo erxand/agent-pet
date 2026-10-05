@@ -47,22 +47,99 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Five commands are useful from any shell:
+Seven commands are useful from any shell:
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
-  enabled, visible, mood, running subagent count, alive) and the daemon's pid.
+  enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
+  the same as JSON, plus each session's agent, pid and focus target.
 - `agent-pet preview` shows a fake pet for 20 seconds, so you can check the overlay without
   enrolling a real session. It picks a sprite the same way `on` does; add `--sprite <name>` to
   see a specific one.
 - `agent-pet focus [--session ID]` runs exactly what a click runs. It exits 2 when the session
-  has no record or no tmux pane. Add `--no-client-switch` to select the window and pane and
+  has no record, or has no tmux pane while the default focuser is in use. Add `--no-client-switch` to select the window and pane and
   leave every attached client where it is.
 - `agent-pet clear-subagents [--session ID]` forgets every subagent the session counts as
   running and prints how many it dropped. It exits 2 when the session has no record.
+- `agent-pet render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` draws a sprite in the
+  terminal with truecolor half blocks, two pixel rows per line, so a picker can show the pets without
+  the overlay. `--accent` shows the pet as a session that chose that color would see it.
+- `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
+  them, and how many live pets use each.
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+
+## Configuration
+
+With no config file, agent-pet behaves exactly as described above. To change how it focuses a
+session, where it looks for Claude Code sessions, or whether it touches the prompt bar, write
+`~/.agent-pet/config.json` (or point `AGENT_PET_CONFIG` at another file). Every key is optional,
+and a missing key, an unknown key or a value agent-pet does not understand means the default:
+
+```json
+{
+  "focuser": { "kind": "command", "command": ["/Users/me/bin/focus-my-session"] },
+  "sessionDirectories": ["~/.claude/sessions", "~/.claude-*/sessions"],
+  "colorSync": "none",
+  "labelPlacement": "nametag",
+  "disambiguateLabels": true,
+  "reservedSprites": ["claude"],
+  "spriteDirectories": ["~/Library/Mobile Documents/com~apple~CloudDocs/pets"],
+  "settleSeconds": 1,
+  "holdWhileBusy": true,
+  "accentInks": true,
+  "diveOnExit": true,
+  "subagentToolsKeepNeedsInput": true,
+  "display": "primary"
+}
+```
+
+| key | default | what it does |
+|---|---|---|
+| `focuser` | `{"kind": "tmux-iterm"}` | what a click runs. `tmux-iterm` is the tmux and iTerm2 focus described below. `command` runs your own program instead |
+| `sessionDirectories` | `["~/.claude/sessions"]` | where Claude Code session files are read for labels and liveness. `~` and `*` expand, so `~/.claude-*/sessions` covers every extra Claude config root |
+| `colorSync` | `"tmux-color"` | `none` stops agent-pet from typing `/color` into the session's pane |
+| `labelPlacement` | `"pill"` | `nametag` puts the label over the pet's head on a dark tag in a pixel font, readable on any desktop |
+| `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id |
+| `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
+| `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
+| `settleSeconds` | `0` | how long a session must stay waiting before its pet comes up, so a queued message that starts right after Claude finishes never flashes a pet. About `1` covers it. `0` shows at once |
+| `holdWhileBusy` | `false` | `true` keeps a pet down while Claude Code says the session is busy again after its turn ended, such as during a `!` command, which fires no hook |
+| `accentInks` | `false` | `true` lets a color you choose (`/pet <nickname> <color>`, `--accent`) paint part of the creature too, not only the label dot, the bubble and the prompt bar |
+| `diveOnExit` | `false` | `true` makes a stopping daemon (a launchd restart, Ctrl-C) dive its pets before it exits instead of dropping them. Read when the daemon starts |
+| `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
+| `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
+
+The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
+`name:`, the pets also move when a display is attached, removed or rearranged, keep their lanes and
+their animation, and are never left on a display that went away. `primary` may be the better
+default; it is left as `focused` so that no config keeps the behavior from before, and the choice is
+the maintainer's.
+
+A `command` focuser gets the session in its environment: `AGENT_PET_SESSION_ID`, `AGENT_PET_PID`,
+`AGENT_PET_FOCUS_TARGET`, `AGENT_PET_GROUP` and `AGENT_PET_AGENT`. Its first entry must be an
+absolute path. It runs with no input, and agent-pet stops it after 5 seconds. `AGENT_PET_FOCUS_TARGET`
+is whatever you stored with `agent-pet on --focus-target TEXT`, which agent-pet keeps but never reads,
+so a terminal other than iTerm2 can stash its own pane id there.
+
+`agent-pet on --session ID` works from any shell, so a launcher can enroll a session it is about to
+start. Running `on` again for a session that is already enrolled updates it in place: it keeps the
+sprite, the accent, the focus target and the subagents it is tracking.
+
+Several sessions can share one pet. `agent-pet on --session ID --group KEY` puts a session in the pet
+named KEY, and `--owner` makes it the pet's owner, whose label, sprite and accent the pet wears. With
+no owner flagged, the first member to join owns it. The pet shows `!` at once when any member needs
+input. It shows ready only when every member is done: while one of them is still working, or still has
+subagents running, the others' ready waits. A member you dismissed counts as done. When the group has several members, the bubble names the one that is
+waiting, a click jumps to it (or to the owner when none is), and the pet hides for all of them. A new
+member takes the owner's sprite, and `status --json` reports each session's `group` and whether it is
+the `owner`.
+
+The hooks are also safe to install for every session in Claude Code's `settings.json`, instead of or
+beside the `/pet` skill. For a session that never enrolled, `agent-pet hook` exits in a few
+milliseconds and writes nothing, and when both sets of hooks fire for the same event, the event
+counts once.
 
 ## How it works
 
@@ -82,7 +159,7 @@ Claude Code events:
 | event | what agent-pet does |
 |---|---|
 | `Stop` | read finished subagents from the transcript and drop stale ones, then show the pet (mood `ready`, with the first line of the last assistant message as its status text) if no background subagents are left, or keep it hidden if any are still running |
-| `Notification` of type `permission_prompt` or `agent_needs_input` | show the pet, mood `needsInput`, whatever the subagents are doing |
+| `Notification` of type `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `elicitation_dialog` or `elicitation_url_dialog` | show the pet, mood `needsInput`, whatever the subagents are doing |
 | `SubagentStart` | record that subagent as running, and hide the pet |
 | `SubagentStop` | record that subagent as finished, and show or hide nothing |
 | `UserPromptSubmit` | hide the pet, and nothing else. A new prompt does not end a running subagent |
@@ -147,7 +224,11 @@ critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl` and `wall
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
-yours. `/pet <nickname> <color>` overrides it.
+yours. `/pet <nickname> <color>` overrides it. With `"accentInks": true` in the config, a color you
+choose this way also paints the pet: every shipped pack but `claude` and `walle` hands one part of the creature to the accent (golem's chest gem,
+hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie), so
+sessions that share a creature still look different. A session that only took its pack's color
+keeps the pack's own look.
 
 | pack      | accent |
 |-----------|--------|
@@ -184,8 +265,8 @@ and `/pet off` resets it to `default`. Pass `--no-color-sync` to `agent-pet on` 
 `agent-pet off` to skip that. agent-pet never syncs a pi session, because pi has no prompt bar
 color.
 
-**Label**, shown under the sprite on a dark pill: your nickname, or the session's own name, or
-the basename of its working directory.
+**Label**, shown under the sprite on a dark pill (or over its head, with `labelPlacement`
+`nametag`): your nickname, or the session's own name, or the basename of its working directory.
 
 **Lane**: the daemon sorts visible pets by last update time and spreads them evenly across the
 screen width. Each pet wanders near its own spot, so two pets never overlap.
@@ -196,13 +277,14 @@ A sprite pack is a directory of plain text, so you can draw a new pet in any edi
 sprites/README.md for the full rules.
 
 ```
-<pack-name>/pack.json                    name, frameSize, optional accent, and a character-to-hex palette
+<pack-name>/pack.json                    name, frameSize, optional accent and accentInks, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
 ```
 
-Every color in a pack is fixed by its palette; the session accent never touches the sprite.
-The optional `accent` field in `pack.json` names one of the eight accent colors, and every
+Every color in a pack comes from its palette, except the inks named in the optional `accentInks`
+field (`{"accent":"A","shade":"a"}`): when the config turns `accentInks` on and a session chose
+its accent, those pixels are painted in it and in a darker shade of it. The optional `accent` field in `pack.json` names one of the eight accent colors, and every
 session that gets the pack uses it for the label dot, the mood bubble and the prompt bar.
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on
@@ -210,6 +292,11 @@ each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling
 `seon`, `tinowl` or `walle` are overwritten. To customize a shipped pack, copy it under a new name and
 edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
 random pool, so dropping a new directory in is all it takes to add a pet.
+
+To keep packs somewhere else (prototypes, your own creatures, a folder synced through iCloud
+Drive), name the folder in `spriteDirectories` in the config. Its packs count as installed
+everywhere, and a pack added there later is picked up without a restart. When two folders hold
+a pack with the same name, `~/.agent-pet/sprites/` wins, then the folders in the order listed.
 
 ## Troubleshooting
 
@@ -255,6 +342,7 @@ and stops the daemon if it is still running. It leaves `~/.agent-pet` in place a
   sessions/<session_id>.json   one record per enrolled session
   sessions/<session_id>.lock   the lock that keeps two writers off one record
   sprites/<pack>/              installed sprite packs
+  config.json                  optional settings, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon output
   hooks.log                    one line per handled hook event
@@ -262,6 +350,15 @@ and stops the daemon if it is still running. It leaves `~/.agent-pet` in place a
 
 Delete a session's record, or run `/pet off` in that session, to remove its pet.
 
+## Development
+
+`swift build`, and `scripts/test.sh` for the tests. The script runs `swift test` with the framework
+flags that a machine with only the Command Line Tools needs: there, a plain `swift test` fails with
+`no such module 'Testing'`. Extra arguments go through to `swift test`. The tests run the binary in a
+temporary home with a stub tmux, so they never touch your `~/.agent-pet`, your Claude Code sessions or
+the running daemon.
+
 ## Design notes
 
-DESIGN.md is the contract: state shape, concurrency, daemon lifecycle, overlay and sprites.
+DESIGN.md is the contract: state shape, concurrency, daemon lifecycle, overlay, sprites, contracts
+and configuration.
