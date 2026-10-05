@@ -298,7 +298,7 @@ from a second subagent. It does not need to be. A doubled delivery adds two `unk
 the set ends where a single delivery leaves it, and the pet shows and hides at the same steps. `HookIdempotencyTests`
 replays a whole session (every event and notification type above, a transcript completion, a `/clear` handover
 and every `SessionEnd` kind) with each payload delivered once in one home and twice in another, with no config and
-with a group, `holdWhileBusy`, `subagentToolsKeepNeedsInput` and `settleSeconds` on, and the records match after
+with two sessions in one group (one the owner) and `holdWhileBusy`, `settleSeconds`, `subagentToolsKeepNeedsInput`, `accentInks` and `diveOnExit` on, and the records match after
 every step.
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has

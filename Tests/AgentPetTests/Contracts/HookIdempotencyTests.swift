@@ -100,11 +100,11 @@ struct HookIdempotencyTests {
 extension HookIdempotencyTests {
     static let configurations: [String?] = [
         nil,
-        #"{"holdWhileBusy":true,"subagentToolsKeepNeedsInput":true,"settleSeconds":1}"#
+        #"{"holdWhileBusy":true,"settleSeconds":1,"subagentToolsKeepNeedsInput":true,"accentInks":true,"diveOnExit":true}"#
     ]
     private static let groupFields: [String: Any] = ["group": "win:abc", "owner": true, "enrolledAt": 2]
     private static let groupMateSessionId = "group-mate"
-    private static let deadProcessIdentifier = 999_999
+    private static let groupMateProcessIdentifier = 1
     private static let subagentToolStepIndex = 5
     private static let newSessionId = "99999999-8888-7777-6666-555555555555"
     private static let presenceOnlyKeys: Set<String> = [
@@ -134,7 +134,7 @@ extension HookIdempotencyTests {
                 extra.merge(HookIdempotencyTests.groupFields) { _, groupValue in groupValue }
                 try sandbox.writeRecord(RecordFixtures.enrolled(
                     sessionId: HookIdempotencyTests.groupMateSessionId,
-                    extra: ["group": "win:abc", "enrolledAt": 1, "pid": HookIdempotencyTests.deadProcessIdentifier]
+                    extra: ["group": "win:abc", "enrolledAt": 1, "pid": HookIdempotencyTests.groupMateProcessIdentifier]
                 ))
             }
             try sandbox.writeRecord(RecordFixtures.enrolled(extra: extra))
@@ -230,7 +230,9 @@ extension HookIdempotencyTests {
         }
         #expect(moodsSeen == ["ready", "needsInput"])
         #expect(handedOver)
-        #expect(try single.petState().keys.allSatisfy { sessionId in sessionId == HookIdempotencyTests.groupMateSessionId })
+        let remaining = try single.petState()
+        #expect(remaining.keys.allSatisfy { sessionId in sessionId == HookIdempotencyTests.groupMateSessionId })
+        #expect((remaining[HookIdempotencyTests.groupMateSessionId] != nil) == (configuration != nil))
     }
 
     @Test(arguments: configurations)
