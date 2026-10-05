@@ -75,6 +75,21 @@ package enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportUnknownScene(_ sceneName: String) -> Int32 {
+        writeToStandardError("unknown scene \(sceneName). Valid values: \(joined(DemoSceneName.allCases.map { name in name.rawValue })).")
+        return ExitCode.usage
+    }
+
+    static func reportInvalidSpeed(_ rawValue: String) -> Int32 {
+        writeToStandardError("\(CommandFlag.speed.rawValue) must be a number above 0, not \(rawValue).")
+        return ExitCode.usage
+    }
+
+    static func reportDemoUnavailable() -> Int32 {
+        writeToStandardError("the demo needs the overlay. This build of the command line does not have it.")
+        return ExitCode.usage
+    }
+
     static func reportUsage() -> Int32 {
         writeToStandardError(usageText)
         return ExitCode.usage
@@ -107,6 +122,7 @@ package enum CommandFeedback {
       scan-transcript  diagnostic: print every subagent completion found in a transcript file
       render           print a sprite pack frame to the terminal in truecolor half blocks
       packs            list installed sprite packs with accent, reserved, and live pet count
+      demo             play a short tour on the desktop. It changes no session.
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

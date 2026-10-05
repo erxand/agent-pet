@@ -47,7 +47,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Seven commands are useful from any shell:
+Seven commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
   enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
@@ -69,6 +69,48 @@ Seven commands are useful from any shell:
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+
+## Demo
+
+`agent-pet demo` plays a short tour on your desktop. The title card stays for about 6 seconds. Each
+next scene plays, then waits until you press the space bar. A caption at the bottom of the screen tells
+you what each scene shows:
+
+- The states of a pet that you see, side by side, each with a label. A pet climbs out of the ground and
+  walks when its agent finishes a turn. It stands still under a `!` bubble when its agent needs your
+  input. A working agent has no pet.
+- A click on a pet brings the terminal tab of its session to the front. The demo shows this: a drawn
+  pixel cursor moves to a pet and clicks it, the pet dives, and a drawn picture of a Claude Code session appears. The
+  cursor and the terminal are only pictures. The demo does not move your mouse pointer, and it does not
+  open a real terminal, and it posts no system events. The demo pets have no session and ignore the
+  mouse. They stand on a row above your real pets, so they never cover one.
+
+The last card, "Configure things to your system", names some of what you can change: labels,
+sprites, colors, how a click focuses, and more. See [Configuration](#configuration).
+
+Press space for the next scene. Space also skips the title card. Press esc to quit. The demo takes
+the keyboard focus when it starts, so these keys do not go to another app. When the demo ends, it gives
+the focus back to the app that had it before. If you click another app during the tour, the demo waits
+and does not take the focus back. The caption then says "click here, then press space". Click any
+demo panel (a caption, a title card or the terminal) to give the keys back to the demo. This click does
+not go to the next scene. Ctrl-C in the terminal or SIGTERM also closes all demo windows and
+stops the demo.
+
+The demo runs in its own process with a cast that exists only in memory. It writes no session record.
+It does not start the daemon or send it data. It does not focus a session or type into a pane. Thus you
+can run it next to real pets. It uses your installed packs, the folders in `spriteDirectories` and the
+display your `display` setting picks. When it runs from a checkout, it also uses the `sprites/` directory
+of the repo.
+
+| form | effect |
+|---|---|
+| `agent-pet demo` | play all scenes. Each scene after the title waits for the space bar |
+| `agent-pet demo --auto` | play all scenes on a timer, about 26 seconds, with no keys needed |
+| `agent-pet demo --scene NAME` | play one scene. `--list` shows the names |
+| `agent-pet demo --list` | print each scene with its length, `auto` or `space`, and its caption |
+| `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
+| `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
+| `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the states scene and the terminal reveal to DIR |
 
 ## Configuration
 
