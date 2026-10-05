@@ -288,15 +288,18 @@ enrolled and goes through the table below.
 | `SessionStart` with `source` `clear` or `resume` | the one event that may act for a session with no record: the record whose `pid` is the process of the new session id moves to that id, keeping its identity (label, sprite, accent, group, owner, focus target, pid) and starting its turn state fresh. The process is the `pid` in Claude Code's own session file for the new session id (any `sessionDirectories`), and, until Claude Code has written that file, the hook's parent, since Claude Code runs a hook as its child. No other ancestor counts: a Claude started from another Claude's Bash tool (`claude -p --resume`, say) has the parent Claude a few levels up, and must never take the parent's pet. A new session id that already has a record of its own keeps it: a `SessionStart` that resumes the same id removes that record's `handoverPendingSince`, and a handover never overwrites a record. Logged as `SessionStart <new> - ... source=<source>`. Any other source, or no such record, writes nothing |
 | anything else | nothing |
 
-A session that has both global hooks and `/pet` skill hooks sees every event twice. Every action above is
-idempotent for a repeated payload: show and hide land on the same state, a second `Stop` scans an already
-scanned transcript, and a `SubagentStart` or `SubagentStop` with an `agent_id` touches the same entry. A
-subagent event without an `agent_id` is not idempotent, and is not deduplicated either: two same-type subagents
-send byte-identical `SubagentStart` payloads, so a duplicate cannot be told from a second subagent. It does not
-need to be. A doubled delivery adds two `unknown-<n>` ids and removes two, so the set ends where a single
-delivery leaves it. A test replays a whole session, every event above at least once, a `/clear` handover
-included, with each payload delivered once in one home and twice in another, and the records match after every
-step.
+A session that has both global hooks and `/pet` skill hooks sees every event twice. Every event in the table
+is idempotent for a repeated payload, apart from timestamps, with one exception: show and hide land on the same
+state, a second `Stop` scans an already scanned transcript, a `SubagentStart` or `SubagentStop` with an
+`agent_id` touches the same entry, a second `SessionEnd` finds the record already kept or gone, and a second
+`SessionStart` finds the handover done. The exception is a subagent event without an `agent_id`, which is not
+deduplicated: two same-type subagents send byte-identical `SubagentStart` payloads, so a duplicate cannot be told
+from a second subagent. It does not need to be. A doubled delivery adds two `unknown-<n>` ids and removes two, so
+the set ends where a single delivery leaves it, and the pet shows and hides at the same steps. `HookIdempotencyTests`
+replays a whole session (every event and notification type above, a transcript completion, a `/clear` handover
+and every `SessionEnd` kind) with each payload delivered once in one home and twice in another, with no config and
+with a group, `holdWhileBusy`, `subagentToolsKeepNeedsInput` and `settleSeconds` on, and the records match after
+every step.
 
 Claude Code fires `Stop` when the main agent's turn ends, including while that session still has
 background subagents running, and finishing a background subagent re-invokes the main agent. `Stop`
