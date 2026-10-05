@@ -89,6 +89,14 @@ enum LaneLayout {
         let fraction = CGFloat(laneIndex + 1) / CGFloat(laneCount + 1)
         return screenFrame.minX + screenFrame.width * fraction
     }
+
+    /// Where a home on `oldFrame` lands on `newFrame`, at the same fraction of the width, so a
+    /// pet that moves to another display keeps its lane.
+    static func carriedHorizontalCenter(_ horizontalCenter: CGFloat, from oldFrame: CGRect, to newFrame: CGRect) -> CGFloat {
+        guard oldFrame.width > 0 else { return newFrame.midX }
+        let fraction = (horizontalCenter - oldFrame.minX) / oldFrame.width
+        return newFrame.minX + newFrame.width * fraction
+    }
 }
 
 struct OverlayScreenFrames {
@@ -96,10 +104,18 @@ struct OverlayScreenFrames {
 
     let visibleFrame: CGRect
 
-    static func current() -> OverlayScreenFrames {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+    static func current(chooser: DisplayChooser) -> OverlayScreenFrames {
+        let screens = NSScreen.screens
+        let focusedIndex = NSScreen.main.flatMap { mainScreen in
+            screens.firstIndex { screen in screen === mainScreen }
+        }
+        let displays = AttachedDisplays(
+            names: screens.map { screen in screen.localizedName },
+            focusedIndex: focusedIndex
+        )
+        guard let chosenIndex = chooser.chosenIndex(among: displays) else {
             return OverlayScreenFrames(visibleFrame: fallbackFrame)
         }
-        return OverlayScreenFrames(visibleFrame: screen.visibleFrame)
+        return OverlayScreenFrames(visibleFrame: screens[chosenIndex].visibleFrame)
     }
 }

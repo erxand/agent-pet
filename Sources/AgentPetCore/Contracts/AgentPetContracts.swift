@@ -13,6 +13,7 @@ package struct AgentPetContracts {
     package let spriteStrategy: SpriteStrategy
     package let grouping: PetGrouping
     package let spritePackLoader: SpritePackLoader
+    package let displayChooser: DisplayChooser
 
     package init(configuration: AgentPetConfiguration, focusCompletion: FocusCompletion) {
         self.configuration = configuration
@@ -38,6 +39,14 @@ package struct AgentPetContracts {
             reservedPackNames: configuration.reservedSprites
         )
         grouping = SharedKeyGrouping()
+        switch configuration.display {
+        case .focused:
+            displayChooser = FocusedDisplayChooser()
+        case .primary:
+            displayChooser = PrimaryDisplayChooser()
+        case .named(let displayName):
+            displayChooser = NamedDisplayChooser(displayName: displayName)
+        }
     }
 
     package var displayPlanner: PetDisplayPlanner {

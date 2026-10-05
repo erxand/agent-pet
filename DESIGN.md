@@ -408,7 +408,14 @@ crash left every later hook updating records that nothing drew.
 - One borderless `NSWindow` per visible pet: `level = .screenSaver`, `backgroundColor = .clear`,
   `isOpaque`/`hasShadow`/`ignoresMouseEvents` false, `collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]`.
 - Sprite rendered at 4x pixel scale (16 px frame -> 64 px), label pill beneath. Window sits on
-  `NSScreen.main.visibleFrame.minY + 4` so it rides above the Dock.
+  `visibleFrame.minY + 4` of the display the DisplayChooser picks, so it rides above the Dock. The
+  default picks `NSScreen.main`, else the first screen, as before.
+- With a `display` other than `focused`, the daemon observes
+  `NSApplication.didChangeScreenParametersNotification`. On it every pet, a diving one included, is
+  re-placed on the chosen display with its home at the same fraction of the width
+  (`LaneLayout.carriedHorizontalCenter`). Only the window frame moves, so no animation restarts, and
+  no pet stays on a display that went away. The `focused` default ignores the notification, as
+  upstream does.
 - Animation: sprite frames at 8 fps, walk speed 40 px/s, turn around at lane bounds (renderer flips horizontally for
   leftward travel), random idle pauses of 1 to 3 s.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
@@ -715,9 +722,12 @@ the defaults.
 | LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
 | LabelDisambiguation | off | last 4 of the owner's session id on duplicate labels | `disambiguateLabels` |
 | Settle delay | 1 s | any number of seconds, 0 for none | `settleSeconds` |
+| DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 Accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
 the placement and the disambiguation are decided in `AgentPetCore`, so they are testable without AppKit.
+So is the display: the overlay hands the chooser an `AttachedDisplays` (each screen's `localizedName` in
+`NSScreen.screens` order and the index of `NSScreen.main`) and takes back an index.
 
 ## Configuration
 
@@ -734,7 +744,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "disambiguateLabels": true,
   "reservedSprites": ["claude"],
   "spriteDirectories": ["~/pets/prototypes"],
-  "settleSeconds": 1
+  "settleSeconds": 1,
+  "display": "primary"
 }
 ```
 
@@ -759,6 +770,13 @@ missing key, an unknown key and a bad value all mean the default for that key, n
 
 - `settleSeconds` is a number of seconds, default `1`: how long a session must stay waiting before its pet
   comes up, see "Settling". `0` turns the delay off. A negative or non-number value means the default.
+- `display` is `focused` (the default), `primary` or `name:<localizedName>`. `primary` is
+  `NSScreen.screens.first`, the display with the menu bar, so it follows macOS when the primary changes.
+  `name:` matches `NSScreen.localizedName` exactly and falls back to the primary display while no
+  attached display has that name. An empty name, any other string and a non-string mean the default.
+  A change takes effect on the reload, because the reload rebuilds the contracts and reconciles, which
+  recomputes every home on the newly chosen display. `primary` may be the better default; it stays
+  `focused` so that no config keeps today's behavior, and that call is left to the maintainer.
 
 ## Tests
 

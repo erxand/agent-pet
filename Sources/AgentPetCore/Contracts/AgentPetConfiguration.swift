@@ -36,6 +36,7 @@ package struct AgentPetConfiguration: Equatable {
     package var reservedSprites: [String]
     package var spriteDirectories: [String]
     package var settleSeconds: TimeInterval
+    package var display: DisplayChoice
 
     package init(
         focuser: FocuserConfiguration,
@@ -45,7 +46,8 @@ package struct AgentPetConfiguration: Equatable {
         disambiguatesLabels: Bool = false,
         reservedSprites: [String] = [],
         spriteDirectories: [String] = [],
-        settleSeconds: TimeInterval = AgentPetConfiguration.defaultSettleSeconds
+        settleSeconds: TimeInterval = AgentPetConfiguration.defaultSettleSeconds,
+        display: DisplayChoice = .focused
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -55,6 +57,7 @@ package struct AgentPetConfiguration: Equatable {
         self.reservedSprites = reservedSprites
         self.spriteDirectories = spriteDirectories
         self.settleSeconds = settleSeconds
+        self.display = display
     }
 }
 
@@ -98,6 +101,9 @@ package enum ConfigurationFile {
         if let spriteDirectories = raw.spriteDirectories { configuration.spriteDirectories = spriteDirectories }
         if let settleSeconds = raw.settleSeconds, settleSeconds.isFinite, settleSeconds >= 0 {
             configuration.settleSeconds = settleSeconds
+        }
+        if let display = raw.display.flatMap({ rawValue in DisplayChoice(configValue: rawValue) }) {
+            configuration.display = display
         }
         return configuration
     }
@@ -145,6 +151,7 @@ private struct RawConfiguration: Decodable {
     let reservedSprites: [String]?
     let spriteDirectories: [String]?
     let settleSeconds: Double?
+    let display: String?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -155,6 +162,7 @@ private struct RawConfiguration: Decodable {
         case reservedSprites
         case spriteDirectories
         case settleSeconds
+        case display
     }
 
     init(from decoder: Decoder) throws {
@@ -165,6 +173,7 @@ private struct RawConfiguration: Decodable {
             .compactMap { entry in entry.value }
             .filter { pattern in !pattern.isEmpty }
         colorSync = try? container.decodeIfPresent(String.self, forKey: .colorSync)
+        display = try? container.decodeIfPresent(String.self, forKey: .display)
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?
