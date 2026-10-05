@@ -4,7 +4,7 @@ import Foundation
 package struct SpritePackLoader {
     package static let defaultPackName = "claude"
 
-    private static let manifestFileName = "pack.json"
+    package static let manifestFileName = "pack.json"
     private static let hexPrefix = "#"
     private static let hexDigitCount = 6
     private static let hexRadix = 16
