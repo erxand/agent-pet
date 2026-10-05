@@ -11,6 +11,8 @@ package final class SpritePackRegistry {
     private var tintedSheets: [TintedSheetKey: SpriteSheet] = [:]
     private var packDirectoryStateByPackName: [String: PackDirectoryState] = [:]
     private var reportedDirectoryIssues: Set<String> = []
+    private var undownloadedPackNames: Set<String> = []
+    private var requestedRootPaths: Set<String> = []
 
     private struct TintedSheetKey: Hashable {
         let packName: String
@@ -64,6 +66,8 @@ package final class SpritePackRegistry {
         if let replacementLoader { loader = replacementLoader }
         let scan = loader.scan()
         reportNewDirectoryIssues(scan.issues)
+        requestNewRootDownloads(scan.undownloadedRoots)
+        let undownloadedRootPrefixes = scan.undownloadedRoots.map { rootURL in rootURL.standardizedFileURL.path + "/" }
         var anythingChanged = false
         var seenPackNames: Set<String> = []
         for (packName, packDirectory) in scan.directoryByPackName {
@@ -73,17 +77,39 @@ package final class SpritePackRegistry {
                 modification: SpritePackLoader.modification(of: packDirectory)
             )
             if packDirectoryStateByPackName[packName] == currentState { continue }
+            let outcome = loader.load(packDirectory: packDirectory)
+            if case .notDownloaded(let undownloaded) = outcome {
+                noteNotDownloaded(packName: packName, undownloaded: undownloaded)
+                continue
+            }
+            undownloadedPackNames.remove(packName)
             packDirectoryStateByPackName[packName] = currentState
-            applyOutcome(loader.load(packDirectory: packDirectory), packName: packName)
+            applyOutcome(outcome, packName: packName)
             anythingChanged = true
         }
         for knownPackName in Set(sheetsByPackName.keys).union(packDirectoryStateByPackName.keys)
         where !seenPackNames.contains(knownPackName) {
+            let knownPath = packDirectoryStateByPackName[knownPackName]?.path ?? ""
+            if undownloadedRootPrefixes.contains(where: { prefix in knownPath.hasPrefix(prefix) }) { continue }
             if sheetsByPackName.removeValue(forKey: knownPackName) != nil { anythingChanged = true }
             forgetTints(forPackNamed: knownPackName)
             packDirectoryStateByPackName.removeValue(forKey: knownPackName)
         }
+        undownloadedPackNames.formIntersection(seenPackNames)
         return anythingChanged
+    }
+
+    private func noteNotDownloaded(packName: String, undownloaded: [URL]) {
+        guard undownloadedPackNames.insert(packName).inserted else { return }
+        reportFailure("agent-pet: sprite pack \(packName) is not downloaded yet, skipped until its files are local")
+        loader.residency.requestDownload(undownloaded)
+    }
+
+    private func requestNewRootDownloads(_ undownloadedRoots: [URL]) {
+        let currentPaths = Set(undownloadedRoots.map { rootURL in rootURL.standardizedFileURL.path })
+        let newRoots = undownloadedRoots.filter { rootURL in !requestedRootPaths.contains(rootURL.standardizedFileURL.path) }
+        loader.residency.requestDownload(newRoots)
+        requestedRootPaths = currentPaths
     }
 
     private func reportNewDirectoryIssues(_ currentIssues: [String]) {
@@ -112,6 +138,8 @@ package final class SpritePackRegistry {
         case .failed(let reason):
             sheetsByPackName.removeValue(forKey: packName)
             reportFailure("agent-pet: sprite pack \(packName) not loaded, \(reason)")
+        case .notDownloaded:
+            break
         }
     }
 

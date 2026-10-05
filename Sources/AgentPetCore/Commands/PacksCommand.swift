@@ -5,6 +5,7 @@ enum PacksCommand {
     private static let affirmative = "yes"
     private static let negative = "no"
     private static let noAccent = "-"
+    private static let notDownloadedMarker = "not downloaded"
     private static let nameColumnWidth = 12
     private static let accentColumnWidth = 8
     private static let reservedColumnWidth = 9
@@ -19,9 +20,10 @@ enum PacksCommand {
         let accent: String?
         let reserved: Bool
         let livePets: Int
+        let downloaded: Bool
 
         enum CodingKeys: String, CodingKey {
-            case name, accent, reserved, livePets
+            case name, accent, reserved, livePets, downloaded
         }
 
         func encode(to encoder: Encoder) throws {
@@ -30,6 +32,7 @@ enum PacksCommand {
             try container.encode(accent, forKey: .accent)
             try container.encode(reserved, forKey: .reserved)
             try container.encode(livePets, forKey: .livePets)
+            try container.encode(downloaded, forKey: .downloaded)
         }
     }
 
@@ -54,7 +57,7 @@ enum PacksCommand {
                 name: entry.name,
                 accent: entry.accent ?? noAccent,
                 reserved: entry.reserved ? affirmative : negative,
-                livePets: "\(entry.livePets)"
+                livePets: entry.downloaded ? "\(entry.livePets)" : "\(entry.livePets)\(columnGap)\(notDownloadedMarker)"
             ))
         }
         return ExitCode.success
@@ -72,11 +75,15 @@ enum PacksCommand {
         }
         let loader = contracts.spritePackLoader
         return loader.availablePackNames().map { packName in
-            PackEntry(
+            let outcome = loader.load(packNamed: packName)
+            let downloaded: Bool
+            if case .notDownloaded = outcome { downloaded = false } else { downloaded = true }
+            return PackEntry(
                 name: packName,
-                accent: SpritePackAccent.accent(forPackNamed: packName, loader: loader)?.rawValue,
+                accent: SpritePackAccent.accent(in: outcome, loader: loader)?.rawValue,
                 reserved: reserved.contains(packName),
-                livePets: livePetsByPack[packName] ?? 0
+                livePets: livePetsByPack[packName] ?? 0,
+                downloaded: downloaded
             )
         }
     }

@@ -19,7 +19,13 @@ enum RenderCommand {
         } catch {
             return ExitCode.usage
         }
-        guard let sheet = sheet(forPackNamed: packName, accent: accent) else {
+        let loader = SpritePackLoader()
+        let outcome = loader.load(packNamed: packName)
+        if case .notDownloaded(let undownloaded) = outcome {
+            loader.residency.requestDownload(undownloaded)
+            return CommandFeedback.reportPackNotDownloaded(packName)
+        }
+        guard let sheet = sheet(from: outcome, packName: packName, accent: accent) else {
             return CommandFeedback.reportUnknownPack(packName)
         }
         let frames = animation.frames(in: sheet)
@@ -31,14 +37,14 @@ enum RenderCommand {
         return ExitCode.success
     }
 
-    private static func sheet(forPackNamed packName: String, accent: AccentColor?) -> SpriteSheet? {
-        switch SpritePackLoader().load(packNamed: packName) {
+    private static func sheet(from outcome: SpritePackLoader.LoadOutcome, packName: String, accent: AccentColor?) -> SpriteSheet? {
+        switch outcome {
         case .loaded(let pack):
             guard let inks = pack.accentInks,
                   let tint = SpriteAccentTint.tint(chosenAccent: accent, accentInks: inks)
             else { return pack.sheet }
             return SpriteAccentTint.tinted(pack.sheet, inks: inks, accent: tint)
-        case .failed:
+        case .failed, .notDownloaded:
             return packName == SpritePackLoader.defaultPackName ? SpriteSheet.claude8Bit : nil
         }
     }

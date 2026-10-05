@@ -29,21 +29,25 @@ package struct SpritePackLoader {
     package enum LoadOutcome {
         case loaded(LoadedSpritePack)
         case failed(reason: String)
+        case notDownloaded([URL])
     }
 
     private let packsDirectory: URL
     private let extraDirectoryPaths: [String]
     private let homeDirectory: URL
+    package let residency: FileResidency
     private let fileManager = FileManager.default
 
     package init(
         packsDirectory: URL = PetPaths.spritesDirectory,
         extraDirectoryPaths: [String]? = nil,
-        homeDirectory: URL = PetPaths.homeDirectory
+        homeDirectory: URL = PetPaths.homeDirectory,
+        residency: FileResidency = .system
     ) {
         self.packsDirectory = packsDirectory
         self.extraDirectoryPaths = extraDirectoryPaths ?? ConfigurationFile.load().spriteDirectories
         self.homeDirectory = homeDirectory
+        self.residency = residency
     }
 
     package func availablePackNames() -> [String] {
@@ -67,6 +71,7 @@ package struct SpritePackLoader {
     package struct Scan {
         package var directoryByPackName: [String: URL] = [:]
         package var issues: [String] = []
+        package var undownloadedRoots: [URL] = []
     }
 
     package func scan(lookingFor wantedPackName: String? = nil) -> Scan {
@@ -74,6 +79,11 @@ package struct SpritePackLoader {
         var seenRootPaths: Set<String> = []
         for (rootIndex, root) in searchRoots().enumerated() {
             if let rootURL = root.url, !seenRootPaths.insert(rootURL.standardizedFileURL.path).inserted { continue }
+            if let rootURL = root.url, residency.isDataless(rootURL) {
+                result.undownloadedRoots.append(rootURL)
+                result.issues.append("agent-pet: sprite directory \(root.configuredPath) is not downloaded yet, skipped")
+                continue
+            }
             guard let rootURL = root.url, let entries = try? fileManager.contentsOfDirectory(
                 at: rootURL,
                 includingPropertiesForKeys: [.isDirectoryKey]
@@ -121,7 +131,16 @@ package struct SpritePackLoader {
         load(packDirectory: directory(forPackNamed: packName))
     }
 
+    package func undownloadedFiles(inPackDirectory packDirectory: URL) -> [URL] {
+        if residency.isDataless(packDirectory) { return [packDirectory] }
+        let packFiles = [packDirectory.appendingPathComponent(SpritePackLoader.manifestFileName)]
+            + SpriteAnimationName.allCases.map { animationName in packDirectory.appendingPathComponent(animationName.packFileName) }
+        return packFiles.filter { packFile in residency.isDataless(packFile) }
+    }
+
     package func load(packDirectory: URL) -> LoadOutcome {
+        let undownloaded = undownloadedFiles(inPackDirectory: packDirectory)
+        guard undownloaded.isEmpty else { return .notDownloaded(undownloaded) }
         guard let manifestData = try? Data(contentsOf: packDirectory.appendingPathComponent(SpritePackLoader.manifestFileName)) else {
             return .failed(reason: "missing \(SpritePackLoader.manifestFileName)")
         }

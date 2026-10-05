@@ -87,6 +87,7 @@ struct ParsedFlags {
 
 enum ExitCode {
     static let success: Int32 = 0
+    static let unavailable: Int32 = 1
     static let usage: Int32 = 2
 }
 

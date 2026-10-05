@@ -65,6 +65,11 @@ package enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportPackNotDownloaded(_ packName: String) -> Int32 {
+        writeToStandardError("sprite pack \(packName) is not downloaded yet. Its files are in iCloud and a download was requested; try again shortly.")
+        return ExitCode.unavailable
+    }
+
     static func reportUnknownAnimation(_ animationName: String) -> Int32 {
         writeToStandardError("unknown animation \(animationName). Valid values: \(joined(SpriteAnimationName.allCases.map { animation in animation.rawValue })).")
         return ExitCode.usage
