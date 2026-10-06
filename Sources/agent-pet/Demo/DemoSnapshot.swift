@@ -170,6 +170,7 @@ enum DemoSnapshot {
                 spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: sheet.frameSize)
             )
             let view = PetView(sessionId: item.petKey, petAppearance: appearance)
+            view.drawSpriteWithCoreGraphics()
             let diveFrame = sheet.dive.indices.contains(1) ? sheet.dive[1] : sheet.dive.first
             if let frame = diving ? (diveFrame ?? sheet.idle.first) : sheet.idle.first {
                 view.update(

@@ -460,11 +460,17 @@ crash left every later hook updating records that nothing drew.
   record again, which re-resolves every visible pet's label and pushes it into the existing `PetView`, so a
   `/rename` shows up within one poll interval without recreating the window or restarting the animation, and
   a session that went `busy` is seen as well (see "Settling").
-- Drawing is skipped when nothing changed: a window is moved only when its rounded frame differs from
-  the current one, and a view is redrawn only when its sprite image, ground offset or chrome opacity
-  changed, or when its bubble moved by at least one device pixel while a bubble is drawn (the bob is
-  snapped to device pixels). Pet views draw into an 8 bit RGBA layer, which is cheaper than the
-  default extended range format and looks the same for the sRGB palettes.
+- Drawing is skipped when nothing changed. A window is moved only when its rounded frame differs from
+  the current one. `PetView` is a container of three layer-backed parts inside one clipping content view:
+  the sprite, the label (pill or nametag) and the bubble. The sprite's frame image is the sprite layer's
+  `contents` with nearest filtering, so a new animation frame is a contents swap with no Core Graphics
+  drawing, and the emerge and dive move that layer instead of redrawing. The label and the bubble draw
+  with Core Graphics into 8 bit layers, only when the appearance or the chrome opacity changes; the
+  bubble bob, snapped to device pixels, moves the bubble layer and redraws nothing. While a pet floats,
+  the content view is rotated about its center. `demo --snapshot` renders offscreen through
+  `cacheDisplay`, which does not honor a layer's filter, so its pet views draw the sprite with Core
+  Graphics instead (`drawSpriteWithCoreGraphics`); upright pets come out byte identical to the
+  single-view drawing this replaced.
 - The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
   and reconciles every record again, so no restart is needed after editing it.
 

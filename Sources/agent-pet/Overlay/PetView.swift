@@ -31,7 +31,8 @@ protocol PetViewInteractionHandler: AnyObject {
 final class PetView: NSView {
     private static let redrawEpsilon: CGFloat = 0.01
     private static let fallbackBackingScale: CGFloat = 2
-    private static let clickTargetColor = NSColor(calibratedWhite: 0, alpha: 0.01)
+    private static let degreesPerRadian: CGFloat = 180 / .pi
+    static let clickTargetColor = NSColor(calibratedWhite: 0, alpha: 0.01)
     private static let boldMonospacedFontName = "Menlo-Bold"
 
     private static let labelFont = monospacedFont(
@@ -55,8 +56,13 @@ final class PetView: NSView {
     private var spriteImage: NSImage?
     private var bubbleVerticalOffset: CGFloat = 0
     private var groundOffsetFraction: CGFloat = 1
-    private var chromeOpacity: CGFloat = 0
+    private(set) var chromeOpacity: CGFloat = 0
     private(set) var spaceRotationInRadians: CGFloat?
+
+    private let contentView = NSView()
+    private let spriteView = PetSpriteView()
+    private let labelView = PetChromePartView(part: .label)
+    private let bubbleView = PetChromePartView(part: .bubble)
 
     init(sessionId: String, petAppearance: PetAppearance) {
         self.sessionId = sessionId
@@ -64,7 +70,18 @@ final class PetView: NSView {
         super.init(frame: CGRect(origin: .zero, size: PetView.size(for: petAppearance)))
         toolTip = petAppearance.message
         wantsLayer = true
-        layer?.contentsFormat = .RGBA8Uint
+        contentView.clipsToBounds = true
+        for partView in [labelView, bubbleView] {
+            partView.owner = self
+        }
+        contentView.addSubview(spriteView)
+        contentView.addSubview(labelView)
+        contentView.addSubview(bubbleView)
+        addSubview(contentView)
+        for drawnView in [labelView, bubbleView] {
+            drawnView.layer?.contentsFormat = .RGBA8Uint
+        }
+        layoutParts()
     }
 
     required init?(coder: NSCoder) {
@@ -86,22 +103,33 @@ final class PetView: NSView {
         CGRect(origin: .zero, size: contentSize)
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutParts()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
+
     func update(spaceRotationInRadians rotation: CGFloat?) {
         guard rotation != spaceRotationInRadians else { return }
         spaceRotationInRadians = rotation
-        needsDisplay = true
+        layoutParts()
     }
 
     func update(petAppearance: PetAppearance) {
         self.petAppearance = petAppearance
         toolTip = petAppearance.message
-        needsDisplay = true
+        redrawChrome()
+        layoutParts()
     }
 
     func update(resolvedLabel: String) {
         guard resolvedLabel != petAppearance.label else { return }
         petAppearance = petAppearance.withResolvedLabel(resolvedLabel)
-        needsDisplay = true
+        redrawChrome()
+        layoutParts()
     }
 
     func update(
@@ -111,16 +139,21 @@ final class PetView: NSView {
         chromeOpacity: CGFloat
     ) {
         let snappedBubbleOffset = snappedToDevicePixels(bubbleVerticalOffset)
-        let imageChanged = spriteImage !== self.spriteImage
         let bubbleOffsetChanged = drawsBubble && PetView.differs(snappedBubbleOffset, self.bubbleVerticalOffset)
         let groundOffsetChanged = PetView.differs(groundOffsetFraction, self.groundOffsetFraction)
         let chromeOpacityChanged = PetView.differs(chromeOpacity, self.chromeOpacity)
+        if spriteImage !== self.spriteImage {
+            spriteView.image = spriteImage
+        }
         self.spriteImage = spriteImage
         self.bubbleVerticalOffset = snappedBubbleOffset
         self.groundOffsetFraction = groundOffsetFraction
         self.chromeOpacity = chromeOpacity
-        if imageChanged || bubbleOffsetChanged || groundOffsetChanged || chromeOpacityChanged {
-            needsDisplay = true
+        if chromeOpacityChanged {
+            redrawChrome()
+        }
+        if bubbleOffsetChanged || groundOffsetChanged || chromeOpacityChanged {
+            layoutParts()
         }
     }
 
@@ -133,22 +166,40 @@ final class PetView: NSView {
         return (offset * scale).rounded() / scale
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let graphicsContext = NSGraphicsContext.current else { return }
-        graphicsContext.imageInterpolation = .none
-        guard let rotation = spaceRotationInRadians else {
-            drawSprite()
-            drawChrome()
-            return
-        }
-        graphicsContext.saveGraphicsState()
+    func drawSpriteWithCoreGraphics() {
+        spriteView.drawsThroughLayerContents = false
+    }
+
+    private func redrawChrome() {
+        labelView.needsDisplay = true
+        bubbleView.needsDisplay = true
+    }
+
+    private func layoutParts() {
         let content = contentBounds
-        graphicsContext.cgContext.translateBy(x: bounds.midX, y: bounds.midY)
-        graphicsContext.cgContext.rotate(by: rotation)
-        graphicsContext.cgContext.translateBy(x: -content.width / 2, y: -content.height / 2)
-        drawSprite()
-        drawChrome()
-        graphicsContext.restoreGraphicsState()
+        let rotationInDegrees = (spaceRotationInRadians ?? 0) * PetView.degreesPerRadian
+        contentView.frameCenterRotation = 0
+        contentView.frame = CGRect(
+            x: (bounds.width - content.width) / 2,
+            y: (bounds.height - content.height) / 2,
+            width: content.width,
+            height: content.height
+        )
+        contentView.frameCenterRotation = rotationInDegrees
+        let sideLength = petAppearance.spriteSideLength
+        let groundOffset = groundOffsetFraction
+            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, labelPlacement: petAppearance.labelPlacement)
+        spriteView.frame = CGRect(
+            x: (content.width - sideLength) / 2,
+            y: PetGeometry.spriteBaseline(labelPlacement: petAppearance.labelPlacement) - groundOffset,
+            width: sideLength,
+            height: sideLength
+        )
+        spriteView.isHidden = spriteView.frame.maxY <= content.minY
+        labelView.frame = content
+        bubbleView.frame = content.offsetBy(dx: 0, dy: bubbleVerticalOffset)
+        labelView.isHidden = chromeOpacity <= 0
+        bubbleView.isHidden = !drawsBubble
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -179,37 +230,21 @@ final class PetView: NSView {
         )
     }
 
-    private func drawSprite() {
-        guard let spriteImage, let graphicsContext = NSGraphicsContext.current else { return }
-        let sideLength = petAppearance.spriteSideLength
-        let groundOffset = groundOffsetFraction
-            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, labelPlacement: petAppearance.labelPlacement)
-        let spriteRect = CGRect(
-            x: (contentBounds.width - sideLength) / 2,
-            y: PetGeometry.spriteBaseline(labelPlacement: petAppearance.labelPlacement) - groundOffset,
-            width: sideLength,
-            height: sideLength
-        )
-        guard spriteRect.maxY > contentBounds.minY else { return }
-        graphicsContext.saveGraphicsState()
-        NSBezierPath(rect: contentBounds).setClip()
-        PetView.clickTargetColor.setFill()
-        spriteRect.intersection(contentBounds).fill()
-        spriteImage.draw(in: spriteRect, from: .zero, operation: .sourceOver, fraction: 1)
-        graphicsContext.restoreGraphicsState()
-    }
-
-    private func drawChrome() {
+    func drawChromePart(_ part: PetChromePart) {
         guard chromeOpacity > 0, let graphicsContext = NSGraphicsContext.current else { return }
         graphicsContext.saveGraphicsState()
         graphicsContext.cgContext.setAlpha(min(chromeOpacity, 1))
-        switch petAppearance.labelPlacement {
-        case .pill: drawLabelPill()
-        case .nametag: drawNametag()
-        }
-        let bubbleSymbol = PetBubbleSymbol.forMood(petAppearance.mood)
-        if bubbleSymbol != nil || petAppearance.bubbleCaption != nil {
-            drawBubble(symbol: bubbleSymbol, caption: petAppearance.bubbleCaption)
+        switch part {
+        case .label:
+            switch petAppearance.labelPlacement {
+            case .pill: drawLabelPill()
+            case .nametag: drawNametag()
+            }
+        case .bubble:
+            let bubbleSymbol = PetBubbleSymbol.forMood(petAppearance.mood)
+            if bubbleSymbol != nil || petAppearance.bubbleCaption != nil {
+                drawBubble(symbol: bubbleSymbol, caption: petAppearance.bubbleCaption)
+            }
         }
         graphicsContext.restoreGraphicsState()
     }
@@ -304,7 +339,7 @@ final class PetView: NSView {
         let bubbleWidth = PetView.bubbleWidth(symbol: symbol, caption: caption)
         let bubbleRect = CGRect(
             x: (contentBounds.width - bubbleWidth) / 2,
-            y: bubbleBaseline + bubbleVerticalOffset,
+            y: bubbleBaseline,
             width: bubbleWidth,
             height: PetGeometry.bubbleSideLength
         )
@@ -414,5 +449,66 @@ final class PetView: NSView {
                 .foregroundColor: SpritePalette.outline
             ]
         )
+    }
+}
+
+enum PetChromePart {
+    case label
+    case bubble
+}
+
+final class PetChromePartView: NSView {
+    let part: PetChromePart
+    weak var owner: PetView?
+
+    init(part: PetChromePart) {
+        self.part = part
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        owner?.drawChromePart(part)
+    }
+}
+
+final class PetSpriteView: NSView {
+    var image: NSImage? {
+        didSet { needsDisplay = true }
+    }
+
+    var drawsThroughLayerContents = true {
+        didSet { needsDisplay = true }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override var wantsUpdateLayer: Bool { drawsThroughLayerContents }
+
+    override func updateLayer() {
+        guard let layer else { return }
+        layer.backgroundColor = PetView.clickTargetColor.cgColor
+        layer.magnificationFilter = .nearest
+        layer.minificationFilter = .nearest
+        layer.contentsGravity = .resize
+        layer.contents = image
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image, let graphicsContext = NSGraphicsContext.current else { return }
+        graphicsContext.imageInterpolation = .none
+        PetView.clickTargetColor.setFill()
+        bounds.fill()
+        image.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
     }
 }
