@@ -12,7 +12,7 @@ final class PetSpriteFrames {
 
     func image(for presence: PetPresence) -> NSImage? {
         guard let resolvedAnimation = resolveAnimation(
-            presence.animator.animationName,
+            presence.shownAnimationName,
             in: presence.spriteSheet
         ) else { return nil }
 
@@ -22,7 +22,7 @@ final class PetSpriteFrames {
             tint: presence.spriteTint,
             animationName: resolvedAnimation.animationName,
             frameIndex: frameIndex,
-            facingLeft: presence.animator.facingLeft
+            facingLeft: presence.shownFacingLeft
         )
 
         if let cachedImage = spriteImageCache[cacheKey] {
@@ -32,7 +32,7 @@ final class PetSpriteFrames {
             for: resolvedAnimation.frames[frameIndex],
             palette: presence.spriteSheet.palette,
             scale: PetGeometry.spriteScale,
-            facingLeft: presence.animator.facingLeft
+            facingLeft: presence.shownFacingLeft
         )
         spriteImageCache[cacheKey] = spriteImage
         return spriteImage
@@ -43,7 +43,7 @@ final class PetSpriteFrames {
         guard presence.animator.playsGroundAnimationOnce else {
             return presence.animator.frameTick % frameCount
         }
-        guard resolvedAnimation.animationName == presence.animator.animationName else {
+        guard resolvedAnimation.animationName == presence.shownAnimationName else {
             return PetSpriteFrames.substituteGroundFrameIndex
         }
         let spreadIndex = Int(presence.animator.groundAnimationProgress * Double(frameCount))

@@ -5,6 +5,7 @@ package enum DemoSceneName: String, CaseIterable {
     case states
     case click
     case finale
+    case space
 }
 
 package struct DemoActor: Equatable {
@@ -157,6 +158,8 @@ package enum DemoAction: Equatable {
     case hideCursor
     case showTerminal(DemoTerminalCard)
     case hideTerminal
+    case showScreensaver
+    case hideScreensaver
 }
 
 package struct DemoStep: Equatable {

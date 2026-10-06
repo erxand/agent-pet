@@ -111,6 +111,7 @@ of the repo.
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
 | `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the states scene and the terminal reveal to DIR |
+| `agent-pet demo --scene space` | an extra scene, not part of the tour: a stand-in screensaver comes up, the pets float over it, then they fall, land and walk home. With `--snapshot DIR` it also writes `space-1.png` to `space-5.png` |
 
 ## Configuration
 
@@ -133,7 +134,9 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "accentInks": true,
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
-  "display": "primary"
+  "display": "primary",
+  "floatOverScreensaver": true,
+  "screensaverBundleIds": ["com.paramify.screensaver"]
 }
 ```
 
@@ -151,6 +154,8 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `accentInks` | `false` | `true` lets a color you choose (`/pet <nickname> <color>`, `--accent`) paint part of the creature too, not only the label dot, the bubble and the prompt bar |
 | `diveOnExit` | `false` | `true` makes a stopping daemon (a launchd restart, Ctrl-C) dive its pets before it exits instead of dropping them. Read when the daemon starts |
 | `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
+| `floatOverScreensaver` | `false` | what the pets do while a screensaver app named in `screensaverBundleIds` shows a full screen window. `false` hides them until it goes away. `true` keeps them drawn over it, floating and spinning slowly as if in space; when it goes away they fall, land and walk back to their lanes |
+| `screensaverBundleIds` | `["com.paramify.screensaver"]` | bundle ids of screensaver apps that run as a normal app with their own full screen window. `[]` watches nothing. The real macOS lock screen is never drawn over |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
 The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
@@ -158,6 +163,12 @@ The daemon rereads the file when it changes, so there is nothing to restart (`di
 their animation, and are never left on a display that went away. `primary` may be the better
 default; it is left as `focused` so that no config keeps the behavior from before, and the choice is
 the maintainer's.
+
+The screensaver is found by its running app and a window of that app that covers at least 90% of a
+display, read once a second from the window list while such an app runs. This needs no permission:
+owners, bounds and levels are in the window list without Screen Recording. To try the float without a
+screensaver, set `"simulateScreensaver": true` (a development key) together with
+`"floatOverScreensaver": true`, and remove it again after.
 
 A `command` focuser gets the session in its environment: `AGENT_PET_SESSION_ID`, `AGENT_PET_PID`,
 `AGENT_PET_FOCUS_TARGET`, `AGENT_PET_GROUP` and `AGENT_PET_AGENT`. Its first entry must be an
@@ -192,7 +203,8 @@ There are three parts:
    `~/.agent-pet/sessions/`.
 2. A launchd user agent runs the overlay daemon. It polls that directory and reconciles one
    borderless always-on-top window per record marked visible, so the record is the only thing
-   that decides whether a pet is on screen.
+   that decides whether a pet is on screen. Sprite pack folders and Claude Code session folders are
+   rescanned only when FSEvents reports a change in them, and at least every 5 seconds.
 3. A left click runs tmux `select-window`, `select-pane` and `switch-client`, then an
    AppleScript that selects the matching iTerm2 tab and brings the window forward.
 

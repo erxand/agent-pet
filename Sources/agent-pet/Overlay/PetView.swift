@@ -30,6 +30,7 @@ protocol PetViewInteractionHandler: AnyObject {
 
 final class PetView: NSView {
     private static let redrawEpsilon: CGFloat = 0.01
+    private static let fallbackBackingScale: CGFloat = 2
     private static let clickTargetColor = NSColor(calibratedWhite: 0, alpha: 0.01)
     private static let boldMonospacedFontName = "Menlo-Bold"
 
@@ -55,12 +56,15 @@ final class PetView: NSView {
     private var bubbleVerticalOffset: CGFloat = 0
     private var groundOffsetFraction: CGFloat = 1
     private var chromeOpacity: CGFloat = 0
+    private(set) var spaceRotationInRadians: CGFloat?
 
     init(sessionId: String, petAppearance: PetAppearance) {
         self.sessionId = sessionId
         self.petAppearance = petAppearance
         super.init(frame: CGRect(origin: .zero, size: PetView.size(for: petAppearance)))
         toolTip = petAppearance.message
+        wantsLayer = true
+        layer?.contentsFormat = .RGBA8Uint
     }
 
     required init?(coder: NSCoder) {
@@ -68,7 +72,24 @@ final class PetView: NSView {
     }
 
     var preferredSize: CGSize {
+        let contentSize = PetView.size(for: petAppearance)
+        guard spaceRotationInRadians != nil else { return contentSize }
+        let side = ceil(hypot(contentSize.width, contentSize.height))
+        return CGSize(width: side, height: side)
+    }
+
+    var contentSize: CGSize {
         PetView.size(for: petAppearance)
+    }
+
+    private var contentBounds: CGRect {
+        CGRect(origin: .zero, size: contentSize)
+    }
+
+    func update(spaceRotationInRadians rotation: CGFloat?) {
+        guard rotation != spaceRotationInRadians else { return }
+        spaceRotationInRadians = rotation
+        needsDisplay = true
     }
 
     func update(petAppearance: PetAppearance) {
@@ -89,12 +110,13 @@ final class PetView: NSView {
         groundOffsetFraction: CGFloat,
         chromeOpacity: CGFloat
     ) {
+        let snappedBubbleOffset = snappedToDevicePixels(bubbleVerticalOffset)
         let imageChanged = spriteImage !== self.spriteImage
-        let bubbleOffsetChanged = PetView.differs(bubbleVerticalOffset, self.bubbleVerticalOffset)
+        let bubbleOffsetChanged = drawsBubble && PetView.differs(snappedBubbleOffset, self.bubbleVerticalOffset)
         let groundOffsetChanged = PetView.differs(groundOffsetFraction, self.groundOffsetFraction)
         let chromeOpacityChanged = PetView.differs(chromeOpacity, self.chromeOpacity)
         self.spriteImage = spriteImage
-        self.bubbleVerticalOffset = bubbleVerticalOffset
+        self.bubbleVerticalOffset = snappedBubbleOffset
         self.groundOffsetFraction = groundOffsetFraction
         self.chromeOpacity = chromeOpacity
         if imageChanged || bubbleOffsetChanged || groundOffsetChanged || chromeOpacityChanged {
@@ -102,10 +124,31 @@ final class PetView: NSView {
         }
     }
 
+    private var drawsBubble: Bool {
+        chromeOpacity > 0 && (PetBubbleSymbol.forMood(petAppearance.mood) != nil || petAppearance.bubbleCaption != nil)
+    }
+
+    private func snappedToDevicePixels(_ offset: CGFloat) -> CGFloat {
+        let scale = window?.backingScaleFactor ?? PetView.fallbackBackingScale
+        return (offset * scale).rounded() / scale
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        NSGraphicsContext.current?.imageInterpolation = .none
+        guard let graphicsContext = NSGraphicsContext.current else { return }
+        graphicsContext.imageInterpolation = .none
+        guard let rotation = spaceRotationInRadians else {
+            drawSprite()
+            drawChrome()
+            return
+        }
+        graphicsContext.saveGraphicsState()
+        let content = contentBounds
+        graphicsContext.cgContext.translateBy(x: bounds.midX, y: bounds.midY)
+        graphicsContext.cgContext.rotate(by: rotation)
+        graphicsContext.cgContext.translateBy(x: -content.width / 2, y: -content.height / 2)
         drawSprite()
         drawChrome()
+        graphicsContext.restoreGraphicsState()
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -142,16 +185,16 @@ final class PetView: NSView {
         let groundOffset = groundOffsetFraction
             * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, labelPlacement: petAppearance.labelPlacement)
         let spriteRect = CGRect(
-            x: (bounds.width - sideLength) / 2,
+            x: (contentBounds.width - sideLength) / 2,
             y: PetGeometry.spriteBaseline(labelPlacement: petAppearance.labelPlacement) - groundOffset,
             width: sideLength,
             height: sideLength
         )
-        guard spriteRect.maxY > bounds.minY else { return }
+        guard spriteRect.maxY > contentBounds.minY else { return }
         graphicsContext.saveGraphicsState()
-        NSBezierPath(rect: bounds).setClip()
+        NSBezierPath(rect: contentBounds).setClip()
         PetView.clickTargetColor.setFill()
-        spriteRect.intersection(bounds).fill()
+        spriteRect.intersection(contentBounds).fill()
         spriteImage.draw(in: spriteRect, from: .zero, operation: .sourceOver, fraction: 1)
         graphicsContext.restoreGraphicsState()
     }
@@ -180,7 +223,7 @@ final class PetView: NSView {
         let labelSize = attributedLabel.size()
         let pillWidth = PetView.labelPillWidth(for: petAppearance.label)
         let pillRect = CGRect(
-            x: (bounds.width - pillWidth) / 2,
+            x: (contentBounds.width - pillWidth) / 2,
             y: 0,
             width: pillWidth,
             height: PetGeometry.labelPillHeight
@@ -215,7 +258,7 @@ final class PetView: NSView {
         let label = PetView.clippedLabel(petAppearance.label)
         let tagWidth = PetView.nametagWidth(for: label)
         let tagRect = CGRect(
-            x: ((bounds.width - tagWidth) / 2).rounded(),
+            x: ((contentBounds.width - tagWidth) / 2).rounded(),
             y: PetGeometry.nametagBaseline(spriteSideLength: petAppearance.spriteSideLength),
             width: tagWidth,
             height: PetGeometry.nametagHeight
@@ -260,7 +303,7 @@ final class PetView: NSView {
         )
         let bubbleWidth = PetView.bubbleWidth(symbol: symbol, caption: caption)
         let bubbleRect = CGRect(
-            x: (bounds.width - bubbleWidth) / 2,
+            x: (contentBounds.width - bubbleWidth) / 2,
             y: bubbleBaseline + bubbleVerticalOffset,
             width: bubbleWidth,
             height: PetGeometry.bubbleSideLength

@@ -17,12 +17,13 @@ agent-pet/
     Commands/                  one file per subcommand, plus flag parsing and feedback; AgentPetCommandLine is the entry point
     Contracts/                 AgentPetConfiguration, ConfigurationFile, the contract protocols and their implementations, PetDisplayPlanner
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
-    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking
+    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking, DirectoryChangeMonitor and RescanGate
+    Screensaver/               ScreensaverDetection (which window is a screensaver, what the pets do) and SpaceMotion (the float), see "Screensaver"
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, SpriteAccentTint, PixelFont (nametag glyphs), TerminalSpriteRenderer
     Demo/                      DemoScript (scenes and cast), DemoRunner (timeline), DemoPlayback (clock and signals), DemoPixelFont, DemoCommand, see "Demo"
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
-    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks
+    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, ScreensaverWatcher, PetSpaceFlight
     Demo/                      the demo's AppKit stage: caption and title card panels, snapshots
   Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
@@ -447,10 +448,23 @@ crash left every later hook updating records that nothing drew.
 - A click (either button) hides every member of the pet, not only the one that was focused.
 - The daemon polls `~/.agent-pet/sessions/` every 300 ms (mtime of the dir, then file contents on
   change) and reconciles windows to records. Liveness check every 5 s.
-- The same poll signs every SessionSource directory the same way. On change the daemon reconciles every
+- The SessionSource directories and the sprite pack folders change rarely, so the daemon does not list
+  them on every poll. A `DirectoryChangeMonitor` (one FSEvents stream with file events, 50 ms latency, on
+  the folders the last scan found) marks a change, and `RescanGate` lets the next poll rescan when a
+  change was marked, when the config changed, or when 5 s passed since the last rescan. The 5 s fallback
+  catches what the stream cannot see, such as a new folder that starts matching a `~/.claude-*/sessions`
+  pattern. A monitor that could not start counts as a change on every poll, which is the old behavior. A
+  new or edited pack or Claude session file is therefore seen within 50 ms plus one poll, about 0.35 s,
+  as before; the worst case, for a change the stream cannot see, is 5.3 s.
+- On a rescan the poll signs every SessionSource directory the same way. On change the daemon reconciles every
   record again, which re-resolves every visible pet's label and pushes it into the existing `PetView`, so a
   `/rename` shows up within one poll interval without recreating the window or restarting the animation, and
   a session that went `busy` is seen as well (see "Settling").
+- Drawing is skipped when nothing changed: a window is moved only when its rounded frame differs from
+  the current one, and a view is redrawn only when its sprite image, ground offset or chrome opacity
+  changed, or when its bubble moved by at least one device pixel while a bubble is drawn (the bob is
+  snapped to device pixels). Pet views draw into an 8 bit RGBA layer, which is cheaper than the
+  default extended range format and looks the same for the sRGB palettes.
 - The same poll checks the config file's mtime. On change the daemon reloads it, rebuilds the contracts
   and reconciles every record again, so no restart is needed after editing it.
 
@@ -538,6 +552,46 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
   the move down rather than skipping its frames. A diving window is not re-placed, so it dives where it was even if
   `NSScreen.main` moves to another display.
 
+### Screensaver
+
+Some screensavers are ordinary apps with a full screen window of their own, such as the Paramify
+Screensaver (`com.paramify.screensaver`, an `LSUIElement` app that stays running and shows its window
+when the Mac is idle). The pets used to stay drawn over it. The real macOS lock screen is a different
+thing: no app draws over it, and agent-pet never tries to.
+
+- `ScreensaverWatcher` keeps the pids of the running apps whose bundle id is in `screensaverBundleIds`
+  (from `NSWorkspace` launch and terminate notifications). While one runs, it reads
+  `CGWindowListCopyWindowInfo` (on screen only) at most once a second; with none running it reads
+  nothing. `ScreensaverDetection.cover` is the pure rule: a window of a watched pid that is on screen, has
+  an alpha above 0, and covers at least 90% of the area of an active display (`CGDisplayBounds`, the same
+  top left coordinates as the window list) is a cover, and the cover's level is the highest such window
+  layer. Owner pid, bounds, layer and alpha are in the window list without Screen Recording permission
+  (only window names are withheld), so this needs no permission. Verified 2026-10-05 from a launchd job
+  without the permission: names were missing, bounds and owners were there.
+- `ScreensaverDetection.response` turns the cover into what the pets do: no cover is `none`; a cover with
+  `floatOverScreensaver` off is `hidePets`; with it on, `floatPets`. The response is checked on every poll,
+  and a change reconciles every record.
+- `hidePets`: the planner's items are replaced by none, so every pet dives, and the records are untouched.
+  When the cover goes, the next reconcile brings the visible pets back up with an emerge.
+- `floatPets`: every pet window moves to `floatingPetLevel`, one above the cover's level and never at or
+  above `CGShieldingWindowLevel()`, so pets draw over the screensaver and never over the shielding
+  window. Each grounded pet (a pet still emerging floats once it is up) gets a `SpaceMotion` seeded by
+  its pet key, so the same pet always moves the same way. It lifts off at 24 to 48 pt/s between 30 and
+  150 degrees, drifts in a straight line and bounces off the screen edges (the whole screen frame, minus
+  half the window, and never below its ground), and spins at 0.25 to 0.6 rad/s either way. While it
+  floats, `PetView` uses a square window as wide as the diagonal of its content and draws the sprite
+  and its label rotated about the center, and the sprite plays `idle`.
+- When the cover goes, each floating pet falls: 1400 pt/s squared down, its sideways drift damped by a
+  factor of e per half second, and it turns toward upright by the short way at 3 rad/s. It lands on its
+  ground exactly upright, then walks at 40 pt/s, the normal walk speed, with `walk` frames, to its lane
+  home, and then the normal mood behavior takes over from there.
+- A pet hidden while it floats dives where it is, upright. The sprite frame clock and the bubble bob
+  run while a pet floats, so nothing jumps when it lands.
+- `simulateScreensaver: true` in the config makes the watcher report a cover at the `.screenSaver` level,
+  so the float can be tried without a screensaver. It is a development key and is not in the table below.
+
+`PetSpaceFlight` is the overlay's one driver of a `SpaceMotion`, shared by the daemon and the demo.
+
 ## Sprite contract
 
 `SpriteContract.swift` is fixed. `PixelFrame` derives its square side length per frame, so packs may be 16, 24 or
@@ -592,7 +646,7 @@ sprites/<pack-name>/
   To customize a shipped pack, copy it under a new name. Every installed pack is in the assignment pool, so adding
   a pet is adding a directory.
 - The daemon loads packs from `~/.agent-pet/sprites/<name>/` and the config's `spriteDirectories` at
-  startup. Every reconcile tick (0.3 s) it lists those folders again, loads a pack that appeared, drops
+  startup. On every rescan (see "Overlay behavior": an FSEvents change, a config change, or 5 s) it lists those folders again, loads a pack that appeared, drops
   one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
   different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
@@ -682,6 +736,11 @@ anyone who never runs it, and it never touches real state:
   near the bottom edge. Text is
   off-white or a muted gray, and a test measures that both have at least 4.5:1 contrast on the panel
   tones. Nothing flashes or shakes: panels fade over 0.45 s.
+- `DemoScript.extraScenes` holds scenes outside the tour, played only with `--scene`. Today that is
+  `space`: three pets come up, a stand-in screensaver (a dark panel over the chosen screen, one level
+  below the pets) comes up at 2 s, the pets float with `PetSpaceFlight`, and at 9 s it goes and they fall,
+  land and walk home. `--snapshot DIR` with `--scene space` also writes `space-1.png` to `space-5.png`,
+  the same `SpaceMotion` stepped at 30 Hz to five moments on a 960 by 560 stand-in screen.
 - `--dry-run` swaps in `DemoTranscriptStage`, which prints the timeline, so the whole flow is testable
   without a window server. `--snapshot DIR` renders the panels offscreen to PNGs.
 
@@ -812,6 +871,7 @@ the defaults.
 | Accent inks | off: a chosen accent colors the dot, bubble and prompt bar only | the sprite's accent inks take the chosen accent too | `accentInks` |
 | Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
+| Screensaver | `com.paramify.screensaver` watched; pets hide while its window is up | pets float over it instead; `[]` watches nothing | `floatOverScreensaver`, `screensaverBundleIds` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
@@ -839,7 +899,9 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "accentInks": true,
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
-  "display": "primary"
+  "display": "primary",
+  "floatOverScreensaver": true,
+  "screensaverBundleIds": ["com.paramify.screensaver"]
 }
 ```
 
@@ -879,6 +941,12 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   A change takes effect on the reload, because the reload rebuilds the contracts and reconciles, which
   recomputes every home on the newly chosen display. `primary` may be the better default; it stays
   `focused` so that no config keeps today's behavior, and that call is left to the maintainer.
+
+- `floatOverScreensaver` is a boolean, default `false`: what pets do while a watched screensaver window is
+  up, see "Screensaver". Off, they hide; on, they float over it.
+- `screensaverBundleIds` is a list of bundle ids, default `["com.paramify.screensaver"]`. Non-string and
+  empty entries are dropped, and `[]` watches nothing, which is exactly the behavior before this key.
+- `simulateScreensaver` is a development boolean, default `false`, see "Screensaver".
 
 ## Tests
 

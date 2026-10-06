@@ -3,6 +3,7 @@ import Foundation
 package final class DemoTranscriptStage: DemoStage {
     private let write: (String) -> Void
     private var lastPetsLine: String?
+    private var screensaverIsUp = false
 
     package private(set) var tearDownCount = 0
 
@@ -39,6 +40,14 @@ package final class DemoTranscriptStage: DemoStage {
     package func present(terminal: DemoTerminalCard?) {
         guard let terminal else { return }
         write("terminal: \(terminal.title), " + terminal.shownTexts.dropFirst().joined(separator: " | "))
+    }
+
+    package func present(screensaver isUp: Bool) {
+        guard isUp != screensaverIsUp else { return }
+        screensaverIsUp = isUp
+        write(isUp
+            ? "screensaver: up, the pets float over it and spin slowly"
+            : "screensaver: gone, the pets fall, land and walk back to their lanes")
     }
 
     package func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {

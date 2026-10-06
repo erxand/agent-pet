@@ -107,6 +107,23 @@ final class PetAnimator {
         }
     }
 
+    func advanceInSpace(elapsedSeconds: Double) {
+        advanceFrameClock(elapsedSeconds: elapsedSeconds)
+        advanceBubbleBob(elapsedSeconds: elapsedSeconds)
+    }
+
+    func resumeGrounded(horizontalOffsetFromHome offset: CGFloat) {
+        horizontalOffsetFromHome = offset
+        beginWalking()
+    }
+
+    var isGrounded: Bool {
+        switch groundPhase {
+        case .grounded: return true
+        case .emerging, .diving, .submerged: return false
+        }
+    }
+
     private func startEmerging(fromGroundOffsetFraction startingFraction: Double) {
         groundPhase = .emerging
         groundOffsetFraction = PetAnimator.clampedUnitValue(startingFraction)

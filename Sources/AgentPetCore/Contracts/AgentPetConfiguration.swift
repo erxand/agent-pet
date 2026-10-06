@@ -18,6 +18,7 @@ package enum LabelPlacement: String, Equatable {
 package struct AgentPetConfiguration: Equatable {
     package static let defaultSessionDirectoryPatterns = ["~/.claude/sessions"]
     package static let defaultSettleSeconds: TimeInterval = 0
+    package static let defaultScreensaverBundleIdentifiers = ["com.paramify.screensaver"]
 
     package static let defaults = AgentPetConfiguration(
         focuser: .tmuxIterm,
@@ -38,6 +39,9 @@ package struct AgentPetConfiguration: Equatable {
     package var divesOnExit: Bool
     package var subagentToolsKeepNeedsInput: Bool
     package var display: DisplayChoice
+    package var floatsOverScreensaver: Bool
+    package var screensaverBundleIdentifiers: [String]
+    package var simulatesScreensaver: Bool
 
     package init(
         focuser: FocuserConfiguration,
@@ -52,7 +56,10 @@ package struct AgentPetConfiguration: Equatable {
         paintsAccentInks: Bool = false,
         divesOnExit: Bool = false,
         subagentToolsKeepNeedsInput: Bool = false,
-        display: DisplayChoice = .focused
+        display: DisplayChoice = .focused,
+        floatsOverScreensaver: Bool = false,
+        screensaverBundleIdentifiers: [String] = AgentPetConfiguration.defaultScreensaverBundleIdentifiers,
+        simulatesScreensaver: Bool = false
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -67,6 +74,9 @@ package struct AgentPetConfiguration: Equatable {
         self.divesOnExit = divesOnExit
         self.subagentToolsKeepNeedsInput = subagentToolsKeepNeedsInput
         self.display = display
+        self.floatsOverScreensaver = floatsOverScreensaver
+        self.screensaverBundleIdentifiers = screensaverBundleIdentifiers
+        self.simulatesScreensaver = simulatesScreensaver
     }
 }
 
@@ -120,6 +130,15 @@ package enum ConfigurationFile {
         if let display = raw.display.flatMap({ rawValue in DisplayChoice(configValue: rawValue) }) {
             configuration.display = display
         }
+        if let floatsOverScreensaver = raw.floatOverScreensaver {
+            configuration.floatsOverScreensaver = floatsOverScreensaver
+        }
+        if let bundleIdentifiers = raw.screensaverBundleIds {
+            configuration.screensaverBundleIdentifiers = bundleIdentifiers
+        }
+        if let simulatesScreensaver = raw.simulateScreensaver {
+            configuration.simulatesScreensaver = simulatesScreensaver
+        }
         return configuration
     }
 
@@ -171,6 +190,9 @@ private struct RawConfiguration: Decodable {
     let diveOnExit: Bool?
     let subagentToolsKeepNeedsInput: Bool?
     let display: String?
+    let floatOverScreensaver: Bool?
+    let screensaverBundleIds: [String]?
+    let simulateScreensaver: Bool?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -186,6 +208,9 @@ private struct RawConfiguration: Decodable {
         case diveOnExit
         case subagentToolsKeepNeedsInput
         case display
+        case floatOverScreensaver
+        case screensaverBundleIds
+        case simulateScreensaver
     }
 
     init(from decoder: Decoder) throws {
@@ -201,6 +226,11 @@ private struct RawConfiguration: Decodable {
             .filter { pattern in !pattern.isEmpty }
         colorSync = try? container.decodeIfPresent(String.self, forKey: .colorSync)
         display = try? container.decodeIfPresent(String.self, forKey: .display)
+        floatOverScreensaver = try? container.decodeIfPresent(Bool.self, forKey: .floatOverScreensaver)
+        simulateScreensaver = try? container.decodeIfPresent(Bool.self, forKey: .simulateScreensaver)
+        screensaverBundleIds = (try? container.decodeIfPresent([LenientString].self, forKey: .screensaverBundleIds))?
+            .compactMap { entry in entry.value }
+            .filter { bundleIdentifier in !bundleIdentifier.isEmpty }
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?
