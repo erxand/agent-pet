@@ -102,7 +102,7 @@ package enum DemoScript {
     package static let extraScenes: [DemoScene] = [
         DemoScene(
             name: .space,
-            caption: "With floatOverScreensaver on, pets drift over the screensaver, then land and walk home.",
+            caption: "A script can float the pets over anything, like a screensaver. Back on the ground, they walk home.",
             durationInSeconds: 15,
             labelPlacement: .pill,
             steps: [

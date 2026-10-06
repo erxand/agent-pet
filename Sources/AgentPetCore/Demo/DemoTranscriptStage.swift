@@ -46,8 +46,8 @@ package final class DemoTranscriptStage: DemoStage {
         guard isUp != screensaverIsUp else { return }
         screensaverIsUp = isUp
         write(isUp
-            ? "screensaver: up, the pets float over it and spin slowly"
-            : "screensaver: gone, the pets fall, land and walk back to their lanes")
+            ? "screensaver: up. A script runs agent-pet physics float and agent-pet input off: the pets drift and spin over it"
+            : "screensaver: gone. The script runs agent-pet physics auto and agent-pet input auto: the pets fall, land and walk back to their lanes")
     }
 
     package func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {

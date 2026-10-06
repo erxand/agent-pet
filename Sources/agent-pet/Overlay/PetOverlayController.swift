@@ -22,8 +22,12 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private let spritePackChanges = DirectoryChangeMonitor()
     private let claudeSessionChanges = DirectoryChangeMonitor()
     private var spritePackRescanGate = RescanGate()
-    private let screensaverWatcher = ScreensaverWatcher()
-    private var screensaverResponse: ScreensaverResponse = .none
+    private let appWindowWatcher = AppWindowWatcher()
+    private let stateCommandChanges = DirectoryChangeMonitor()
+    private var stateCommandRescanGate = RescanGate()
+    private var stateCommands = PetStateSettings.none
+    private var effectiveStates = PetEffectiveStates.defaults
+    private var petWindowLevel: NSWindow.Level = .screenSaver
     private var claudeSessionRescanGate = RescanGate()
     private var nextSettleDeadline: TimeInterval?
     private var lastAnimationTimestamp = Date()
@@ -49,7 +53,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     func start() {
         PetPaths.createStateDirectoriesIfNeeded()
         lastConfigurationModification = ConfigurationFile.modificationDate(of: configurationFile)
-        configureScreensaverWatcher()
+        PetStateFile.clearCommands()
+        PetStateFile.saveEffective(effectiveStates)
         reconcile(forceReload: true)
         scheduleTimers()
         observeDisplayChanges()
@@ -108,6 +113,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     func petViewDidReceiveLeftClick(sessionId petKey: String) {
+        guard acceptsInput(forPetKey: petKey) else { return }
         if let focusRequest = presencesBySessionId[petKey]?.focusRequest {
             contracts.focuser.focus(focusRequest)
         }
@@ -116,8 +122,34 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     func petViewDidReceiveRightClick(sessionId petKey: String) {
+        guard acceptsInput(forPetKey: petKey) else { return }
         hideSession(forPetKey: petKey)
         beginDive(sessionId: petKey)
+    }
+
+    private func acceptsInput(forPetKey petKey: String) -> Bool {
+        PetInputPolicy.acceptsInput(
+            input: effectiveStates.input,
+            isReturningFromSpace: presencesBySessionId[petKey].map(isReturningFromSpace) ?? false
+        )
+    }
+
+    private func isReturningFromSpace(_ presence: PetPresence) -> Bool {
+        guard let motion = presence.spaceMotion else { return false }
+        switch motion.phase {
+        case .floating: return false
+        case .falling, .walkingHome, .home: return true
+        }
+    }
+
+    private func applyInputPolicy(to presence: PetPresence) {
+        let inert = !PetInputPolicy.acceptsInput(
+            input: effectiveStates.input,
+            isReturningFromSpace: isReturningFromSpace(presence)
+        )
+        guard presence.view.isInert != inert || presence.window.ignoresMouseEvents != inert else { return }
+        presence.view.isInert = inert
+        presence.window.ignoresMouseEvents = inert
     }
 
     private func hideSession(forPetKey petKey: String) {
@@ -132,54 +164,61 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         guard modification != lastConfigurationModification else { return false }
         lastConfigurationModification = modification
         contracts = AgentPetContracts(configuration: ConfigurationFile.load(from: configurationFile), focusCompletion: .detaches)
-        configureScreensaverWatcher()
         return true
     }
 
-    private func configureScreensaverWatcher() {
-        screensaverWatcher.configure(
-            bundleIdentifiers: contracts.configuration.screensaverBundleIdentifiers,
-            simulates: contracts.configuration.simulatesScreensaver
+    private func updateStates(now: TimeInterval, forced: Bool) -> Bool {
+        if stateCommandRescanGate.shouldRescan(changeReported: changeReported(by: stateCommandChanges), forced: forced, now: now) {
+            stateCommandChanges.watch(directories: [PetStateFile.controlDirectory])
+            stateCommands = PetStateFile.loadCommands()
+        }
+        var watched = Set(contracts.configuration.fullScreenRules.flatMap { rule in rule.bundleIdentifiers })
+        if case .above(let bundleIdentifier) = stateCommands.level {
+            watched.insert(bundleIdentifier)
+        }
+        appWindowWatcher.watch(bundleIdentifiers: watched)
+        let summaries = appWindowWatcher.summaries(now: now)
+        let resolved = PetEffectiveStates.resolve(
+            commands: stateCommands,
+            trigger: PetFullScreenRule.triggered(by: contracts.configuration.fullScreenRules, summaries: summaries)
         )
-    }
-
-    private func updateScreensaverState(now: TimeInterval) -> Bool {
-        let response = ScreensaverDetection.response(
-            to: screensaverWatcher.currentCover(now: now),
-            floatsOverScreensaver: contracts.configuration.floatsOverScreensaver
-        )
-        guard response != screensaverResponse else { return false }
-        screensaverResponse = response
+        let level = NSWindow.Level(rawValue: WindowDetection.windowLevel(
+            for: resolved.level,
+            summaries: summaries,
+            petLevel: NSWindow.Level.screenSaver.rawValue,
+            shieldingLevel: Int(CGShieldingWindowLevel())
+        ))
+        let statesChanged = resolved != effectiveStates
+        guard statesChanged || level != petWindowLevel else { return false }
+        let inputTurnedOff = resolved.input == .off && effectiveStates.input == .on
+        let visibilityChanged = resolved.visibility != effectiveStates.visibility
+        effectiveStates = resolved
+        petWindowLevel = level
+        if statesChanged { PetStateFile.saveEffective(resolved) }
+        if inputTurnedOff {
+            let dropped = RunningFocusCommands.shared.cancelAll()
+            if dropped > 0 {
+                SpritePackRegistry.writeToStandardError("agent-pet: dropped \(dropped) focus command(s) in flight because input turned off")
+            }
+        }
         for presence in presencesBySessionId.values {
             presence.window.level = petWindowLevel
+            applyInputPolicy(to: presence)
         }
-        return true
-    }
-
-    private var petWindowLevel: NSWindow.Level {
-        switch screensaverResponse {
-        case .none, .hidePets:
-            return .screenSaver
-        case .floatPets(let screensaverLevel):
-            return NSWindow.Level(rawValue: ScreensaverDetection.floatingPetLevel(
-                screensaverLevel: screensaverLevel,
-                petLevel: NSWindow.Level.screenSaver.rawValue,
-                shieldingLevel: Int(CGShieldingWindowLevel())
-            ))
-        }
+        return visibilityChanged
     }
 
     private var floatsPets: Bool {
-        switch screensaverResponse {
-        case .floatPets: return true
-        case .none, .hidePets: return false
+        switch effectiveStates.physics {
+        case .float: return true
+        case .ground: return false
         }
     }
 
     private var hidesPets: Bool {
-        switch screensaverResponse {
-        case .hidePets: return true
-        case .none, .floatPets: return false
+        switch effectiveStates.visibility {
+        case .hidden: return true
+        case .shown: return false
         }
     }
 
@@ -232,9 +271,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let petSessionsChanged = rescanForced || petSessionsSignature != lastPetSessionsSignature
         lastPetSessionsSignature = petSessionsSignature
         let settleDue = nextSettleDeadline.map { deadline in now >= deadline } ?? false
-        let screensaverChanged = updateScreensaverState(now: now)
+        let visibilityChanged = updateStates(now: now, forced: rescanForced)
 
-        if petSessionsChanged || claudeSessionsChanged || settleDue || screensaverChanged {
+        if petSessionsChanged || claudeSessionsChanged || settleDue || visibilityChanged {
             applyRecords(store.list(), claudeSessions: currentClaudeSessions())
         }
     }
@@ -323,6 +362,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             petContentView: view
         )
         window.level = petWindowLevel
+        let inert = !PetInputPolicy.acceptsInput(input: effectiveStates.input, isReturningFromSpace: false)
+        view.isInert = inert
+        window.ignoresMouseEvents = inert
         window.orderFrontRegardless()
         return PetPresence(
             sessionId: sessionId,
@@ -369,6 +411,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         var submergedSessionIds: [String] = []
         for presence in presencesBySessionId.values {
+            defer { applyInputPolicy(to: presence) }
             if PetSpaceFlight.advance(
                 presence,
                 elapsedSeconds: elapsedSeconds,

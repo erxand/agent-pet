@@ -2,14 +2,13 @@ import AgentPetCore
 import AppKit
 import CoreGraphics
 
-final class ScreensaverWatcher {
+final class AppWindowWatcher {
     static let pollIntervalInSeconds: TimeInterval = 1
 
     private var bundleIdentifiers: Set<String> = []
-    private var simulates = false
-    private var matchingProcessIdentifiers: Set<Int32> = []
+    private var processIdentifiersByBundleIdentifier: [String: Set<Int32>] = [:]
     private var lastPollAt: TimeInterval?
-    private var lastCover: ScreensaverCover?
+    private var lastSummaries: [String: AppWindowSummary] = [:]
     private var observers: [NSObjectProtocol] = []
 
     init() {
@@ -29,47 +28,45 @@ final class ScreensaverWatcher {
         for observer in observers { center.removeObserver(observer) }
     }
 
-    func configure(bundleIdentifiers: [String], simulates: Bool) {
-        let identifiers = Set(bundleIdentifiers)
-        self.simulates = simulates
-        guard identifiers != self.bundleIdentifiers else { return }
-        self.bundleIdentifiers = identifiers
+    func watch(bundleIdentifiers wanted: Set<String>) {
+        guard wanted != bundleIdentifiers else { return }
+        bundleIdentifiers = wanted
         refreshRunningApplications()
     }
 
-    func currentCover(now: TimeInterval) -> ScreensaverCover? {
-        if simulates { return ScreensaverCover(windowLevel: NSWindow.Level.screenSaver.rawValue) }
-        guard !matchingProcessIdentifiers.isEmpty else {
-            lastCover = nil
-            return nil
+    func summaries(now: TimeInterval) -> [String: AppWindowSummary] {
+        guard !processIdentifiersByBundleIdentifier.isEmpty else {
+            lastSummaries = [:]
+            return [:]
         }
-        if let lastPollAt, now - lastPollAt < ScreensaverWatcher.pollIntervalInSeconds { return lastCover }
+        if let lastPollAt, now - lastPollAt < AppWindowWatcher.pollIntervalInSeconds { return lastSummaries }
         lastPollAt = now
-        lastCover = ScreensaverDetection.cover(
-            windows: ScreensaverWatcher.onScreenWindows(),
-            ownerProcessIdentifiers: matchingProcessIdentifiers,
-            displayBounds: ScreensaverWatcher.displayBounds()
+        lastSummaries = WindowDetection.summaries(
+            windows: AppWindowWatcher.onScreenWindows(),
+            processIdentifiersByBundleIdentifier: processIdentifiersByBundleIdentifier,
+            displayBounds: AppWindowWatcher.displayBounds()
         )
-        return lastCover
+        return lastSummaries
     }
 
     private func refreshRunningApplications() {
-        matchingProcessIdentifiers = Set(
-            NSWorkspace.shared.runningApplications
-                .filter { application in application.bundleIdentifier.map(bundleIdentifiers.contains) ?? false }
-                .map { application in application.processIdentifier }
-        )
+        var running: [String: Set<Int32>] = [:]
+        for application in NSWorkspace.shared.runningApplications {
+            guard let bundleIdentifier = application.bundleIdentifier, bundleIdentifiers.contains(bundleIdentifier) else { continue }
+            running[bundleIdentifier, default: []].insert(application.processIdentifier)
+        }
+        processIdentifiersByBundleIdentifier = running
         lastPollAt = nil
     }
 
-    private static func onScreenWindows() -> [ScreensaverWindow] {
+    private static func onScreenWindows() -> [AppWindow] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let descriptions = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
         return descriptions.compactMap { description in
             guard let owner = description[kCGWindowOwnerPID as String] as? Int32,
                   let boundsDictionary = description[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else { return nil }
-            return ScreensaverWindow(
+            return AppWindow(
                 ownerProcessIdentifier: owner,
                 bounds: bounds,
                 level: description[kCGWindowLayer as String] as? Int ?? 0,

@@ -18,12 +18,12 @@ agent-pet/
     Contracts/                 AgentPetConfiguration, ConfigurationFile, the contract protocols and their implementations, PetDisplayPlanner
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking, DirectoryChangeMonitor and RescanGate
-    Screensaver/               ScreensaverDetection (which window is a screensaver, what the pets do) and SpaceMotion (the float), see "Screensaver"
+    PetStates/                 PetStates (physics, input, visibility, level, their resolution and files), WindowDetection, SpaceMotion, see "Pet states"
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, SpriteAccentTint, PixelFont (nametag glyphs), TerminalSpriteRenderer
     Demo/                      DemoScript (scenes and cast), DemoRunner (timeline), DemoPlayback (clock and signals), DemoPixelFont, DemoCommand, see "Demo"
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
-    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, ScreensaverWatcher, PetSpaceFlight
+    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, AppWindowWatcher, PetSpaceFlight
     Demo/                      the demo's AppKit stage: caption and title card panels, snapshots
   Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
@@ -260,7 +260,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID \| --focus-target T \| --pid N]` | visible false |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
-| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
+| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...], "states": {...}}` (`states` is described under "Pet states") with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
 | (selection) | `hide` and `remove` act on `--session`, else on every record whose `focusTarget` is `--focus-target` (what a terminal knows about its pane), else on every record whose `pid` is `--pid` (what knows the process after a `/clear` changed its id), else on `$CLAUDE_CODE_SESSION_ID` |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
@@ -269,6 +269,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` | print one frame, recolored as a session that chose COLOR would see it (see "Accent on the sprite"), to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, N is not a frame of it, or COLOR is not an accent name |
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
+| `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -558,43 +559,88 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
   the move down rather than skipping its frames. A diving window is not re-placed, so it dives where it was even if
   `NSScreen.main` moves to another display.
 
-### Screensaver
+### Pet states
 
-Some screensavers are ordinary apps with a full screen window of their own, such as the Paramify
-Screensaver (`com.paramify.screensaver`, an `LSUIElement` app that stays running and shows its window
-when the Mac is idle). The pets used to stay drawn over it. The real macOS lock screen is a different
-thing: no app draws over it, and agent-pet never tries to.
+Four runtime states change what every pet does, whatever its session record says. They are building
+blocks for the user's own scripts: each is set from the CLI, each means something on its own, and a
+config rule can set them while an app shows a full screen window. Nothing is specific to one app.
 
-- `ScreensaverWatcher` keeps the pids of the running apps whose bundle id is in `screensaverBundleIds`
-  (default `[]`, so with no config nothing is watched and nothing changes) (from `NSWorkspace` launch and terminate notifications). While one runs, it reads
-  `CGWindowListCopyWindowInfo` (on screen only) at most once a second; with none running it reads
-  nothing. `ScreensaverDetection.cover` is the pure rule: a window of a watched pid that is on screen, has
-  an alpha above 0, and covers at least 90% of the area of an active display (`CGDisplayBounds`, the same
-  top left coordinates as the window list) is a cover, and the cover's level is the highest such window
-  layer. Owner pid, bounds, layer and alpha are in the window list without Screen Recording permission
-  (only window names are withheld), so this needs no permission. Verified 2026-10-05 from a launchd job
-  without the permission: names were missing, bounds and owners were there.
-- `ScreensaverDetection.response` turns the cover into what the pets do: no cover is `none`; a cover with
-  `floatOverScreensaver` off is `hidePets`; with it on, `floatPets`. The response is checked on every poll,
-  and a change reconciles every record.
-- `hidePets`: the planner's items are replaced by none, so every pet dives, and the records are untouched.
-  When the cover goes, the next reconcile brings the visible pets back up with an emerge.
-- `floatPets`: every pet window moves to `floatingPetLevel`, one above the cover's level and never at or
-  above `CGShieldingWindowLevel()`, so pets draw over the screensaver and never over the shielding
-  window. Each grounded pet (a pet still emerging floats once it is up) gets a `SpaceMotion` seeded by
-  its pet key, so the same pet always moves the same way. It lifts off at 24 to 48 pt/s between 30 and
-  150 degrees, drifts in a straight line and bounces off the screen edges (the whole screen frame, minus
-  half the window, and never below its ground), and spins at 0.25 to 0.6 rad/s either way. While it
-  floats, `PetView` uses a square window as wide as the diagonal of its content and draws the sprite
-  and its label rotated about the center, and the sprite plays `idle`.
-- When the cover goes, each floating pet falls: 1400 pt/s squared down, its sideways drift damped by a
-  factor of e per half second, and it turns toward upright by the short way at 3 rad/s. It lands on its
-  ground exactly upright, then walks at 40 pt/s, the normal walk speed, with `walk` frames, to its lane
-  home, and then the normal mood behavior takes over from there.
-- A pet hidden while it floats dives where it is, upright. The sprite frame clock and the bubble bob
-  run while a pet floats, so nothing jumps when it lands.
-- `simulateScreensaver: true` in the config makes the watcher report a cover at the `.screenSaver` level,
-  so the float can be tried without a screensaver. It is a development key and is not in the table below.
+| state | values | default | what it does |
+|---|---|---|---|
+| `physics` | `ground`, `float` | `ground` | `float` lifts every pet off and lets it drift and spin; back to `ground`, it falls, lands and walks to its lane |
+| `input` | `on`, `off` | `on` | `off` makes every pet inert: no click, no focus, no tooltip |
+| `visibility` | `shown`, `hidden` | `shown` | `hidden` dives every pet; the records are untouched and the pets come back up on `shown` |
+| `level` | `normal`, `above <bundle id>` | `normal` | `above` draws pets one level above that app's topmost on screen window |
+
+**Sources and precedence.** Each state has one effective value and one source: a CLI command (`cli`), else
+a matching config rule (`trigger`), else the default (`default`). A CLI command always beats a trigger.
+`agent-pet <state> auto` drops the command, so the trigger or the default applies again.
+`PetEffectiveStates.resolve(commands:trigger:)` is that rule, pure and tested.
+
+**Delivery.** `agent-pet physics float` and the other three commands read
+`~/.agent-pet/control/states.json`, change one key, and write the whole file back through a temp file
+and a rename (the file is removed when every state is `auto`). The daemon watches `control/` with a
+`DirectoryChangeMonitor` (FSEvents, the same as the sprite and session folders), so a command lands within
+about 50 ms plus one 300 ms poll, with the 5 s rescan as the fallback. A file with its own folder keeps the
+stream quiet: hook writes to `sessions/` and `hooks.log` never wake it. Two commands at the same instant
+can lose one write; that is the cost of having no lock, and scripts run one command at a time.
+
+**Transient.** The daemon deletes `control/states.json` when it starts, so a command does not survive a
+daemon restart (a crash, a launchd restart, a reboot). A state a script set is a reaction to something
+happening now, and a pet left floating or inert after a restart, with nothing left to undo it, would be
+worse than a script having to set it again. Config rules do survive, because they live in the config.
+
+**Status.** The daemon writes the effective states to `~/.agent-pet/states-effective.json` whenever they
+change. `status --json` has a `states` object, `{"physics": {"value": "float", "source": "cli"}, ...}`,
+from that file while the daemon runs, else from the commands file alone. Plain `status` prints a
+`states:` line only when some state is not its default, so with nothing set its output is as before.
+
+**The rule.** `whenFullScreen` in the config is a list of rules, each `{"bundleIds": [...], "apply":
+{...}}`, where `apply` sets any of `physics`, `input`, `visibility`, and `level` as `normal` or `above` (above
+the app that matched). A rule matches while a window of a running app with one of its bundle ids covers
+at least 90% of an active display. When several rules match, the first rule that sets a state wins it.
+When the window goes, the states it set go back to `auto`, that is to a command if one is set, else to
+the default. The default is no rules, so with no config nothing is watched and nothing changes.
+
+**Detection.** `AppWindowWatcher` keeps the pids of the running apps whose bundle id appears in a rule
+or in a `level above` command (from `NSWorkspace` launch and terminate notifications). While one of them
+runs it reads `CGWindowListCopyWindowInfo` (on screen only) at most once a second; with none running it
+reads nothing. `WindowDetection.summaries` is the pure rule: per bundle id, the highest layer of its on
+screen windows with an alpha above 0, and whether one of them covers 90% of an active display
+(`CGDisplayBounds`, in the same top left coordinates as the window list). Owner pid, bounds, layer and
+alpha are in the window list without Screen Recording permission (only window names are withheld), so
+this needs no permission. Verified 2026-10-05 from a launchd job without the permission: names were
+missing, bounds and owners were there.
+
+**Level.** `above <bundle id>` puts every pet window one level above that app's topmost on screen window,
+never below the normal pet level (`.screenSaver`) and never at or above `CGShieldingWindowLevel()`. While
+the app has no window on screen the pets keep the normal level. The real macOS lock screen is not an app
+window, no app draws over it, and agent-pet never tries to.
+
+**Physics.** With `float`, each grounded pet (a pet still emerging floats once it is up) gets a
+`SpaceMotion` seeded by its pet key, so the same pet always moves the same way. It lifts off at 24 to 48
+pt/s between 30 and 150 degrees, drifts in a straight line and bounces off the screen edges (the whole
+screen frame, minus half the window, and never below its ground), and spins at 0.25 to 0.6 rad/s either
+way. While it floats, `PetView` uses a square window as wide as the diagonal of its content and rotates
+its content view about the center, and the sprite plays `idle`. Back to `ground`, each floating pet
+falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half second, and it turns
+toward upright by the short way at 3 rad/s. It lands exactly upright, walks at 40 pt/s with `walk` frames
+to its lane home, and then the normal mood behavior takes over. A pet hidden while it floats dives where
+it is, upright. The frame clock and the bubble bob run while a pet floats, so nothing jumps when it lands.
+
+**Input.** With `input off`, and for a pet still falling or walking home from a float, a pet is inert
+(`PetInputPolicy.acceptsInput`): its window has `ignoresMouseEvents` set, so every click goes through to
+whatever is under it (a lock style app can never be interrupted by a pet, and no window it hides is
+revealed), `PetView.isInert` makes `hitTest` return nil, refuses first mouse, ignores `mouseDown` and
+`rightMouseDown` and drops the tooltip (its only tracking area), and the controller's click handlers
+check the same rule before they hide a session or run the Focuser. When `input` turns `off`, every focus
+command still running is killed (`RunningFocusCommands.cancelAll`, one line in `daemon.log`) and its
+timeout or exit report is skipped. A pet window never becomes key or main (`canBecomeKey` and
+`canBecomeMain` are false, the style is borderless, it is not movable, the collection behavior has no
+flag that takes focus), and with the mouse ignored no click can activate the app.
+
+**Visibility.** With `hidden` the planner's items are replaced by none, so every pet dives and the
+records are untouched; back to `shown`, the next reconcile brings the visible pets up with an emerge.
 
 `PetSpaceFlight` is the overlay's one driver of a `SpaceMotion`, shared by the daemon and the demo.
 
@@ -877,7 +923,7 @@ the defaults.
 | Accent inks | off: a chosen accent colors the dot, bubble and prompt bar only | the sprite's accent inks take the chosen accent too | `accentInks` |
 | Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
-| Screensaver | none watched | listed apps watched; pets hide while a window of one covers a display, or float over it | `screensaverBundleIds`, `floatOverScreensaver` |
+| Full screen rules | none | set pet states while a listed app covers a display, see "Pet states" | `whenFullScreen` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
@@ -906,8 +952,9 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
   "display": "primary",
-  "floatOverScreensaver": true,
-  "screensaverBundleIds": ["com.paramify.screensaver"]
+  "whenFullScreen": [
+    {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}
+  ]
 }
 ```
 
@@ -948,11 +995,9 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   recomputes every home on the newly chosen display. `primary` may be the better default; it stays
   `focused` so that no config keeps today's behavior, and that call is left to the maintainer.
 
-- `floatOverScreensaver` is a boolean, default `false`: what pets do while a watched screensaver window is
-  up, see "Screensaver". Off, they hide; on, they float over it.
-- `screensaverBundleIds` is a list of bundle ids, default `[]`, which watches nothing and is exactly the
-  behavior before this key. Non-string and empty entries are dropped.
-- `simulateScreensaver` is a development boolean, default `false`, see "Screensaver".
+- `whenFullScreen` is a list of rules, default `[]`, see "Pet states". A rule needs a non-empty
+  `bundleIds` list and an `apply` object with at least one known state; anything else is dropped, and so
+  are non-string and empty bundle ids and unknown state values.
 
 ## Tests
 

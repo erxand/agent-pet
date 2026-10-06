@@ -59,6 +59,13 @@ final class PetView: NSView {
     private(set) var chromeOpacity: CGFloat = 0
     private(set) var spaceRotationInRadians: CGFloat?
 
+    var isInert = false {
+        didSet {
+            guard isInert != oldValue else { return }
+            toolTip = isInert ? nil : petAppearance.message
+        }
+    }
+
     private let contentView = NSView()
     private let spriteView = PetSpriteView()
     private let labelView = PetChromePartView(part: .label)
@@ -109,7 +116,8 @@ final class PetView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        super.hitTest(point) == nil ? nil : self
+        guard !isInert else { return nil }
+        return super.hitTest(point) == nil ? nil : self
     }
 
     func update(spaceRotationInRadians rotation: CGFloat?) {
@@ -120,7 +128,7 @@ final class PetView: NSView {
 
     func update(petAppearance: PetAppearance) {
         self.petAppearance = petAppearance
-        toolTip = petAppearance.message
+        toolTip = isInert ? nil : petAppearance.message
         redrawChrome()
         layoutParts()
     }
@@ -203,14 +211,16 @@ final class PetView: NSView {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+        !isInert
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !isInert else { return }
         interactionHandler?.petViewDidReceiveLeftClick(sessionId: sessionId)
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        guard !isInert else { return }
         interactionHandler?.petViewDidReceiveRightClick(sessionId: sessionId)
     }
 
