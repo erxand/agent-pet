@@ -31,6 +31,13 @@ enum StatusCommand {
             print(row(for: session, claudeSession: claudeSession))
         }
         print("daemon pid: \(daemonDescription())")
+        let states = StatusReport.effectiveStates(daemonIsRunning: liveDaemonProcessIdentifier() != nil)
+        let stateLine = PetStateKind.allCases.compactMap { kind in
+            states[kind.rawValue].map { entry in "\(kind.rawValue) \(entry.value) (\(entry.source.rawValue))" }
+        }
+        if states.values.contains(where: { entry in entry.source != .defaultValue }) {
+            print("states: " + stateLine.joined(separator: ", "))
+        }
         return ExitCode.success
     }
 

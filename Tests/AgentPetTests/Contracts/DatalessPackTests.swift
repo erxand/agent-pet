@@ -66,6 +66,51 @@ struct DatalessPackTests {
         #expect(reports.notDownloaded("golem").count == 1)
     }
 
+    @Test func aPendingPackLoadsOnceItsFlagClearsEvenWithNoFileSystemEvent() throws {
+        let sandbox = try Sandbox()
+        try sandbox.installPack("golem")
+        try sandbox.installPack("seon")
+        let residency = Residency()
+        let reports = Reports()
+        let idle = packFile(sandbox, pack: "golem", file: "idle.txt")
+        residency.mark(idle)
+        var askedAbout: [String] = []
+        let loader = SpritePackLoader(
+            packsDirectory: sandbox.spritesDirectory,
+            extraDirectoryPaths: [],
+            homeDirectory: sandbox.home,
+            residency: FileResidency(isDataless: { fileURL in
+                askedAbout.append(fileURL.standardizedFileURL.path)
+                return residency.datalessPaths.contains(fileURL.standardizedFileURL.path)
+            })
+        )
+        let registry = SpritePackRegistry(loader: loader, reportFailure: { line in reports.lines.append(line) })
+        var gate = RescanGate(fallbackIntervalInSeconds: 5)
+        let firstScan = gate.shouldRescan(changeReported: false, forced: true, now: 0)
+        #expect(firstScan)
+        _ = registry.reloadChangedPacks()
+        #expect(registry.hasPendingDownloads)
+        #expect(registry.ownAccent(forPackNamed: "seon") == .yellow)
+        #expect(registry.ownAccent(forPackNamed: "golem") == nil)
+
+        askedAbout.removeAll()
+        #expect(!registry.pendingDownloadBecameLocal())
+        let golemDirectory = sandbox.spritesDirectory.appendingPathComponent("golem", isDirectory: true).standardizedFileURL.path
+        #expect(!askedAbout.isEmpty)
+        #expect(askedAbout.allSatisfy { path in path.hasPrefix(golemDirectory) })
+        let quietTick = gate.shouldRescan(changeReported: false, forced: false, now: 0.3)
+        #expect(!quietTick)
+
+        residency.clear()
+        let becameLocal = registry.hasPendingDownloads && registry.pendingDownloadBecameLocal()
+        #expect(becameLocal)
+        let pendingTick = gate.shouldRescan(changeReported: becameLocal, forced: false, now: 0.6)
+        #expect(pendingTick)
+        #expect(registry.reloadChangedPacks())
+        #expect(registry.ownAccent(forPackNamed: "golem") == .green)
+        #expect(!registry.hasPendingDownloads)
+    }
+
     @Test func anEvictedPackDirectoryIsNeverLookedInside() throws {
         let sandbox = try Sandbox()
         try sandbox.installPack("golem")

@@ -12,6 +12,7 @@ package final class SpritePackRegistry {
     private var packDirectoryStateByPackName: [String: PackDirectoryState] = [:]
     private var reportedDirectoryIssues: Set<String> = []
     private var undownloadedPackNames: Set<String> = []
+    private var pendingPackDirectoryByName: [String: URL] = [:]
     private var requestedRootPaths: Set<String> = []
 
     private struct TintedSheetKey: Hashable {
@@ -80,9 +81,11 @@ package final class SpritePackRegistry {
             let outcome = loader.load(packDirectory: packDirectory)
             if case .notDownloaded(let undownloaded) = outcome {
                 noteNotDownloaded(packName: packName, undownloaded: undownloaded)
+                pendingPackDirectoryByName[packName] = packDirectory
                 continue
             }
             undownloadedPackNames.remove(packName)
+            pendingPackDirectoryByName.removeValue(forKey: packName)
             packDirectoryStateByPackName[packName] = currentState
             applyOutcome(outcome, packName: packName)
             anythingChanged = true
@@ -96,7 +99,22 @@ package final class SpritePackRegistry {
             packDirectoryStateByPackName.removeValue(forKey: knownPackName)
         }
         undownloadedPackNames.formIntersection(seenPackNames)
+        pendingPackDirectoryByName = pendingPackDirectoryByName.filter { packName, _ in seenPackNames.contains(packName) }
         return anythingChanged
+    }
+
+    package var hasPendingDownloads: Bool {
+        !pendingPackDirectoryByName.isEmpty || !requestedRootPaths.isEmpty
+    }
+
+    package func pendingDownloadBecameLocal() -> Bool {
+        let rootBecameLocal = requestedRootPaths.contains { rootPath in
+            !loader.residency.isDataless(URL(fileURLWithPath: rootPath, isDirectory: true))
+        }
+        guard !rootBecameLocal else { return true }
+        return pendingPackDirectoryByName.values.contains { packDirectory in
+            loader.undownloadedFiles(inPackDirectory: packDirectory).isEmpty
+        }
     }
 
     private func noteNotDownloaded(packName: String, undownloaded: [URL]) {

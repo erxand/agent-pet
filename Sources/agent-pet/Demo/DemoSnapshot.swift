@@ -23,6 +23,7 @@ final class DemoCapturingStage: DemoStage {
     func present(states: [DemoStateMark]) { self.states = states }
     func present(cursor: DemoCursorCue?) { self.cursor = cursor }
     func present(terminal: DemoTerminalCard?) { self.terminal = terminal }
+    func present(screensaver isUp: Bool) {}
     func advance(elapsedSeconds: Double, sceneProgress: Double) {}
     func tearDown() {}
 
@@ -53,6 +54,16 @@ enum DemoSnapshot {
         static let click = "click.png"
         static let states = "states.png"
         static let terminal = "terminal.png"
+        static let spacePrefix = "space-"
+        static let pngExtension = ".png"
+    }
+
+    private enum SpaceSnapshot {
+        static let screenSize = CGSize(width: 960, height: 560)
+        static let stepInSeconds: Double = 1.0 / 30.0
+        static let petsShownAtSeconds: Double = 1
+        static let landingStartsAtSeconds: Double = 6
+        static let momentsInSeconds: [Double] = [1.5, 3.5, 5.5, 6.3, 8]
     }
 
     static func formattedSeconds(_ seconds: Double) -> String {
@@ -101,6 +112,14 @@ enum DemoSnapshot {
         }
         for (view, fileName) in composites {
             written.append(contentsOf: save(view, named: fileName, in: directory))
+        }
+        if scenes.contains(where: { scene in scene.name == .space }) {
+            let spaceViews = spaceComposites(spriteSheets: spriteSheets)
+            expectedCount += spaceViews.count
+            for (index, view) in spaceViews.enumerated() {
+                let fileName = FileName.spacePrefix + String(index + 1) + FileName.pngExtension
+                written.append(contentsOf: save(view, named: fileName, in: directory))
+            }
         }
 
         for fileURL in written {
@@ -151,6 +170,7 @@ enum DemoSnapshot {
                 spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: sheet.frameSize)
             )
             let view = PetView(sessionId: item.petKey, petAppearance: appearance)
+            view.drawSpriteWithCoreGraphics()
             let diveFrame = sheet.dive.indices.contains(1) ? sheet.dive[1] : sheet.dive.first
             if let frame = diving ? (diveFrame ?? sheet.idle.first) : sheet.idle.first {
                 view.update(
@@ -255,6 +275,53 @@ enum DemoSnapshot {
         cursor.setFrameOrigin(CGPoint(x: aim.x.rounded(), y: (aim.y - cursor.bounds.height - DemoCursorView.pixelSide).rounded()))
         backdrop.addSubview(cursor)
         return backdrop
+    }
+
+    private static func spaceComposites(spriteSheets: DemoSpriteSheets) -> [NSView] {
+        let stage = petsAt(sceneNamed: .space, seconds: SpaceSnapshot.petsShownAtSeconds)
+        let screenFrame = CGRect(origin: .zero, size: SpaceSnapshot.screenSize)
+        let templates = petViews(from: stage, spriteSheets: spriteSheets)
+        var motions = stage.pets.enumerated().map { laneIndex, item -> SpaceMotion in
+            let home = LaneLayout.homeHorizontalCenter(laneIndex: laneIndex, laneCount: stage.pets.count, screenFrame: screenFrame)
+            return SpaceMotion(
+                launchingFrom: CGPoint(x: home, y: margin + templates[laneIndex].contentSize.height / 2),
+                seed: SpaceMotion.seed(forPetKey: item.petKey)
+            )
+        }
+        var composites: [NSView] = []
+        var elapsedSeconds: Double = 0
+        for moment in SpaceSnapshot.momentsInSeconds {
+            while elapsedSeconds < moment {
+                if elapsedSeconds >= SpaceSnapshot.landingStartsAtSeconds {
+                    for index in motions.indices { motions[index].returnToGround() }
+                }
+                for (laneIndex, template) in templates.enumerated() {
+                    let home = LaneLayout.homeHorizontalCenter(laneIndex: laneIndex, laneCount: templates.count, screenFrame: screenFrame)
+                    template.update(spaceRotationInRadians: 0)
+                    let halfSide = template.preferredSize.width / 2
+                    let area = SpaceArea(
+                        lowestCenter: CGPoint(x: halfSide, y: margin + template.contentSize.height / 2),
+                        highestCenter: CGPoint(x: screenFrame.maxX - halfSide, y: screenFrame.maxY - halfSide)
+                    )
+                    motions[laneIndex].advance(elapsedSeconds: SpaceSnapshot.stepInSeconds, area: area, homeCenterX: home)
+                }
+                elapsedSeconds += SpaceSnapshot.stepInSeconds
+            }
+            let backdrop = DemoBackdropView(frame: screenFrame)
+            for (view, motion) in zip(petViews(from: stage, spriteSheets: spriteSheets), motions) {
+                view.update(spaceRotationInRadians: CGFloat(motion.rotationInRadians))
+                let size = view.preferredSize
+                view.frame = CGRect(
+                    x: (motion.center.x - size.width / 2).rounded(),
+                    y: (motion.center.y - size.height / 2).rounded(),
+                    width: size.width,
+                    height: size.height
+                )
+                backdrop.addSubview(view)
+            }
+            composites.append(backdrop)
+        }
+        return composites
     }
 
     private static func clickComposite(spriteSheets: DemoSpriteSheets) -> NSView {

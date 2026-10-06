@@ -111,6 +111,7 @@ of the repo.
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
 | `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the states scene and the terminal reveal to DIR |
+| `agent-pet demo --scene space` | an extra scene, not part of the tour: a stand-in screensaver comes up and the pets float over it, as a script would make them with `agent-pet physics float`, then they fall, land and walk home. With `--snapshot DIR` it also writes `space-1.png` to `space-5.png` |
 
 ## Configuration
 
@@ -133,7 +134,10 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "accentInks": true,
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
-  "display": "primary"
+  "display": "primary",
+  "whenFullScreen": [
+    {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}
+  ]
 }
 ```
 
@@ -151,6 +155,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `accentInks` | `false` | `true` lets a color you choose (`/pet <nickname> <color>`, `--accent`) paint part of the creature too, not only the label dot, the bubble and the prompt bar |
 | `diveOnExit` | `false` | `true` makes a stopping daemon (a launchd restart, Ctrl-C) dive its pets before it exits instead of dropping them. Read when the daemon starts |
 | `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
+| `whenFullScreen` | `[]` | rules that set pet states while an app shows a window covering a display, see "Scripting the pets" |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
 The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
@@ -183,6 +188,53 @@ beside the `/pet` skill. For a session that never enrolled, `agent-pet hook` exi
 milliseconds and writes nothing, and when both sets of hooks fire for the same event, the event
 counts once.
 
+## Scripting the pets
+
+Four states change what every pet does, and your own scripts can set them. Each is a command:
+
+| command | what it does |
+|---|---|
+| `agent-pet physics float` | every pet lifts off and drifts and spins slowly, as if in space |
+| `agent-pet physics ground` | they fall, land and walk back to their lanes (the default) |
+| `agent-pet input off` | every pet ignores the mouse: clicks go to whatever is under it, a pet never takes focus and never runs the focuser, and a focus command already running is stopped |
+| `agent-pet input on` | pets take clicks again (the default) |
+| `agent-pet visibility hidden` | every pet dives; nothing about the sessions changes |
+| `agent-pet visibility shown` | they come back up (the default) |
+| `agent-pet level above <bundle id>` | pets draw just above that app's topmost window, never above the real lock screen |
+| `agent-pet level normal` | the normal level (the default) |
+
+`auto` instead of a value (`agent-pet physics auto`) hands that state back to the config rules, or to the
+default. `agent-pet status --json` reports each state with its value and where it came from: `cli`,
+`trigger` (a config rule) or `default`. A command always beats a rule. Commands last until the daemon
+restarts; rules are in the config, so they last.
+
+The same thing can come from the config. A rule sets states while any listed app shows a window that
+covers a display, and the states go back to `auto` when the window goes. For a screensaver that runs as
+an ordinary app with a full screen window:
+
+```json
+{
+  "whenFullScreen": [
+    {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}
+  ]
+}
+```
+
+`apply` takes `physics`, `input`, `visibility`, and `level` as `normal` or `above` (above the app that
+matched). Detection reads the window list once a second while a listed app runs, and needs no
+permission. The same rule, done from a shell script that knows when the screensaver starts and stops:
+
+```sh
+#!/bin/sh
+case "$1" in
+  start) agent-pet physics float; agent-pet input off; agent-pet level above com.example.screensaver ;;
+  stop)  agent-pet physics auto;  agent-pet input auto; agent-pet level auto ;;
+esac
+```
+
+This is also the way to try the float without a screensaver: run `agent-pet physics float`, watch, then
+`agent-pet physics auto`.
+
 ## How it works
 
 There are three parts:
@@ -192,7 +244,8 @@ There are three parts:
    `~/.agent-pet/sessions/`.
 2. A launchd user agent runs the overlay daemon. It polls that directory and reconciles one
    borderless always-on-top window per record marked visible, so the record is the only thing
-   that decides whether a pet is on screen.
+   that decides whether a pet is on screen. Sprite pack folders and Claude Code session folders are
+   rescanned only when FSEvents reports a change in them, and at least every 5 seconds.
 3. A left click runs tmux `select-window`, `select-pane` and `switch-client`, then an
    AppleScript that selects the matching iTerm2 tab and brings the window forward.
 

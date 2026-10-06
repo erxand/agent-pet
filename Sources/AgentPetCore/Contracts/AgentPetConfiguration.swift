@@ -38,6 +38,7 @@ package struct AgentPetConfiguration: Equatable {
     package var divesOnExit: Bool
     package var subagentToolsKeepNeedsInput: Bool
     package var display: DisplayChoice
+    package var fullScreenRules: [PetFullScreenRule]
 
     package init(
         focuser: FocuserConfiguration,
@@ -52,7 +53,8 @@ package struct AgentPetConfiguration: Equatable {
         paintsAccentInks: Bool = false,
         divesOnExit: Bool = false,
         subagentToolsKeepNeedsInput: Bool = false,
-        display: DisplayChoice = .focused
+        display: DisplayChoice = .focused,
+        fullScreenRules: [PetFullScreenRule] = []
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -67,6 +69,7 @@ package struct AgentPetConfiguration: Equatable {
         self.divesOnExit = divesOnExit
         self.subagentToolsKeepNeedsInput = subagentToolsKeepNeedsInput
         self.display = display
+        self.fullScreenRules = fullScreenRules
     }
 }
 
@@ -120,6 +123,9 @@ package enum ConfigurationFile {
         if let display = raw.display.flatMap({ rawValue in DisplayChoice(configValue: rawValue) }) {
             configuration.display = display
         }
+        if let rules = raw.whenFullScreen {
+            configuration.fullScreenRules = rules.compactMap { rule in rule.resolved }
+        }
         return configuration
     }
 
@@ -171,6 +177,7 @@ private struct RawConfiguration: Decodable {
     let diveOnExit: Bool?
     let subagentToolsKeepNeedsInput: Bool?
     let display: String?
+    let whenFullScreen: [RawFullScreenRule]?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -186,6 +193,7 @@ private struct RawConfiguration: Decodable {
         case diveOnExit
         case subagentToolsKeepNeedsInput
         case display
+        case whenFullScreen
     }
 
     init(from decoder: Decoder) throws {
@@ -201,6 +209,7 @@ private struct RawConfiguration: Decodable {
             .filter { pattern in !pattern.isEmpty }
         colorSync = try? container.decodeIfPresent(String.self, forKey: .colorSync)
         display = try? container.decodeIfPresent(String.self, forKey: .display)
+        whenFullScreen = try? container.decodeIfPresent([RawFullScreenRule].self, forKey: .whenFullScreen)
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?
@@ -217,5 +226,55 @@ private struct LenientString: Decodable {
 
     init(from decoder: Decoder) throws {
         value = try? decoder.singleValueContainer().decode(String.self)
+    }
+}
+
+private struct RawFullScreenRule: Decodable {
+    let bundleIds: [String]
+    let apply: RawRuleStates?
+
+    enum CodingKeys: String, CodingKey {
+        case bundleIds
+        case apply
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        bundleIds = ((try? container?.decodeIfPresent([LenientString].self, forKey: .bundleIds)) ?? [])
+            .compactMap { entry in entry.value }
+            .filter { bundleIdentifier in !bundleIdentifier.isEmpty }
+        apply = try? container?.decodeIfPresent(RawRuleStates.self, forKey: .apply)
+    }
+
+    var resolved: PetFullScreenRule? {
+        guard !bundleIds.isEmpty, let apply else { return nil }
+        let rule = PetFullScreenRule(
+            bundleIdentifiers: bundleIds,
+            physics: apply.physics.flatMap { raw in PetPhysics(rawValue: raw) },
+            input: apply.input.flatMap { raw in PetInput(rawValue: raw) },
+            visibility: apply.visibility.flatMap { raw in PetVisibility(rawValue: raw) },
+            level: apply.level.flatMap { raw in PetRuleLevel(rawValue: raw) }
+        )
+        guard rule.physics != nil || rule.input != nil || rule.visibility != nil || rule.level != nil else { return nil }
+        return rule
+    }
+}
+
+private struct RawRuleStates: Decodable {
+    let physics: String?
+    let input: String?
+    let visibility: String?
+    let level: String?
+
+    enum CodingKeys: String, CodingKey {
+        case physics, input, visibility, level
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        physics = try? container.decodeIfPresent(String.self, forKey: .physics)
+        input = try? container.decodeIfPresent(String.self, forKey: .input)
+        visibility = try? container.decodeIfPresent(String.self, forKey: .visibility)
+        level = try? container.decodeIfPresent(String.self, forKey: .level)
     }
 }

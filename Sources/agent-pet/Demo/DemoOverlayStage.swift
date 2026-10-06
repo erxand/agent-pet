@@ -100,6 +100,43 @@ final class DemoSpriteSheets {
     }
 }
 
+final class DemoScreensaverBackdrop {
+    private static let fadeSecondsPerUnit: Double = 0.6
+    private static let shownAlpha: Double = 0.92
+
+    private let window: PetWindow
+    private var opacity: Double = 0
+    private(set) var isUp = true
+
+    init(screenFrame: CGRect) {
+        let view = DemoBackdropView(frame: CGRect(origin: .zero, size: screenFrame.size))
+        window = PetWindow(contentRect: screenFrame, petContentView: view)
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue - 1)
+        window.ignoresMouseEvents = true
+        window.alphaValue = 0
+        window.setFrame(screenFrame, display: true)
+        window.orderFrontRegardless()
+    }
+
+    var isGone: Bool { !isUp && opacity == 0 }
+
+    func lower() {
+        isUp = false
+    }
+
+    func advance(elapsedSeconds: Double) {
+        let step = elapsedSeconds / DemoScreensaverBackdrop.fadeSecondsPerUnit
+        opacity = isUp ? min(1, opacity + step) : max(0, opacity - step)
+        window.alphaValue = CGFloat(DemoEasing.smooth(opacity) * DemoScreensaverBackdrop.shownAlpha)
+        if isGone { close() }
+    }
+
+    func close() {
+        window.orderOut(nil)
+        window.close()
+    }
+}
+
 final class DemoOverlayStage: DemoStage {
     private static let captionBottomAboveGround: CGFloat = 150
     private static let gapAboveDaemonPets: CGFloat = 16
@@ -140,6 +177,8 @@ final class DemoOverlayStage: DemoStage {
     private var cursorGoal: CGPoint?
     private var cursorHotspot: CGPoint?
     private var cursorPressSecondsLeft: Double = 0
+    private var screensaverBackdrops: [DemoScreensaverBackdrop] = []
+    private var screensaverIsUp = false
 
     init(contracts: AgentPetContracts) {
         spriteSheets = DemoSpriteSheets(installedLoader: contracts.spritePackLoader)
@@ -159,7 +198,7 @@ final class DemoOverlayStage: DemoStage {
     }
 
     var isSettled: Bool {
-        presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty && statePanels.isEmpty
+        screensaverBackdrops.isEmpty && presencesByPetKey.isEmpty && titlePanels.isEmpty && captionPanels.isEmpty && statePanels.isEmpty
             && terminalPanels.isEmpty && cursorPanels.isEmpty
     }
 
@@ -218,6 +257,14 @@ final class DemoOverlayStage: DemoStage {
             centerX: screenFrame.midX,
             bottom: screenFrame.minY + screenFrame.height * DemoOverlayStage.titleVerticalFraction - panel.view.preferredSize.height / 2
         )
+    }
+
+    func present(screensaver isUp: Bool) {
+        guard isUp != screensaverIsUp else { return }
+        screensaverIsUp = isUp
+        for backdrop in screensaverBackdrops { backdrop.lower() }
+        guard isUp else { return }
+        screensaverBackdrops.append(DemoScreensaverBackdrop(screenFrame: OverlayScreenFrames.current(chooser: displayChooser).screenFrame))
     }
 
     func present(states: [DemoStateMark]) {
@@ -297,6 +344,8 @@ final class DemoOverlayStage: DemoStage {
         statePanels.removeAll { panel in panel.isGone }
         terminalPanels.removeAll { panel in panel.isGone }
         cursorPanels.removeAll { panel in panel.isGone }
+        for backdrop in screensaverBackdrops { backdrop.advance(elapsedSeconds: elapsedSeconds) }
+        screensaverBackdrops.removeAll { backdrop in backdrop.isGone }
         advancePets(elapsedSeconds: elapsedSeconds, screenFrame: screenFrame)
         advanceCursor(elapsedSeconds: elapsedSeconds)
     }
@@ -309,6 +358,9 @@ final class DemoOverlayStage: DemoStage {
         presencesByPetKey.removeAll()
         displayedHomeByPetKey.removeAll()
         for panel in titlePanels + captionPanels + statePanels + terminalPanels + cursorPanels { panel.close() }
+        for backdrop in screensaverBackdrops { backdrop.close() }
+        screensaverBackdrops.removeAll()
+        screensaverIsUp = false
         terminalPanels.removeAll()
         cursorPanels.removeAll()
         cursorTargetSessionId = nil
@@ -371,21 +423,25 @@ final class DemoOverlayStage: DemoStage {
     private func advancePets(elapsedSeconds: Double, screenFrame: CGRect) {
         var submergedPetKeys: [String] = []
         let easing = min(1, DemoOverlayStage.homeEasingPerSecond * CGFloat(elapsedSeconds))
+        let fullScreenFrame = OverlayScreenFrames.current(chooser: displayChooser).screenFrame
         for (petKey, presence) in presencesByPetKey {
+            let displayedHome = displayedHomeByPetKey[petKey] ?? presence.homeHorizontalCenter
+            let flying = PetSpaceFlight.advance(
+                presence,
+                elapsedSeconds: elapsedSeconds,
+                floats: screensaverIsUp,
+                screenFrame: fullScreenFrame,
+                groundBottom: ground(in: screenFrame),
+                homeCenterX: displayedHome,
+                render: { flyingPresence in self.renderSprite(for: flyingPresence) }
+            )
+            if flying { continue }
             presence.animator.advance(elapsedSeconds: elapsedSeconds, mood: presence.view.petAppearance.mood)
             if presence.animator.isSubmerged {
                 submergedPetKeys.append(petKey)
                 continue
             }
-            if let spriteImage = spriteFrames.image(for: presence) {
-                presence.view.update(
-                    spriteImage: spriteImage,
-                    bubbleVerticalOffset: presence.animator.bubbleVerticalOffset,
-                    groundOffsetFraction: CGFloat(presence.animator.groundOffsetFraction),
-                    chromeOpacity: CGFloat(presence.animator.chromeOpacity)
-                )
-            }
-            let displayedHome = displayedHomeByPetKey[petKey] ?? presence.homeHorizontalCenter
+            renderSprite(for: presence)
             let easedHome = displayedHome + (presence.homeHorizontalCenter - displayedHome) * easing
             displayedHomeByPetKey[petKey] = easedHome
             place(presence, home: easedHome, screenFrame: screenFrame)
@@ -396,6 +452,16 @@ final class DemoOverlayStage: DemoStage {
             presence.window.orderOut(nil)
             presence.window.close()
         }
+    }
+
+    private func renderSprite(for presence: PetPresence) {
+        guard let spriteImage = spriteFrames.image(for: presence) else { return }
+        presence.view.update(
+            spriteImage: spriteImage,
+            bubbleVerticalOffset: presence.animator.bubbleVerticalOffset,
+            groundOffsetFraction: CGFloat(presence.animator.groundOffsetFraction),
+            chromeOpacity: CGFloat(presence.animator.chromeOpacity)
+        )
     }
 
     private func place(_ presence: PetPresence, home: CGFloat, screenFrame: CGRect) {

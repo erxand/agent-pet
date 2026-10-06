@@ -13,6 +13,15 @@ final class PetPresence {
     var spritePackName: String
     var spriteSheet: SpriteSheet
     var spriteTint: AccentColor?
+    var spaceMotion: SpaceMotion?
+
+    var shownAnimationName: SpriteAnimationName {
+        spaceMotion?.animationName ?? animator.animationName
+    }
+
+    var shownFacingLeft: Bool {
+        spaceMotion?.facingLeft ?? animator.facingLeft
+    }
 
     init(
         sessionId: String,
