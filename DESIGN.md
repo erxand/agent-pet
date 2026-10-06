@@ -560,7 +560,7 @@ when the Mac is idle). The pets used to stay drawn over it. The real macOS lock 
 thing: no app draws over it, and agent-pet never tries to.
 
 - `ScreensaverWatcher` keeps the pids of the running apps whose bundle id is in `screensaverBundleIds`
-  (from `NSWorkspace` launch and terminate notifications). While one runs, it reads
+  (default `[]`, so with no config nothing is watched and nothing changes) (from `NSWorkspace` launch and terminate notifications). While one runs, it reads
   `CGWindowListCopyWindowInfo` (on screen only) at most once a second; with none running it reads
   nothing. `ScreensaverDetection.cover` is the pure rule: a window of a watched pid that is on screen, has
   an alpha above 0, and covers at least 90% of the area of an active display (`CGDisplayBounds`, the same
@@ -871,7 +871,7 @@ the defaults.
 | Accent inks | off: a chosen accent colors the dot, bubble and prompt bar only | the sprite's accent inks take the chosen accent too | `accentInks` |
 | Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
-| Screensaver | `com.paramify.screensaver` watched; pets hide while its window is up | pets float over it instead; `[]` watches nothing | `floatOverScreensaver`, `screensaverBundleIds` |
+| Screensaver | none watched | listed apps watched; pets hide while a window of one covers a display, or float over it | `screensaverBundleIds`, `floatOverScreensaver` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
@@ -944,8 +944,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
 
 - `floatOverScreensaver` is a boolean, default `false`: what pets do while a watched screensaver window is
   up, see "Screensaver". Off, they hide; on, they float over it.
-- `screensaverBundleIds` is a list of bundle ids, default `["com.paramify.screensaver"]`. Non-string and
-  empty entries are dropped, and `[]` watches nothing, which is exactly the behavior before this key.
+- `screensaverBundleIds` is a list of bundle ids, default `[]`, which watches nothing and is exactly the
+  behavior before this key. Non-string and empty entries are dropped.
 - `simulateScreensaver` is a development boolean, default `false`, see "Screensaver".
 
 ## Tests

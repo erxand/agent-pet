@@ -18,7 +18,7 @@ package enum LabelPlacement: String, Equatable {
 package struct AgentPetConfiguration: Equatable {
     package static let defaultSessionDirectoryPatterns = ["~/.claude/sessions"]
     package static let defaultSettleSeconds: TimeInterval = 0
-    package static let defaultScreensaverBundleIdentifiers = ["com.paramify.screensaver"]
+    package static let defaultScreensaverBundleIdentifiers: [String] = []
 
     package static let defaults = AgentPetConfiguration(
         focuser: .tmuxIterm,

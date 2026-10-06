@@ -9,10 +9,10 @@ struct ScreensaverConfigurationTests {
         ConfigurationFile.parse(Data(json.utf8))
     }
 
-    @Test func floatingIsOffAndTheParamifyScreensaverIsWatchedByDefault() {
+    @Test func floatingIsOffAndNoScreensaverIsWatchedByDefault() {
         #expect(!AgentPetConfiguration.defaults.floatsOverScreensaver)
         #expect(!AgentPetConfiguration.defaults.simulatesScreensaver)
-        #expect(AgentPetConfiguration.defaults.screensaverBundleIdentifiers == ["com.paramify.screensaver"])
+        #expect(AgentPetConfiguration.defaults.screensaverBundleIdentifiers.isEmpty)
     }
 
     @Test func theKeysAreRead() {
