@@ -2,12 +2,15 @@ import AgentPetCore
 import AppKit
 
 final class PetGround {
-    private let dockGround: DockGround
+    private let makeDockGround: () -> DockGround
+    private var dockGround: DockGround?
     private(set) var profile = GroundProfile.flat(base: PetGeometry.windowBottomInset)
     private(set) var visibleFrame = CGRect.zero
 
-    init(dockGround: DockGround) {
-        self.dockGround = dockGround
+    var watchesTheDock: Bool { dockGround != nil }
+
+    init(makeDockGround: @escaping () -> DockGround) {
+        self.makeDockGround = makeDockGround
     }
 
     func refresh(standsOnDock: Bool, screenFrames: OverlayScreenFrames, now: TimeInterval, elapsedSeconds: Double?) {
@@ -16,9 +19,11 @@ final class PetGround {
         if !standsOnDock {
             dockBar = nil
         } else if let elapsedSeconds {
-            dockBar = dockGround.bar(now: now, elapsedSeconds: elapsedSeconds)
+            let watched = dockGround ?? makeDockGround()
+            dockGround = watched
+            dockBar = watched.bar(now: now, elapsedSeconds: elapsedSeconds)
         } else {
-            dockBar = dockGround.lastBar
+            dockBar = dockGround?.lastBar
         }
         profile = GroundProfile.resolve(
             standsOnDock: standsOnDock,

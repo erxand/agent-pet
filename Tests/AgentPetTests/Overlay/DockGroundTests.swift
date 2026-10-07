@@ -413,16 +413,47 @@ struct DockGeometrySourceTests {
         #expect(estimated.minY > secondScreen.minY - 10 && estimated.maxY < secondScreen.minY + 100)
     }
 
-    @Test func magnificationNeverRaisesTheGroundAboveTheRestingDock() {
+    @Test func magnificationNeverRaisesOrWidensTheGroundPastTheRestingDock() {
         let sensing = FakeDockSensing()
         sensing.dockPreferences.magnifies = true
-        sensing.listFrame = CGRect(x: 76, y: 1033 - 60, width: 1576, height: 134)
+        sensing.listFrame = shownListFrame
         var tracker = DockTracker()
-        let magnified = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        #expect(magnified?.maxY == 79)
+        let resting = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        sensing.listFrame = CGRect(x: 30, y: 1033 - 60, width: 1668, height: 134)
+        let magnified = tracker.update(now: 0.31, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(magnified == resting)
+
+        var neverResting = DockTracker()
+        let estimatedSpan = neverResting.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(estimatedSpan?.maxY == 79)
+        #expect((estimatedSpan?.width ?? 0) < 1668 + 52)
+        #expect(abs((estimatedSpan?.midX ?? 0) - (30 + 1668 / 2)) < 0.5)
+
         sensing.dockPreferences.magnifies = false
         var plain = DockTracker()
         #expect((plain.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)?.maxY ?? 0) > 79)
+    }
+
+    @Test func theDocksDisplayComesFromItsBottomCentreSoStackedDisplaysAreToldApart() {
+        let upper = CGRect(x: 0, y: 1117, width: 1728, height: 1117)
+        let stacked = DockScreens(primaryFrame: screenFrame, allFrames: [screenFrame, upper])
+        let sensing = FakeDockSensing()
+        sensing.listFrame = CGRect(x: 76, y: -84, width: 1576, height: 74)
+        var tracker = DockTracker()
+        let bar = tracker.update(now: 0, elapsedSeconds: tick, screens: stacked, sensing: sensing)
+        #expect(bar.map { frame in frame.minY } == upper.minY + 7)
+        var reads = sensing.listFrameReads
+        sensing.pointer = CGPoint(x: 800, y: 2)
+        for index in 1...30 {
+            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: stacked, sensing: sensing)
+        }
+        #expect(sensing.listFrameReads - reads <= 4)
+        reads = sensing.listFrameReads
+        sensing.pointer = CGPoint(x: 800, y: upper.minY + 2)
+        for index in 31...60 {
+            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: stacked, sensing: sensing)
+        }
+        #expect(sensing.listFrameReads - reads == 30)
     }
 
     @Test func aSideDockGivesNoGround() {
@@ -458,18 +489,26 @@ struct PetGroundTests {
     }
 
     private func makeGround(_ sensing: FakeDockSensing) -> PetGround {
-        PetGround(dockGround: DockGround(sensing: sensing, screenFrames: { [screenFrame] }))
+        PetGround { DockGround(sensing: sensing, screenFrames: { [screenFrame] }) }
     }
 
     private func step(_ presence: PetPresence, ground: PetGround, now: Double, standsOnDock: Bool = true, sawWait: inout Bool) -> CGFloat {
         ground.refresh(standsOnDock: standsOnDock, screenFrames: screenFrames, now: now, elapsedSeconds: tick)
+        var waitedThisTick = false
         presence.animator.advance(elapsedSeconds: tick, mood: .ready) { offset in
             let allowed = ground.allowsStep(presence, toOffset: offset)
-            if presence.waitsOnJump { sawWait = true }
+            if presence.waitsOnJump { waitedThisTick = true }
             return allowed
         }
-        ground.finishStep(presence)
-        #expect(!presence.waitsOnJump)
+        if waitedThisTick {
+            sawWait = true
+            #expect(presence.animator.walkWasBlocked)
+            ground.finishStep(presence)
+            #expect(!presence.animator.walkWasBlocked)
+            #expect(!presence.waitsOnJump)
+        } else {
+            ground.finishStep(presence)
+        }
         let width = presence.view.preferredSize.width
         let center = PetGround.horizontalOrigin(
             desiredCenter: presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome,
@@ -491,6 +530,7 @@ struct PetGroundTests {
             #expect(presence.groundBody == nil)
         }
         #expect(sensing.reads == 0)
+        #expect(!ground.watchesTheDock)
         #expect(ground.profile == .flat(base: screenFrame.minY + PetGeometry.windowBottomInset))
         presence.window.close()
     }
@@ -555,5 +595,116 @@ struct PetGroundTests {
         }
         #expect(presence.groundBody?.isAirborne == false)
         presence.window.close()
+    }
+}
+
+final class FakeDockSystem: DockSystem {
+    var processChanges = 0
+    var clock: TimeInterval = 0
+    var dockProcessIdentifier: pid_t? = 100
+    var deadProcessIdentifiers: Set<pid_t> = []
+    var windowsByOwner: [pid_t: [CGWindowID]] = [100: [7]]
+    var liveWindows: [CGWindowID: DockWindowDescription] = [7: DockWindowDescription(isOnScreen: true, topLeftFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117))]
+    var listFramesByProcess: [pid_t: CGRect] = [100: shownListFrame]
+    private(set) var lookups = 0
+    private(set) var windowSearches = 0
+    private(set) var accessibilityProcessIdentifiers: [pid_t] = []
+
+    func uptime() -> TimeInterval { clock }
+
+    func lookUpDockProcessIdentifier() -> pid_t? {
+        lookups += 1
+        return dockProcessIdentifier
+    }
+
+    func isRunning(_ processIdentifier: pid_t) -> Bool {
+        !deadProcessIdentifiers.contains(processIdentifier)
+    }
+
+    func dockWindowIdentifiers(ownedBy processIdentifier: pid_t) -> [CGWindowID] {
+        windowSearches += 1
+        return windowsByOwner[processIdentifier] ?? []
+    }
+
+    func describeWindows(_ identifiers: [CGWindowID]) -> [DockWindowDescription] {
+        identifiers.compactMap { identifier in liveWindows[identifier] }
+    }
+
+    func accessibilityListFrame(processIdentifier: pid_t) -> CGRect? {
+        accessibilityProcessIdentifiers.append(processIdentifier)
+        return listFramesByProcess[processIdentifier]
+    }
+
+    func preferences() -> DockPreferences { DockPreferences(autohides: true, tileSize: 54, tileCount: 19, separatorCount: 2) }
+
+    func pointerLocation() -> CGPoint { CGPoint(x: 800, y: 600) }
+}
+
+@Suite("the system Dock sensing keeps up with the Dock process")
+struct SystemDockSensingTests {
+    @Test func aRestartedDockIsFoundWithoutRestartingTheDaemon() {
+        let system = FakeDockSystem()
+        let sensing = SystemDockSensing(system: system, accessGranted: { true })
+        #expect(sensing.accessibilityListFrame() == shownListFrame)
+        #expect(sensing.dockWindow()?.isOnScreen == true)
+
+        system.deadProcessIdentifiers = [100]
+        system.dockProcessIdentifier = nil
+        system.clock = 1
+        #expect(!sensing.dockIsRunning())
+        #expect(sensing.accessibilityListFrame() == nil)
+
+        system.dockProcessIdentifier = 200
+        system.windowsByOwner[200] = [9]
+        system.liveWindows[9] = DockWindowDescription(isOnScreen: false, topLeftFrame: nil)
+        system.listFramesByProcess[200] = hiddenListFrame
+        system.clock = 1.2
+        #expect(sensing.accessibilityListFrame() == nil)
+        system.clock = 2.3
+        #expect(sensing.accessibilityListFrame() == hiddenListFrame)
+        #expect(system.accessibilityProcessIdentifiers.last == 200)
+        #expect(sensing.dockWindow()?.isOnScreen == false)
+    }
+
+    @Test func aChangeInTheRunningApplicationsIsSeenAtOnce() {
+        let system = FakeDockSystem()
+        let sensing = SystemDockSensing(system: system, accessGranted: { true })
+        #expect(sensing.dockIsRunning())
+        let lookups = system.lookups
+        system.dockProcessIdentifier = 300
+        system.listFramesByProcess[300] = hiddenListFrame
+        system.processChanges += 1
+        #expect(sensing.accessibilityListFrame() == hiddenListFrame)
+        #expect(system.lookups == lookups + 1)
+    }
+
+    @Test func aDaemonStartedBeforeTheDockFindsItLater() {
+        let system = FakeDockSystem()
+        system.dockProcessIdentifier = nil
+        let sensing = SystemDockSensing(system: system, accessGranted: { true })
+        #expect(!sensing.dockIsRunning())
+        system.dockProcessIdentifier = 100
+        system.clock = 1.5
+        #expect(sensing.dockIsRunning())
+    }
+
+    @Test func aStaleWindowIdIsSearchedForAgainAtOnce() {
+        let system = FakeDockSystem()
+        let sensing = SystemDockSensing(system: system, accessGranted: { false })
+        #expect(sensing.dockWindow()?.isOnScreen == true)
+        #expect(system.windowSearches == 1)
+        system.liveWindows[7] = nil
+        system.windowsByOwner[100] = [8]
+        system.liveWindows[8] = DockWindowDescription(isOnScreen: false, topLeftFrame: nil)
+        system.clock = 0.1
+        #expect(sensing.dockWindow()?.isOnScreen == false)
+        #expect(system.windowSearches == 2)
+    }
+
+    @Test func withoutTheGrantTheAccessibilityApiIsNeverCalled() {
+        let system = FakeDockSystem()
+        let sensing = SystemDockSensing(system: system, accessGranted: { false })
+        #expect(sensing.accessibilityListFrame() == nil)
+        #expect(system.accessibilityProcessIdentifiers.isEmpty)
     }
 }

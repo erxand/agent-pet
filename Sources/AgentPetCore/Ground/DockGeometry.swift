@@ -188,6 +188,15 @@ package struct DockScreens: Equatable {
         self.allFrames = allFrames
     }
 
+    package func screen(underDockList listFrame: CGRect) -> CGRect? {
+        let bottomCenter = CGPoint(x: listFrame.midX, y: listFrame.minY)
+        let reach = listFrame.height + DockListFrame.shownBottomGap
+        return allFrames.first { frame in
+            bottomCenter.x >= frame.minX && bottomCenter.x <= frame.maxX
+                && bottomCenter.y >= frame.minY - reach && bottomCenter.y <= frame.minY + reach
+        }
+    }
+
     package func screen(containing topLeftWindowFrame: CGRect) -> CGRect? {
         let windowFrame = DockListFrame.appKitFrame(fromTopLeftFrame: topLeftWindowFrame, primaryScreenHeight: primaryFrame.maxY)
         let center = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
@@ -222,6 +231,7 @@ package struct DockTracker {
     package static let preferencesIntervalInSeconds: TimeInterval = 5
     package static let accessibilityGraceInSeconds: TimeInterval = 1.5
     package static let goneDepth: CGFloat = 5
+    package static let restingTolerance: CGFloat = 0.5
 
     package private(set) var bar: CGRect?
     package private(set) var source: DockBarSource?
@@ -232,6 +242,7 @@ package struct DockTracker {
     private var estimateShown = false
     private var dockScreen: CGRect?
     private var lastAccessibilityReadAt: TimeInterval?
+    private var restingSpan: ClosedRange<CGFloat>?
 
     package init() {}
 
@@ -298,8 +309,8 @@ package struct DockTracker {
         if let accessibilityFrame = sensing.accessibilityListFrame() {
             let listFrame = DockListFrame.appKitFrame(fromTopLeftFrame: accessibilityFrame, primaryScreenHeight: screens.primaryFrame.maxY)
             let drawn = inset.drawnBar(fromListFrame: listFrame)
-            bar = capped(drawn, preferences: preferences, inset: inset)
-            dockScreen = screens.allFrames.first { frame in drawn.midX >= frame.minX && drawn.midX <= frame.maxX } ?? dockScreen
+            bar = capped(drawn, preferences: preferences, inset: inset, screens: screens)
+            dockScreen = screens.screen(underDockList: listFrame) ?? dockScreen
             source = .accessibility
             slide = nil
             lastAccessibilityReadAt = now
@@ -333,10 +344,26 @@ package struct DockTracker {
         bar = inset.drawnBar(fromListFrame: listFrame)
     }
 
-    private func capped(_ drawn: CGRect, preferences: DockPreferences, inset: DockBarInset) -> CGRect {
-        guard preferences.magnifies else { return drawn }
-        var resting = drawn
-        resting.size.height = min(drawn.height, inset.restingHeight(tileSize: preferences.tileSize))
-        return resting
+    private mutating func capped(_ drawn: CGRect, preferences: DockPreferences, inset: DockBarInset, screens: DockScreens) -> CGRect {
+        let restingHeight = inset.restingHeight(tileSize: preferences.tileSize)
+        let isResting = drawn.height <= restingHeight + DockTracker.restingTolerance
+        if isResting { restingSpan = drawn.minX...drawn.maxX }
+        guard preferences.magnifies, !isResting else { return drawn }
+        let span = restingSpan ?? estimatedSpan(preferences: preferences, inset: inset, screens: screens, centeredOn: drawn.midX)
+        return CGRect(x: span.lowerBound, y: drawn.minY, width: span.upperBound - span.lowerBound, height: min(drawn.height, restingHeight))
+    }
+
+    private func estimatedSpan(
+        preferences: DockPreferences,
+        inset: DockBarInset,
+        screens: DockScreens,
+        centeredOn centerX: CGFloat
+    ) -> ClosedRange<CGFloat> {
+        let estimate = inset.drawnBar(fromListFrame: DockListFrame.estimated(
+            preferences: preferences,
+            screenFrame: dockScreen ?? screens.primaryFrame,
+            shownFraction: 1
+        ))
+        return (centerX - estimate.width / 2)...(centerX + estimate.width / 2)
     }
 }

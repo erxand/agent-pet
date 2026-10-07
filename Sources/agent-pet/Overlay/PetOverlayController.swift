@@ -38,14 +38,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var timers: [Timer] = []
     private var displayChangeObserver: NSObjectProtocol?
     private var homeScreenFrame: CGRect?
-    private let dockAccess = DockAccessReporter(
-        files: .standard,
-        access: AccessibilityDockAccess(),
-        processIdentifier: ProcessInfo.processInfo.processIdentifier
-    )
-    private lazy var ground = PetGround(dockGround: DockGround(sensing: SystemDockSensing { [weak self] in
-        self?.dockAccess.isGranted ?? false
-    }))
+    private let dockAccess: DockAccessReporter
+    private lazy var ground = PetGround { [weak self] in
+        DockGround(sensing: SystemDockSensing { self?.dockAccess.isGranted ?? false })
+    }
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
@@ -53,8 +49,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     init(
         configurationFile: URL = ConfigurationFile.path(),
         store: PetSessionStore = PetSessionStore(),
-        spritePackRegistry: SpritePackRegistry = SpritePackRegistry()
+        spritePackRegistry: SpritePackRegistry = SpritePackRegistry(),
+        dockAccess: DockAccessReporter = DockAccessReporter(
+            files: .standard,
+            access: AccessibilityDockAccess(),
+            processIdentifier: ProcessInfo.processInfo.processIdentifier
+        )
     ) {
+        self.dockAccess = dockAccess
         self.configurationFile = configurationFile
         self.store = store
         self.spritePackRegistry = spritePackRegistry
@@ -269,7 +271,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private func reconcile(forceReload: Bool) {
         guard !isShuttingDown else { return }
         let now = Date().timeIntervalSince1970
-        dockAccess.tick(now: now)
+        dockAccess.tick()
         let configurationChanged = reloadConfigurationIfChanged()
         let rescanForced = configurationChanged || forceReload
         let pendingPackIsLocal = spritePackRegistry.hasPendingDownloads && spritePackRegistry.pendingDownloadBecameLocal()

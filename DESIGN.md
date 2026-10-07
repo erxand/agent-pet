@@ -462,7 +462,8 @@ crash left every later hook updating records that nothing drew.
   daemon is left alone. A kickstart of a service that was booted out fails with "could not find
   service", so a failed kickstart is followed by `launchctl bootstrap gui/<uid> <plist>`, which
   loads the agent and starts it through `RunAtLoad`. When the plist is missing, fall back to the
-  old detached spawn, guarded by the liveness check on `daemon.pid`.
+  old detached spawn, guarded by the liveness check on `daemon.pid`. The spawn disclaims responsibility
+  where macOS allows it, so the daemon is not judged by the terminal that ran the command (see "Who is asked").
 - Every path that shows a pet ensures the daemon: `on`, `show`, `preview`, and the `hook` command
   on `Stop` and on a `Notification` of type `permission_prompt` or `agent_needs_input`. The hook
   ensures only after `PetTurnState.show` reports that the record exists and is enabled, so a
@@ -710,31 +711,50 @@ pure, driven by a `DockSensing`) decides when to read and turns readings into th
   overlay's main thread.
 - A read that fails keeps the last real frame for 1.5 s (`DockTracker.accessibilityGraceInSeconds`) before the
   estimate takes over, so one bad read never moves the ground.
-- No Dock process means no ground. The Dock's pid is cached and kept current by `NSWorkspace` launch and terminate
-  notifications; while there is none, the last bar is lowered out of sight, so pets standing on it fall, and nothing
-  is read.
+- No Dock process means no ground. The Dock is an `LSUIElement` app, so `NSWorkspace` posts no launch or terminate
+  notification for it. Its pid is cached, re-checked every 0.5 s (`NSRunningApplication(processIdentifier:)`, still
+  the Dock and not terminated), looked up again at once when key-value observing of
+  `NSWorkspace.shared.runningApplications` reports a change, and looked up at most once a second while there is
+  none, so a Dock that restarts (`killall Dock`, a crash) or starts after the daemon is found without a daemon
+  restart. A new pid drops the cached Accessibility elements and window ids. While there is no Dock, the last bar is
+  lowered out of sight, so pets standing on it fall, and nothing else is read.
 - Without the grant, it never asks. It reads the shown flag of the Dock's layer 20 window, autohide or not (the
   window is on screen only while the Dock is shown, so a full screen Space with no Dock is flat ground), and takes
   the Dock's display from that window's bounds, which cover the whole display it is on. The window ids are looked
-  up once (again every 2 s while none is known) and then described by id, so no read lists every window. The bar
+  up once (again every 2 s while none is known, and at once when a cached id no longer describes a window) and then
+  described by id, so no read lists every window. The bar
   is estimated from `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents
   and other items, plus Finder and Trash, centered on that display. `DockSlide` eases it in over 0.23 s and out over
   0.2 s. Minimized windows and folder stacks are not counted, so the estimate can be shorter than the real bar.
-- With `magnification` on, the bar's top is capped at the resting height for the tile size, so hovering the icons
-  never lifts the ground.
+- With `magnification` on, a bar taller than the resting height for the tile size is cut back to that height and to
+  the last resting span (or, before one was seen, the estimated width centred on it), so hovering the icons never
+  lifts or widens the ground.
 - Preferences are read every 5 s. The Dock is read every 0.3 s while idle, and every tick (30 Hz) while the pointer
   is in the band over the Dock (its span plus 40 pt each side, tile size plus 50 pt deep, on the Dock's display),
   for 0.6 s after a change, and while an estimate slides.
 - A left or right Dock gives no ground (the profile stays flat). The Accessibility frame is wherever the Dock really
-  is, and the profile checks it against the pets' display.
+  is: its display is the one under the list's bottom centre, on both axes, so displays stacked above each other are
+  told apart; the profile then checks the bar against the pets' display.
+- With `dockGround` off, the overlay builds no Dock sensing at all: no observers, no reads. Only the access reporter
+  below runs, at one file check per 0.3 s poll and one trust check every 5 s, so `dock-access` still answers.
 
-**Who is asked.** macOS judges Accessibility by the process that asks and, for a command started from a terminal,
-by that terminal. So the daemon is the authority: `DockAccessReporter` checks `AXIsProcessTrusted` every 5 s (and at
-start) and writes `dock-access.json` (`granted`, the daemon's pid, when it checked, and when it last asked) when the
-answer changes. `agent-pet dock-access` reads that file and trusts it only when its pid is the running daemon's.
-`agent-pet dock-access --ask` is the only path that asks: it leaves a request in `control/`, and the daemon, on its
-next 0.3 s poll, calls `AXIsProcessTrustedWithOptions` with the prompt itself and writes the answer. A grant belongs
-to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
+**Who is asked.** macOS judges Accessibility by the process that asks and, for a process a terminal started, by that
+terminal. So the daemon is the authority: `DockAccessReporter` checks `AXIsProcessTrusted` at start and every 5 s
+and writes `dock-access.json` (`granted`, the daemon's pid, `checkedAt`, `askedAt`, `askNonce`) when the answer
+changes, when the file is missing, or when it names another pid. `agent-pet dock-access` reads that file and trusts
+it only when its pid is the running daemon's. `agent-pet dock-access --ask` is the only path that asks:
+
+- It starts the daemon through `launchctl` when the launch agent is installed. Otherwise it spawns it with
+  `posix_spawn` and its responsibility disclaimed (`responsibility_spawnattrs_setdisclaim`, looked up at run time),
+  so macOS judges the daemon by its own signature; when that is not available, or a daemon is already running
+  without the launch agent, it says on stderr that the grant shown may be the launching app's.
+- It writes a random nonce to `control/dock-access-ask`, or joins a nonce already waiting there, and waits up to 3 s
+  for a report that echoes it. The daemon, on its next 0.3 s poll, consumes the request, calls
+  `AXIsProcessTrustedWithOptions` with the prompt, stamps `askedAt` after that call returns and writes the report
+  with the nonce. A request within 10 s of the last prompt is answered from `AXIsProcessTrusted` with no second
+  prompt.
+
+A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
 
 **Animations.** A pet in the air plays `jump` while it rises (a jump, or the spring) and `fall` while it comes
 down: off the Dock, off an edge, after the spring, and in a float when `physics` goes back to `ground`. Both are

@@ -24,12 +24,14 @@ package struct DockAccessReport: Codable, Equatable {
     package let processIdentifier: Int32
     package let checkedAt: TimeInterval
     package let askedAt: TimeInterval?
+    package let askNonce: String?
 
-    package init(granted: Bool, processIdentifier: Int32, checkedAt: TimeInterval, askedAt: TimeInterval?) {
+    package init(granted: Bool, processIdentifier: Int32, checkedAt: TimeInterval, askedAt: TimeInterval?, askNonce: String? = nil) {
         self.granted = granted
         self.processIdentifier = processIdentifier
         self.checkedAt = checkedAt
         self.askedAt = askedAt
+        self.askNonce = askNonce
     }
 }
 
@@ -62,51 +64,85 @@ package struct DockAccessFiles {
         PetStateFile.writeAtomically(payload, to: reportFile)
     }
 
-    @discardableResult
-    package func writeRequest() -> Bool {
-        PetStateFile.writeAtomically(Data(), to: requestFile)
+    package func pendingRequestNonce() -> String? {
+        guard let payload = try? Data(contentsOf: requestFile) else { return nil }
+        let nonce = String(decoding: payload, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return nonce.isEmpty ? nil : nonce
     }
 
-    package func consumeRequest() -> Bool {
-        guard FileManager.default.fileExists(atPath: requestFile.path) else { return false }
+    @discardableResult
+    package func writeRequest(nonce: String) -> Bool {
+        PetStateFile.writeAtomically(Data(nonce.utf8), to: requestFile)
+    }
+
+    package func consumeRequest() -> String? {
+        guard FileManager.default.fileExists(atPath: requestFile.path) else { return nil }
+        let nonce = pendingRequestNonce() ?? ""
         try? FileManager.default.removeItem(at: requestFile)
-        return true
+        return nonce
     }
 }
 
 package final class DockAccessReporter {
     package static let checkIntervalInSeconds: TimeInterval = 5
+    package static let askCooldownInSeconds: TimeInterval = 10
 
     private let files: DockAccessFiles
     private let access: DockAccessChecking
     private let processIdentifier: Int32
+    private let clock: () -> TimeInterval
     private var lastCheckAt: TimeInterval?
     private var lastWritten: Bool?
+    private var lastAskAt: TimeInterval?
 
     package private(set) var isGranted = false
 
-    package init(files: DockAccessFiles, access: DockAccessChecking, processIdentifier: Int32) {
+    package init(
+        files: DockAccessFiles,
+        access: DockAccessChecking,
+        processIdentifier: Int32,
+        clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }
+    ) {
         self.files = files
         self.access = access
         self.processIdentifier = processIdentifier
+        self.clock = clock
     }
 
-    package func tick(now: TimeInterval) {
-        if files.consumeRequest() {
-            isGranted = access.ask()
-            lastCheckAt = now
-            write(now: now, askedAt: now)
+    package func tick() {
+        let now = clock()
+        if let nonce = files.consumeRequest() {
+            answer(nonce: nonce, now: now)
             return
         }
         if let lastCheckAt, now - lastCheckAt < DockAccessReporter.checkIntervalInSeconds { return }
         lastCheckAt = now
         isGranted = access.isGranted()
-        guard lastWritten != isGranted else { return }
-        write(now: now, askedAt: nil)
+        guard lastWritten != isGranted || files.loadReport()?.processIdentifier != processIdentifier else { return }
+        write(checkedAt: now, askedAt: nil, nonce: nil)
     }
 
-    private func write(now: TimeInterval, askedAt: TimeInterval?) {
-        files.save(DockAccessReport(granted: isGranted, processIdentifier: processIdentifier, checkedAt: now, askedAt: askedAt))
+    private func answer(nonce: String, now: TimeInterval) {
+        let recentlyAsked = lastAskAt.map { askedAt in now - askedAt < DockAccessReporter.askCooldownInSeconds } ?? false
+        if recentlyAsked {
+            isGranted = access.isGranted()
+        } else {
+            isGranted = access.ask()
+            lastAskAt = now
+        }
+        let answeredAt = clock()
+        lastCheckAt = answeredAt
+        write(checkedAt: answeredAt, askedAt: answeredAt, nonce: nonce)
+    }
+
+    private func write(checkedAt: TimeInterval, askedAt: TimeInterval?, nonce: String?) {
+        files.save(DockAccessReport(
+            granted: isGranted,
+            processIdentifier: processIdentifier,
+            checkedAt: checkedAt,
+            askedAt: askedAt,
+            askNonce: nonce
+        ))
         lastWritten = isGranted
     }
 }
@@ -122,7 +158,8 @@ enum DockAccessCommand {
     struct Environment {
         var files: DockAccessFiles
         var liveDaemonProcessIdentifier: () -> Int32?
-        var ensureDaemon: () -> Void
+        var startDaemon: () -> DaemonStart
+        var makeNonce: () -> String
         var now: () -> TimeInterval
         var sleep: (TimeInterval) -> Void
 
@@ -134,7 +171,8 @@ enum DockAccessCommand {
                           ProcessLiveness.isAlive(processIdentifier: recorded) else { return nil }
                     return recorded
                 },
-                ensureDaemon: DaemonCommand.ensureRunning,
+                startDaemon: DaemonCommand.ensureRunningOnItsOwn,
+                makeNonce: { UUID().uuidString },
                 now: { Date().timeIntervalSince1970 },
                 sleep: { seconds in Thread.sleep(forTimeInterval: seconds) }
             )
@@ -158,18 +196,31 @@ enum DockAccessCommand {
     }
 
     private static func ask(environment: Environment) -> Int32 {
-        environment.ensureDaemon()
-        let requestedAt = environment.now()
-        guard environment.files.writeRequest() else {
-            CommandFeedback.writeToStandardError("cannot write \(environment.files.requestFile.path).")
-            return ExitCode.failure
+        let start = environment.startDaemon()
+        switch start {
+        case .launchAgent, .spawnedOnItsOwn:
+            break
+        case .alreadyRunningWithoutLaunchAgent, .spawnedByThisCommand:
+            CommandFeedback.writeToStandardError(
+                "no launch agent runs the daemon, so macOS may show and record this grant for the app that started it."
+            )
         }
-        let deadline = requestedAt + answerWaitInSeconds
+        let nonce: String
+        if let pending = environment.files.pendingRequestNonce() {
+            nonce = pending
+        } else {
+            nonce = environment.makeNonce()
+            guard environment.files.writeRequest(nonce: nonce) else {
+                CommandFeedback.writeToStandardError("cannot write \(environment.files.requestFile.path).")
+                return ExitCode.failure
+            }
+        }
+        let deadline = environment.now() + answerWaitInSeconds
         while environment.now() < deadline {
             if let daemon = environment.liveDaemonProcessIdentifier(),
                let report = environment.files.loadReport(),
                report.processIdentifier == daemon,
-               let askedAt = report.askedAt, askedAt > requestedAt {
+               report.askNonce == nonce {
                 return answer(report.granted, asked: true)
             }
             environment.sleep(answerPollInSeconds)
