@@ -83,6 +83,92 @@ enum PetBubbleSymbol: String {
 
 enum LaneLayout {
     static let wanderHalfWidth: CGFloat = 120
+    static let bodyWidthFraction: CGFloat = 0.6
+    static let laneSpacingFraction: CGFloat = 0.9
+
+    private struct PlacedPet {
+        let index: Int
+        let center: CGFloat
+    }
+
+    static func laneCenters(count: Int, screenFrame: CGRect) -> [CGFloat] {
+        (0..<count).map { laneIndex in
+            homeHorizontalCenter(laneIndex: laneIndex, laneCount: count, screenFrame: screenFrame)
+        }
+    }
+
+    static let neighbourPadding: CGFloat = 8
+
+    static func laneSpacing(laneCount: Int, screenFrame: CGRect) -> CGFloat {
+        screenFrame.width / CGFloat(max(laneCount, 1) + 1)
+    }
+
+    static func minimumGroundGap(widestPet: CGFloat, laneCount: Int, screenFrame: CGRect) -> CGFloat {
+        min(widestPet + neighbourPadding, laneSpacing(laneCount: laneCount, screenFrame: screenFrame) * laneSpacingFraction)
+    }
+
+    static func maximumPetWidth(laneCount: Int, screenFrame: CGRect) -> CGFloat {
+        laneSpacing(laneCount: laneCount, screenFrame: screenFrame) * laneSpacingFraction - neighbourPadding
+    }
+
+    static func allowsStep(from current: CGFloat, to next: CGFloat, neighbour: CGFloat, minimumGap: CGFloat) -> Bool {
+        let side = current - neighbour
+        if side != 0 && (next - neighbour) * side <= 0 { return false }
+        let nextDistance = abs(next - neighbour)
+        return !(nextDistance < minimumGap && nextDistance < abs(side))
+    }
+
+    static func wanderHalfWidth(laneCount: Int, screenFrame: CGRect, minimumGap: CGFloat) -> CGFloat {
+        let spacing = laneSpacing(laneCount: laneCount, screenFrame: screenFrame)
+        return min(wanderHalfWidth, max(0, (spacing - minimumGap) / 2))
+    }
+
+    static func assignedLanes(currentCenters: [CGFloat?], laneCenters: [CGFloat]) -> [Int] {
+        var placed: [PlacedPet] = []
+        for (index, center) in currentCenters.enumerated() {
+            guard let center else { continue }
+            placed.append(PlacedPet(index: index, center: center))
+        }
+        placed.sort { left, right in
+            left.center == right.center ? left.index < right.index : left.center < right.center
+        }
+        let laneCount = laneCenters.count
+        guard placed.count <= laneCount else { return Array(0..<currentCenters.count) }
+        let unreachable = CGFloat.greatestFiniteMagnitude
+        var cost = Array(repeating: Array(repeating: unreachable, count: laneCount + 1), count: placed.count + 1)
+        var tookLane = Array(repeating: Array(repeating: false, count: laneCount + 1), count: placed.count + 1)
+        for lane in 0...laneCount { cost[0][lane] = 0 }
+        for pet in stride(from: 1, through: placed.count, by: 1) {
+            for lane in stride(from: pet, through: laneCount, by: 1) {
+                let skipping: CGFloat = cost[pet][lane - 1]
+                let distance: CGFloat = abs(placed[pet - 1].center - laneCenters[lane - 1])
+                let taking: CGFloat = cost[pet - 1][lane - 1] + distance
+                if taking <= skipping {
+                    cost[pet][lane] = taking
+                    tookLane[pet][lane] = true
+                } else {
+                    cost[pet][lane] = skipping
+                }
+            }
+        }
+        var lanes = Array(repeating: -1, count: currentCenters.count)
+        var usedLanes = Set<Int>()
+        var pet = placed.count
+        var lane = laneCount
+        while pet > 0 {
+            if tookLane[pet][lane] {
+                lanes[placed[pet - 1].index] = lane - 1
+                usedLanes.insert(lane - 1)
+                pet -= 1
+            }
+            lane -= 1
+        }
+        var freeLanes = (0..<laneCount).filter { lane in !usedLanes.contains(lane) }.makeIterator()
+        for index in lanes.indices where lanes[index] < 0 {
+            lanes[index] = freeLanes.next() ?? index
+        }
+        return lanes
+    }
 
     static func homeHorizontalCenter(laneIndex: Int, laneCount: Int, screenFrame: CGRect) -> CGFloat {
         guard laneCount > 0 else { return screenFrame.midX }

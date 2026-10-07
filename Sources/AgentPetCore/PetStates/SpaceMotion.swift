@@ -43,6 +43,9 @@ package struct SpaceMotion: Equatable {
     package static let fallDriftDampingPerSecond: CGFloat = 2
     package static let uprightRadiansPerSecond: Double = 3
     package static let walkSpeedInPointsPerSecond: CGFloat = 40
+    package static let bounceRestitution: CGFloat = 0.97
+    package static let cruiseRecoveryPerSecond: Double = 0.5
+    package static let maximumBounceSpeed: CGFloat = 72
     private static let fullTurn = Double.pi * 2
 
     package private(set) var center: CGPoint
@@ -51,6 +54,7 @@ package struct SpaceMotion: Equatable {
     package private(set) var spinRadiansPerSecond: Double
     package private(set) var phase: SpacePhase = .floating
     package private(set) var facingLeft: Bool
+    package private(set) var cruiseSpeed: CGFloat
 
     package init(launchingFrom center: CGPoint, seed: UInt64, facingLeft: Bool = false) {
         var generator = SeededGenerator(seed: seed)
@@ -65,6 +69,7 @@ package struct SpaceMotion: Equatable {
         velocity = CGVector(dx: speed * CGFloat(cos(angle)), dy: speed * CGFloat(sin(angle)))
         spinRadiansPerSecond = spinsClockwise ? -spin : spin
         self.facingLeft = facingLeft
+        cruiseSpeed = speed
     }
 
     package static func seed(forPetKey petKey: String) -> UInt64 {
@@ -108,6 +113,7 @@ package struct SpaceMotion: Equatable {
     }
 
     private mutating func drift(elapsedSeconds: Double, area: SpaceArea) {
+        easeTowardCruiseSpeed(elapsedSeconds: elapsedSeconds)
         let seconds = CGFloat(elapsedSeconds)
         var next = CGPoint(x: center.x + velocity.dx * seconds, y: center.y + velocity.dy * seconds)
         if next.x < area.lowestCenter.x || next.x > area.highestCenter.x {
@@ -151,6 +157,49 @@ package struct SpaceMotion: Equatable {
         }
         facingLeft = remaining < 0
         center.x += remaining < 0 ? -step : step
+    }
+
+    package static func collide(_ motions: inout [SpaceMotion], minimumDistance: (Int, Int) -> CGFloat) {
+        for first in motions.indices {
+            for second in motions.indices where second > first {
+                var other = motions[second]
+                motions[first].bounce(off: &other, minimumDistance: minimumDistance(first, second))
+                motions[second] = other
+            }
+        }
+    }
+
+    package mutating func bounce(off other: inout SpaceMotion, minimumDistance: CGFloat) {
+        guard phase == .floating, other.phase == .floating else { return }
+        let offset = CGVector(dx: other.center.x - center.x, dy: other.center.y - center.y)
+        let distance = hypot(offset.dx, offset.dy)
+        guard distance > 0, distance < minimumDistance else { return }
+        let normal = CGVector(dx: offset.dx / distance, dy: offset.dy / distance)
+        let push = (minimumDistance - distance) / 2
+        center = CGPoint(x: center.x - normal.dx * push, y: center.y - normal.dy * push)
+        other.center = CGPoint(x: other.center.x + normal.dx * push, y: other.center.y + normal.dy * push)
+        let approachSpeed = (velocity.dx - other.velocity.dx) * normal.dx + (velocity.dy - other.velocity.dy) * normal.dy
+        guard approachSpeed > 0 else { return }
+        let impulse = approachSpeed * (1 + SpaceMotion.bounceRestitution) / 2
+        velocity = SpaceMotion.capped(CGVector(dx: velocity.dx - impulse * normal.dx, dy: velocity.dy - impulse * normal.dy))
+        other.velocity = SpaceMotion.capped(
+            CGVector(dx: other.velocity.dx + impulse * normal.dx, dy: other.velocity.dy + impulse * normal.dy)
+        )
+    }
+
+    private mutating func easeTowardCruiseSpeed(elapsedSeconds: Double) {
+        let speed = hypot(velocity.dx, velocity.dy)
+        guard speed > 0, speed != cruiseSpeed else { return }
+        let blend = CGFloat(1 - exp(-SpaceMotion.cruiseRecoveryPerSecond * elapsedSeconds))
+        let scale = (speed + (cruiseSpeed - speed) * blend) / speed
+        velocity = CGVector(dx: velocity.dx * scale, dy: velocity.dy * scale)
+    }
+
+    private static func capped(_ velocity: CGVector) -> CGVector {
+        let speed = hypot(velocity.dx, velocity.dy)
+        guard speed > maximumBounceSpeed else { return velocity }
+        let scale = maximumBounceSpeed / speed
+        return CGVector(dx: velocity.dx * scale, dy: velocity.dy * scale)
     }
 
     package static func turnedTowardUpright(_ rotation: Double, byAtMost maximumTurn: Double) -> Double {

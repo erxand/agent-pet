@@ -10,7 +10,7 @@ enum PetGroundPhase {
 
 final class PetAnimator {
     private static let framesPerSecond: Double = 8
-    private static let walkSpeedInPointsPerSecond: CGFloat = 40
+    static let walkSpeedInPointsPerSecond: CGFloat = 40
     private static let emergeDurationInSeconds: Double = 0.45
     private static let emergeChromeFadeInDurationInSeconds: Double = 0.15
     private static let diveChromeFadeOutDurationInSeconds: Double = 0.1
@@ -36,12 +36,15 @@ final class PetAnimator {
     private(set) var groundOffsetFraction: Double = PetAnimator.fullyUnderground
     private(set) var chromeOpacity: Double = PetAnimator.transparentChrome
     private(set) var groundAnimationProgress: Double = 0
+    private(set) var isWalkingHome = false
+    private(set) var wanderHalfWidth: CGFloat = LaneLayout.wanderHalfWidth
 
     private var frameClockInSeconds: Double = 0
     private var remainingActivityInSeconds: Double = 0
     private var bubblePhaseInSeconds: Double = 0
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
+    private var walkWasBlocked = false
     private var diveStartGroundOffsetFraction: Double = PetAnimator.fullyAboveGround
     private var diveStartChromeOpacity: Double = PetAnimator.opaqueChrome
 
@@ -88,7 +91,11 @@ final class PetAnimator {
         }
     }
 
-    func advance(elapsedSeconds unclampedElapsedSeconds: Double, mood: PetMood) {
+    func advance(
+        elapsedSeconds unclampedElapsedSeconds: Double,
+        mood: PetMood,
+        canMoveTo: (CGFloat) -> Bool = { _ in true }
+    ) {
         let elapsedSeconds = playsGroundAnimationOnce
             ? min(unclampedElapsedSeconds, PetAnimator.maximumGroundStepInSeconds)
             : unclampedElapsedSeconds
@@ -99,7 +106,11 @@ final class PetAnimator {
         case .emerging:
             advanceEmerging(elapsedSeconds: elapsedSeconds)
         case .grounded:
-            advanceMoodBehavior(elapsedSeconds: elapsedSeconds, mood: mood)
+            if isWalkingHome {
+                walkHome(elapsedSeconds: elapsedSeconds, mood: mood, canMoveTo: canMoveTo)
+            } else {
+                advanceMoodBehavior(elapsedSeconds: elapsedSeconds, mood: mood, canMoveTo: canMoveTo)
+            }
         case .diving:
             advanceDiving(elapsedSeconds: elapsedSeconds)
         case .submerged:
@@ -114,7 +125,31 @@ final class PetAnimator {
 
     func resumeGrounded(horizontalOffsetFromHome offset: CGFloat) {
         horizontalOffsetFromHome = offset
+        isWalkingHome = abs(offset) > 0
         beginWalking()
+    }
+
+    func limitWander(to halfWidth: CGFloat) {
+        wanderHalfWidth = max(0, halfWidth)
+        if abs(horizontalOffsetFromHome) > wanderHalfWidth { isWalkingHome = true }
+    }
+
+    func walkHomeNow() {
+        guard horizontalOffsetFromHome != 0 else { return }
+        isWalkingHome = true
+    }
+
+    func stand(atHorizontalOffsetFromHome offset: CGFloat) {
+        horizontalOffsetFromHome = offset
+        isWalkingHome = abs(offset) > wanderHalfWidth
+    }
+
+    func moveHome(by shift: CGFloat) {
+        guard shift != 0 else { return }
+        horizontalOffsetFromHome -= shift
+        if abs(horizontalOffsetFromHome) > wanderHalfWidth {
+            isWalkingHome = true
+        }
     }
 
     var isGrounded: Bool {
@@ -192,10 +227,10 @@ final class PetAnimator {
         submerge()
     }
 
-    private func advanceMoodBehavior(elapsedSeconds: Double, mood: PetMood) {
+    private func advanceMoodBehavior(elapsedSeconds: Double, mood: PetMood, canMoveTo: (CGFloat) -> Bool) {
         switch mood {
         case .ready:
-            advanceWandering(elapsedSeconds: elapsedSeconds)
+            advanceWandering(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
         case .needsInput:
             settle(on: .idle)
         case .blocked:
@@ -218,11 +253,31 @@ final class PetAnimator {
         bubbleVerticalOffset = CGFloat(normalizedWave) * PetGeometry.bubbleBobAmplitude
     }
 
-    private func advanceWandering(elapsedSeconds: Double) {
+    private func walkHome(elapsedSeconds: Double, mood: PetMood, canMoveTo: (CGFloat) -> Bool) {
+        if animationName != .walk {
+            animationName = .walk
+            frameTick = 0
+        }
+        let step = PetAnimator.walkSpeedInPointsPerSecond * CGFloat(elapsedSeconds)
+        walkDirection = horizontalOffsetFromHome > 0 ? -1 : 1
+        facingLeft = walkDirection < 0
+        let arrives = abs(horizontalOffsetFromHome) <= step
+        let next = arrives ? 0 : horizontalOffsetFromHome + walkDirection * step
+        guard canMoveTo(next) else { return }
+        horizontalOffsetFromHome = next
+        guard arrives else { return }
+        isWalkingHome = false
+        switch mood {
+        case .ready: beginResting()
+        case .needsInput, .blocked: break
+        }
+    }
+
+    private func advanceWandering(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
         remainingActivityInSeconds -= elapsedSeconds
         switch animationName {
         case .walk:
-            walk(elapsedSeconds: elapsedSeconds)
+            walk(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
             if remainingActivityInSeconds <= 0 { beginResting() }
         case .idle, .wave:
             if remainingActivityInSeconds <= 0 { beginWalking() }
@@ -240,6 +295,10 @@ final class PetAnimator {
     }
 
     private func beginWalking() {
+        if walkWasBlocked {
+            walkWasBlocked = false
+            turnAround()
+        }
         animationName = .walk
         frameTick = 0
         remainingActivityInSeconds = Double.random(
@@ -260,17 +319,24 @@ final class PetAnimator {
         )
     }
 
-    private func walk(elapsedSeconds: Double) {
-        horizontalOffsetFromHome += walkDirection
+    private func walk(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
+        var next = horizontalOffsetFromHome + walkDirection
             * PetAnimator.walkSpeedInPointsPerSecond
             * CGFloat(elapsedSeconds)
-        if horizontalOffsetFromHome > LaneLayout.wanderHalfWidth {
-            horizontalOffsetFromHome = LaneLayout.wanderHalfWidth
-            turnAround()
-        } else if horizontalOffsetFromHome < -LaneLayout.wanderHalfWidth {
-            horizontalOffsetFromHome = -LaneLayout.wanderHalfWidth
-            turnAround()
+        var turns = false
+        if next > wanderHalfWidth {
+            next = wanderHalfWidth
+            turns = true
+        } else if next < -wanderHalfWidth {
+            next = -wanderHalfWidth
+            turns = true
         }
+        guard canMoveTo(next) else {
+            walkWasBlocked = true
+            return
+        }
+        horizontalOffsetFromHome = next
+        if turns { turnAround() }
     }
 
     private func turnAround() {

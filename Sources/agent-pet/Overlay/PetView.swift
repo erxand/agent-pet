@@ -10,16 +10,110 @@ struct PetAppearance {
     let labelPlacement: LabelPlacement
     let spriteSideLength: CGFloat
 
-    func withResolvedLabel(_ resolvedLabel: String) -> PetAppearance {
-        PetAppearance(
-            label: resolvedLabel,
+}
+
+extension PetAppearance {
+    func fitted(toWidth maximumWidth: CGFloat) -> PetAppearance {
+        let fittedLabel = PetAppearance.shortened(label) { text in
+            text.count <= PetGeometry.labelCharacterLimit
+                && PetView.labelWidth(for: text, placement: labelPlacement) <= maximumWidth
+        }
+        let symbol = PetBubbleSymbol.forMood(mood)
+        let fittedCaption = bubbleCaption.map { caption in
+            PetAppearance.shortened(caption) { text in
+                text.count <= PetGeometry.labelCharacterLimit
+                    && PetView.bubbleWidth(symbol: symbol, caption: text) <= maximumWidth
+            }
+        }
+        guard fittedLabel != label || fittedCaption != bubbleCaption else { return self }
+        return PetAppearance(
+            label: fittedLabel,
             accent: accent,
             mood: mood,
             message: message,
-            bubbleCaption: bubbleCaption,
+            bubbleCaption: fittedCaption,
             labelPlacement: labelPlacement,
             spriteSideLength: spriteSideLength
         )
+    }
+}
+
+enum LabelShortening {
+    static let ellipsis = "\u{2026}"
+    private static let longestSuffixWord = 6
+    private static let longestKeptHeadTail = 4
+
+    static func shortened(_ text: String, fits: (String) -> Bool) -> String {
+        guard !fits(text) else { return text }
+        if let (head, suffix) = splitDistinguishingSuffix(text),
+           let cut = headCut(Array(head), suffix: suffix, fits: fits) {
+            return cut
+        }
+        let characters = Array(text)
+        let kept = longestFit(upTo: characters.count - 1) { count in fits(middleCut(characters, keeping: count)) } ?? 0
+        return middleCut(characters, keeping: kept)
+    }
+
+    static func splitDistinguishingSuffix(_ text: String) -> (head: String, suffix: String)? {
+        if text.hasSuffix(")"), let open = text.lastIndex(of: "("), open > text.startIndex {
+            var head = String(text[..<open])
+            let separator = head.hasSuffix(" ") ? " " : ""
+            while head.last == " " { head.removeLast() }
+            guard !head.isEmpty else { return nil }
+            return (head, separator + String(text[open...]))
+        }
+        guard let space = text.lastIndex(of: " ") else { return nil }
+        let word = text[text.index(after: space)...]
+        let head = String(text[..<space])
+        guard !word.isEmpty, word.count <= longestSuffixWord,
+              !head.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return (head, String(text[space...]))
+    }
+
+    private static func headCut(_ head: [Character], suffix: String, fits: (String) -> Bool) -> String? {
+        for tailCount in stride(from: min(longestKeptHeadTail, head.count - 1), through: 0, by: -1) {
+            let joined: (Int) -> String = { prefixCount in
+                headCut(head, keepingFront: prefixCount, back: tailCount) + suffix
+            }
+            if let prefixCount = longestFit(upTo: head.count - tailCount - 1, fits: { count in fits(joined(count)) }) {
+                return joined(prefixCount)
+            }
+        }
+        return nil
+    }
+
+    private static func headCut(_ head: [Character], keepingFront frontCount: Int, back backCount: Int) -> String {
+        var front = String(head.prefix(frontCount))
+        while front.last == " " { front.removeLast() }
+        var back = String(head.suffix(backCount))
+        while back.first == " " { back.removeFirst() }
+        return front + ellipsis + back
+    }
+
+    private static func middleCut(_ characters: [Character], keeping count: Int) -> String {
+        let front = (count + 1) / 2
+        var head = String(characters.prefix(front))
+        while head.last == " " { head.removeLast() }
+        var tail = String(characters.suffix(count - front))
+        while tail.first == " " { tail.removeFirst() }
+        return head + ellipsis + tail
+    }
+
+    private static func longestFit(upTo maximum: Int, fits: (Int) -> Bool) -> Int? {
+        guard maximum >= 0, fits(0) else { return nil }
+        var low = 0
+        var high = maximum
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if fits(middle) { low = middle } else { high = middle - 1 }
+        }
+        return low
+    }
+}
+
+extension PetAppearance {
+    fileprivate static func shortened(_ text: String, fits: (String) -> Bool) -> String {
+        LabelShortening.shortened(text, fits: fits)
     }
 }
 
@@ -133,13 +227,6 @@ final class PetView: NSView {
         layoutParts()
     }
 
-    func update(resolvedLabel: String) {
-        guard resolvedLabel != petAppearance.label else { return }
-        petAppearance = petAppearance.withResolvedLabel(resolvedLabel)
-        redrawChrome()
-        layoutParts()
-    }
-
     func update(
         spriteImage: NSImage,
         bubbleVerticalOffset: CGFloat,
@@ -224,12 +311,15 @@ final class PetView: NSView {
         interactionHandler?.petViewDidReceiveRightClick(sessionId: sessionId)
     }
 
-    static func size(for petAppearance: PetAppearance) -> CGSize {
-        let labelWidth: CGFloat
-        switch petAppearance.labelPlacement {
-        case .pill: labelWidth = labelPillWidth(for: petAppearance.label)
-        case .nametag: labelWidth = nametagWidth(for: petAppearance.label)
+    static func labelWidth(for label: String, placement: LabelPlacement) -> CGFloat {
+        switch placement {
+        case .pill: return labelPillWidth(for: label)
+        case .nametag: return nametagWidth(for: label)
         }
+    }
+
+    static func size(for petAppearance: PetAppearance) -> CGSize {
+        let labelWidth = labelWidth(for: petAppearance.label, placement: petAppearance.labelPlacement)
         let bubbleWidth = bubbleWidth(symbol: PetBubbleSymbol.forMood(petAppearance.mood), caption: petAppearance.bubbleCaption)
         return CGSize(
             width: ceil(max(petAppearance.spriteSideLength, labelWidth, bubbleWidth)),
@@ -387,7 +477,7 @@ final class PetView: NSView {
         attributedCaption.draw(at: CGPoint(x: cursor, y: bubbleRect.midY - attributedCaption.size().height / 2))
     }
 
-    private static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
+    static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
         guard let caption else { return PetGeometry.bubbleSideLength }
         var contentWidth = attributedCaption(caption).size().width
         if let symbol {

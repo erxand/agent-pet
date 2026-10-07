@@ -171,8 +171,37 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    clashing pet has the same scope and no other clashing pet in that scope has the same
    `disambiguator`. Every other clashing pet keeps the session id suffix, so a clash across scopes
    reads as before.
-4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
-   gets home x at `(i + 1) / (n + 1)` of the screen width and wanders within +/-120 px of home.
+4. **Lane position**: pets never overlap. Lane `i` of `n` is home x at `(i + 1) / (n + 1)` of the
+   screen width. Lanes go to pets in the order they stand: `LaneLayout.assignedLanes` keeps the
+   left to right order of the pets already up and picks, among the order keeping choices, the one
+   that moves them least, and a new pet takes a lane left free, where it emerges. A pet still in a
+   float is left out of that order and takes a free lane too; when a pet lands the lanes are assigned
+   again, from where the pets are then, so nobody crosses the screen. A pet whose home moves keeps where
+   it stands, and walks to the new home at 40 px/s with `walk` frames, whatever its mood, when it ends up
+   outside its wander range; a pet that lands, or that went under in a float and comes back up, walks
+   home from wherever it is, however close. Only at home does it wander again, within
+   `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: 120 px, or less when lanes are close,
+   so that two neighbours at the ends of their ranges still keep the gap. The gap is the widest pet on the
+   ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the lane
+   spacing so every lane stays reachable. So the names of two pets side by side never overlap: a label or
+   bubble caption wider than that cap less 8 px, or longer than 28 characters, is shortened with an
+   ellipsis (`PetAppearance.fitted(toWidth:)`, `LabelShortening`). The part that tells pets apart stays:
+   a final `(...)` group or a short last word (6 characters or fewer, such as `T1` or a disambiguation
+   suffix) is kept whole, and the text before it keeps its start and up to its last 4 characters around
+   the ellipsis, the start giving way first (`TIC…140 (DEV)`), since numbers that tell tickets apart sit at
+   the end of it. A label with neither is cut in the middle. The lengths are found by binary search when
+   the pets are planned, never per frame. A change of the screen the pets use plans them again at the
+   next poll, so the labels are fitted and the gap worked out for the new width. After every lane
+   assignment, for any reason, two neighbours on the ground standing closer than the current gap both
+   walk home. Only a sprite wider than
+   the cap, which takes about ten pets on a laptop screen, can still touch its neighbour. On the ground a
+   step that would cross a neighbour, or bring it closer than that gap, is not taken: the pet runs in place,
+   and a wandering pet turns round when its next walk starts. A pet walking home that is refused sends
+   the neighbour in its way home too, so a walker behind a pet that stands still (a question) never waits
+   for ever. Moving apart is always allowed. Floating and diving pets are not in the way. Only the two
+   neighbours in a per-frame sorted list are checked. When the display the pets use changes (for example
+   `focused` and focus moves to another screen) every home is carried to the same fraction of the new
+   screen, which is the one place a pet jumps.
 
 ### Accent on the sprite
 
@@ -447,7 +476,7 @@ crash left every later hook updating records that nothing drew.
   (`LaneLayout.carriedHorizontalCenter`). Only the window frame moves, so no animation restarts, and
   no pet stays on a display that went away. The `focused` default ignores the notification, as
   upstream does.
-- Animation: sprite frames at 8 fps, walk speed 40 px/s, turn around at lane bounds (renderer flips horizontally for
+- Animation: sprite frames at 8 fps, walk speed 40 px/s, a lane change walked, never jumped, turn around at lane bounds (renderer flips horizontally for
   leftward travel), random idle pauses of 1 to 3 s.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
@@ -657,8 +686,13 @@ screen frame, minus half the window, and never below its ground), and spins at 0
 way. While it floats, `PetView` uses a square window as wide as the diagonal of its content and rotates
 its content view about the center, and the sprite plays `idle`. Back to `ground`, each floating pet
 falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half second, and it turns
-toward upright by the short way at 3 rad/s. It lands exactly upright, walks at 40 pt/s with `walk` frames
-to its lane home, and then the normal mood behavior takes over. A pet hidden while it floats dives where
+toward upright by the short way at 3 rad/s. It lands exactly upright, the lanes are assigned again from where
+the pets are (see "Lane position"), it walks at 40 pt/s with `walk` frames to its lane home, never through
+another pet, and then the normal mood behavior takes over. Two floating pets that touch (closer than 60% of
+their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 0.97,
+each speed capped at 72 pt/s (`SpaceMotion.collide`); a floating pet's speed eases back toward its launch
+speed at a rate of 0.5 per second, so a long float never ends with every pet racing. A pet that dives in
+a float goes under where it is and, back up, walks home from there. A pet hidden while it floats dives where
 it is, upright. The frame clock and the bubble bob run while a pet floats, so nothing jumps when it lands.
 
 **Input.** With `input off`, and for a pet still falling or walking home from a float, a pet is inert

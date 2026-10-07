@@ -206,7 +206,7 @@ Four states change what every pet does, and your own scripts can set them. Each 
 | command | what it does |
 |---|---|
 | `agent-pet physics float` | every pet lifts off and drifts and spins slowly, as if in space |
-| `agent-pet physics ground` | they fall, land and walk back to their lanes (the default) |
+| `agent-pet physics ground` | they fall, land and walk to their lanes, which follow where each one landed (the default) |
 | `agent-pet input off` | every pet ignores the mouse: clicks go to whatever is under it, a pet never takes focus and never runs the focuser, and a focus command already running is stopped |
 | `agent-pet input on` | pets take clicks again (the default) |
 | `agent-pet visibility hidden` | every pet dives; nothing about the sessions changes |
