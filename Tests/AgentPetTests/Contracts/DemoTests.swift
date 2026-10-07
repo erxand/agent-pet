@@ -485,7 +485,7 @@ struct DemoCommandTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.sessionsDirectory.path) == ["real-session.json"])
         #expect(sandbox.tmuxCalls().isEmpty)
         #expect(!sandbox.exists(sandbox.hookLog))
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
     }
 
     @Test func aDryRunInAFreshHomeCreatesNothing() throws {

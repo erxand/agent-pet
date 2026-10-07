@@ -46,8 +46,8 @@ enum DaemonCommand {
 
     static func runInForeground(using foreground: Foreground, runOverlay: () -> Void) -> Int32 {
         guard !foreground.homeIsForeign() else {
-            foreground.writeError(AccountHome.foreignHomeMessage)
-            return ExitCode.failure
+            foreground.writeError(AccountHome.refusalMessage())
+            return ExitCode.success
         }
         foreground.prepare()
         if foreground.otherLiveDaemon() != nil {
@@ -63,20 +63,23 @@ enum DaemonCommand {
     }
 
     static func ensureRunning() {
-        _ = ensureRunningAndSay()
+        if ensureRunningOnItsOwn() == .refusedForeignHome {
+            ForeignHomeNotice.note(AccountHome.refusalMessage())
+        }
     }
 
     @discardableResult
     static func ensureRunningAndSay(writeError: (String) -> Void = CommandFeedback.writeToStandardError) -> DaemonStart {
         let start = ensureRunningOnItsOwn()
         if start == .refusedForeignHome {
-            writeError(AccountHome.foreignHomeMessage)
+            writeError(AccountHome.refusalMessage())
         }
         return start
     }
 
     struct Starter {
         var homeIsForeign: () -> Bool
+        var prepare: () -> Void = {}
         var launchAgentIsInstalled: () -> Bool
         var startLaunchAgent: () -> Void
         var runningDaemon: () -> Int32?
@@ -86,6 +89,7 @@ enum DaemonCommand {
         static var live: Starter {
             Starter(
                 homeIsForeign: AccountHome.isForeign,
+                prepare: PetPaths.createStateDirectoriesIfNeeded,
                 launchAgentIsInstalled: { LaunchAgent.isInstalled },
                 startLaunchAgent: { LaunchAgent.start() },
                 runningDaemon: {
@@ -100,12 +104,12 @@ enum DaemonCommand {
     }
 
     static func ensureRunningOnItsOwn() -> DaemonStart {
-        PetPaths.createStateDirectoriesIfNeeded()
-        return ensureRunningOnItsOwn(using: .live)
+        ensureRunningOnItsOwn(using: .live)
     }
 
     static func ensureRunningOnItsOwn(using starter: Starter) -> DaemonStart {
         guard !starter.homeIsForeign() else { return .refusedForeignHome }
+        starter.prepare()
         if let running = starter.runningDaemon() {
             guard starter.parentOf(running) == ProcessParent.launchd, starter.launchAgentIsInstalled() else {
                 return .alreadyRunningWithoutLaunchAgent
@@ -229,17 +233,122 @@ enum ResponsibilityDisclaimingSpawn {
     }
 }
 
-enum AccountHome {
-    static let foreignHomeMessage = "the home folder in use is not this account's own, so no daemon is started for it:"
-        + " a daemon there would share this account's launch agent and window server."
+struct FileIdentity: Equatable {
+    let device: UInt64
+    let inode: UInt64
 
-    static func isForeign() -> Bool {
-        isForeign(homeInUse: PetPaths.homeDirectory.path, accountHome: PrivacyProtectedFolder.accountHome())
+    static func of(_ path: String) -> FileIdentity? {
+        var information = stat()
+        guard stat(path, &information) == 0 else { return nil }
+        return FileIdentity(device: UInt64(information.st_dev), inode: UInt64(information.st_ino))
+    }
+}
+
+enum AccountHome {
+    enum Verdict: Equatable {
+        case own
+        case foreign
+        case accountHomeNotFound
     }
 
-    static func isForeign(homeInUse: String, accountHome: String?) -> Bool {
-        guard let accountHome else { return true }
-        return ResolvedPath.of(homeInUse) != ResolvedPath.of(accountHome)
+    struct Probes {
+        var homeInUse: () -> String
+        var passwordEntryHome: () -> String?
+        var reentrantPasswordEntryHome: () -> String?
+        var userName: () -> String
+        var identity: (String) -> FileIdentity?
+
+        static var live: Probes {
+            Probes(
+                homeInUse: { PetPaths.homeDirectory.path },
+                passwordEntryHome: {
+                    guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
+                    return String(cString: directory)
+                },
+                reentrantPasswordEntryHome: reentrantPasswordEntryHome,
+                userName: NSUserName,
+                identity: FileIdentity.of
+            )
+        }
+
+        private static func reentrantPasswordEntryHome() -> String? {
+            var entry = passwd()
+            var found: UnsafeMutablePointer<passwd>?
+            var buffer = [CChar](repeating: 0, count: reentrantBufferSize)
+            guard getpwuid_r(getuid(), &entry, &buffer, buffer.count, &found) == 0,
+                  found != nil,
+                  let directory = entry.pw_dir else { return nil }
+            return String(cString: directory)
+        }
+
+        private static let reentrantBufferSize = 16_384
+    }
+
+    static let usersFolder = "/Users/"
+    static let foreignHomeMessage = "the home folder in use is not this account's own, so no daemon is started for it:"
+        + " a daemon there would share this account's launch agent and window server."
+    static let accountHomeNotFoundMessage = "this account's home folder cannot be found (no password entry names one"
+        + " that exists, and no /Users folder matches the user name), so no daemon is started."
+
+    static func isForeign() -> Bool {
+        verdict(.live) != .own
+    }
+
+    static func refusalMessage(_ probes: Probes = .live) -> String {
+        verdict(probes) == .accountHomeNotFound ? accountHomeNotFoundMessage : foreignHomeMessage
+    }
+
+    static func verdict(_ probes: Probes) -> Verdict {
+        guard let accountHome = home(probes) else { return .accountHomeNotFound }
+        return isSameFolder(probes.homeInUse(), accountHome, identity: probes.identity) ? .own : .foreign
+    }
+
+    static func home(_ probes: Probes = .live) -> String? {
+        let userName = probes.userName()
+        let candidates = [
+            probes.passwordEntryHome(),
+            probes.reentrantPasswordEntryHome(),
+            userName.isEmpty ? nil : usersFolder + userName
+        ]
+        return candidates.compactMap { candidate in candidate }.first { candidate in probes.identity(candidate) != nil }
+    }
+
+    static func isSameFolder(_ first: String, _ second: String, identity: (String) -> FileIdentity?) -> Bool {
+        if let firstIdentity = identity(first), let secondIdentity = identity(second) {
+            return firstIdentity == secondIdentity
+        }
+        return ResolvedPath.of(first) == ResolvedPath.of(second)
+    }
+}
+
+enum ForeignHomeNotice {
+    static let intervalInSeconds: TimeInterval = 3600
+    private static let markerFileName = "foreign-home-noted"
+    private static let logFileName = "daemon.log"
+
+    @discardableResult
+    static func note(_ message: String, stateDirectory: URL = PetPaths.stateDirectory, now: Date = Date()) -> Bool {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: stateDirectory.path) else { return false }
+        let marker = stateDirectory.appendingPathComponent(markerFileName)
+        if let noted = (try? fileManager.attributesOfItem(atPath: marker.path))?[.modificationDate] as? Date,
+           noted <= now,
+           now.timeIntervalSince(noted) < intervalInSeconds {
+            return false
+        }
+        let log = stateDirectory.appendingPathComponent(logFileName)
+        LogFileTruncation.truncateIfOversized(at: log)
+        let line = ISO8601DateFormatter().string(from: now) + " agent-pet: " + message + "\n"
+        if let handle = FileHandle(forWritingAtPath: log.path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            fileManager.createFile(atPath: log.path, contents: Data(line.utf8))
+        }
+        fileManager.createFile(atPath: marker.path, contents: nil)
+        try? fileManager.setAttributes([.modificationDate: now], ofItemAtPath: marker.path)
+        return true
     }
 }
 
@@ -261,8 +370,7 @@ enum PrivacyProtectedFolder {
     }
 
     static func accountHome() -> String? {
-        guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
-        return String(cString: directory)
+        AccountHome.home()
     }
 }
 

@@ -20,7 +20,7 @@ struct CapabilitiesCommandTests {
     @Test func touchesNoStateDirectory() throws {
         let sandbox = try Sandbox()
         try sandbox.run(["capabilities"])
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
         #expect(!sandbox.exists(sandbox.hookLog))
     }
 }
