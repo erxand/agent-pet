@@ -59,7 +59,11 @@ final class PetGround {
     func allowsStep(_ presence: PetPresence, toOffset offset: CGFloat) -> Bool {
         guard profile.kind == .dock, var body = presence.groundBody else { return true }
         let center = standingCenter(of: presence, desiredCenter: presence.homeHorizontalCenter + offset)
-        let allowed = body.allowsStep(toGround: profile.height(over: bodySpan(of: presence, centerX: center)))
+        let here = standingCenter(of: presence, desiredCenter: presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome)
+        let allowed = body.allowsStep(
+            toGround: profile.height(over: bodySpan(of: presence, centerX: center)),
+            from: profile.height(over: bodySpan(of: presence, centerX: here))
+        )
         presence.groundBody = body
         if !allowed && body.isJumping { presence.waitsOnJump = true }
         return allowed

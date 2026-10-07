@@ -100,7 +100,7 @@ private struct Walker {
     mutating func step(profile: GroundProfile, walks: Bool = true) {
         if walks {
             let next = centerX + direction * PetAnimator.walkSpeedInPointsPerSecond * CGFloat(tick)
-            if body.allowsStep(toGround: profile.height(over: span(next))) { centerX = next }
+            if body.allowsStep(toGround: profile.height(over: span(next)), from: profile.height(over: span(centerX))) { centerX = next }
         }
         body.advance(elapsedSeconds: tick, ground: profile.height(over: span(centerX)))
     }
@@ -208,6 +208,75 @@ struct GroundBodyTests {
                 #expect(body.height == top)
             }
         }
+    }
+
+    private func launches(_ phases: [GroundBodyPhase]) -> Int {
+        zip([GroundBodyPhase.standing] + phases, phases).filter { previous, current in
+            previous != .rising && current == .rising
+        }.count
+    }
+
+    @Test func aStutteredSlideSpringsOnceAndOnlyWhenTheDockHasSettled() {
+        var body = GroundBody(height: inset)
+        var phases: [GroundBodyPhase] = []
+        var floor = inset
+        for index in 0..<60 {
+            let shown = easeOut(Double(index) * tick / DockSlide.showSeconds)
+            if index % 2 == 0 { floor = max(inset, bar(shownFraction: shown).maxY + inset) }
+            body.advance(elapsedSeconds: tick, ground: floor)
+            phases.append(body.phase)
+        }
+        #expect(launches(phases) == 1)
+        #expect(body.height == top)
+    }
+
+    @Test func theRideStartsAtTheHeightBeforeTheTick() {
+        var body = GroundBody(height: inset)
+        body.advance(elapsedSeconds: tick, ground: inset)
+        body.advance(elapsedSeconds: tick, ground: inset + 30)
+        #expect(body.phase == .riding(start: inset, stillSeconds: 0))
+    }
+
+    @Test func aDockThatHidesMidRideDropsThePetWithoutASpring() {
+        var body = GroundBody(height: inset)
+        var phases: [GroundBodyPhase] = []
+        var apex: CGFloat = 0
+        for index in 0..<45 {
+            let fraction: CGFloat = index < 4 ? CGFloat(index) / 8 : max(0, CGFloat(8 - index) / 8)
+            let floor = max(inset, bar(shownFraction: fraction).maxY + inset)
+            body.advance(elapsedSeconds: tick, ground: floor)
+            phases.append(body.phase)
+            apex = max(apex, body.height - floor)
+        }
+        #expect(launches(phases) == 0)
+        #expect(apex < GroundBody.springOvershoot / 2)
+        #expect(body.height == inset)
+    }
+
+    @Test func aPetWalkingOffARisingDockFallsWithoutASpring() {
+        var walker = Walker(centerX: shownBar.maxX - 4, profile: dockProfile(bar(shownFraction: 0)))
+        var phases: [GroundBodyPhase] = []
+        for index in 0..<60 {
+            let profile = dockProfile(bar(shownFraction: easeOut(Double(index) * tick / 0.6)))
+            walker.step(profile: profile)
+            phases.append(walker.body.phase)
+        }
+        #expect(walker.centerX > shownBar.maxX + spriteSide)
+        #expect(launches(phases) == 0)
+        #expect(walker.body.height == inset)
+    }
+
+    @Test func aJumpStartedOnARisingDockLeavesTheRide() {
+        var body = GroundBody(height: inset)
+        body.advance(elapsedSeconds: tick, ground: inset)
+        body.advance(elapsedSeconds: tick, ground: inset + 30)
+        let stepped = body.allowsStep(toGround: inset + 80)
+        #expect(!stepped)
+        #expect(body.phase == .rising)
+        #expect(body.animationName == .jump)
+        for _ in 0..<60 { body.advance(elapsedSeconds: tick, ground: inset + 80) }
+        #expect(body.phase == .standing)
+        #expect(!body.isJumping)
     }
 
     @Test func aSmallRiseCarriesThePetWithoutASpring() {
@@ -468,11 +537,22 @@ struct DockGeometrySourceTests {
         sensing.dockPreferences.tileSize = 64
         sensing.listFrame = CGRect(x: 70, y: 1117 - 10 - 90, width: 1580, height: 90)
         var tracker = DockTracker()
-        let resting = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        var resting: CGRect?
+        for index in 0...12 {
+            resting = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        }
         sensing.pointer = CGPoint(x: 800, y: 20)
         sensing.listFrame = CGRect(x: 30, y: 1117 - 10 - 150, width: 1668, height: 150)
-        let magnified = tracker.update(now: 0.31, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        let magnified = tracker.update(now: 0.5, elapsedSeconds: tick, screens: screens, sensing: sensing)
         #expect(magnified == resting)
+
+        sensing.pointer = CGPoint(x: 800, y: 600)
+        for index in 1...5 {
+            let shrinking = tracker.update(now: 0.5 + Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
+            #expect(shrinking == resting)
+        }
+        let trustedAfterAWhile = tracker.update(now: 1.2, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(trustedAfterAWhile?.height == 150 - DockBarInset.scaled(forTileSize: 64).top - DockBarInset.scaled(forTileSize: 64).bottom)
 
         var neverResting = DockTracker()
         let estimatedSpan = neverResting.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
@@ -607,6 +687,58 @@ struct PetGroundTests {
         }
         #expect(sawWait)
         #expect(stoodOnTop)
+        presence.window.close()
+    }
+
+    private func assertOneFallThenGround(_ shown: [SpriteAnimationName], landing: Int?, label: String) {
+        let falls = zip([SpriteAnimationName.idle] + shown, shown).filter { previous, current in previous != .fall && current == .fall }.count
+        #expect(falls == 1, "\(label): \(shown)")
+        let firstJump = shown.firstIndex(of: .jump)
+        let firstFall = shown.firstIndex(of: .fall)
+        #expect(firstJump != nil && firstFall != nil && firstJump! < firstFall!, "\(label): \(shown)")
+        guard let landing else {
+            Issue.record("\(label): never landed")
+            return
+        }
+        #expect(shown[landing...].allSatisfy { animation in animation != .jump && animation != .fall }, "\(label): \(shown)")
+    }
+
+    @Test func aSpringShowsJumpThenOneFallAndLandsStraightIntoItsGroundAnimation() {
+        let sensing = FakeDockSensing()
+        sensing.pointer = CGPoint(x: 800, y: 20)
+        sensing.listFrame = hiddenListFrame
+        let ground = makeGround(sensing)
+        let presence = makePresence(home: 800)
+        var sawWait = false
+        for index in 0..<20 { _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait) }
+        var shown: [SpriteAnimationName] = []
+        var landing: Int?
+        for index in 0..<60 {
+            let progress = easeOut(Double(index) * tick / DockSlide.showSeconds)
+            sensing.listFrame = CGRect(x: 76, y: 1117 - 84 * progress, width: 1576, height: 74)
+            _ = step(presence, ground: ground, now: Double(20 + index) * tick, sawWait: &sawWait)
+            shown.append(presence.shownAnimationName)
+            if landing == nil, shown.contains(.fall), presence.groundBody?.phase == .standing { landing = index }
+        }
+        assertOneFallThenGround(shown, landing: landing, label: "spring")
+        presence.window.close()
+    }
+
+    @Test func anEdgeHopShowsJumpThenOneFallAndLandsStraightIntoItsGroundAnimation() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = CGRect(x: 300, y: 1033, width: 600, height: 74)
+        let ground = makeGround(sensing)
+        let presence = makePresence(home: 234)
+        var sawWait = false
+        var shown: [SpriteAnimationName] = []
+        var landing: Int?
+        for index in 0..<120 {
+            _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
+            shown.append(presence.shownAnimationName)
+            if landing == nil, shown.contains(.fall), presence.groundBody?.phase == .standing { landing = index }
+        }
+        #expect(sawWait)
+        assertOneFallThenGround(shown, landing: landing, label: "hop")
         presence.window.close()
     }
 

@@ -5,6 +5,12 @@ enum LaunchctlSubcommand: String {
     case bootstrap
 }
 
+enum LaunchctlOutcome: Equatable {
+    case succeeded
+    case failed
+    case timedOut
+}
+
 enum LaunchAgent {
     static let label = "com.agent-pet.daemon"
 
@@ -37,12 +43,16 @@ enum LaunchAgent {
     }
 
     static func start() {
-        guard !runLaunchctl(subcommand: .kickstart, arguments: [serviceTarget]) else { return }
-        runLaunchctl(subcommand: .bootstrap, arguments: [domainTarget, propertyListFile.path])
+        switch runLaunchctl(subcommand: .kickstart, arguments: [serviceTarget]) {
+        case .succeeded, .timedOut:
+            return
+        case .failed:
+            runLaunchctl(subcommand: .bootstrap, arguments: [domainTarget, propertyListFile.path])
+        }
     }
 
     @discardableResult
-    private static func runLaunchctl(subcommand: LaunchctlSubcommand, arguments: [String]) -> Bool {
+    private static func runLaunchctl(subcommand: LaunchctlSubcommand, arguments: [String]) -> LaunchctlOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchctlExecutablePath)
         process.arguments = [subcommand.rawValue] + arguments
@@ -54,12 +64,12 @@ enum LaunchAgent {
         do {
             try process.run()
         } catch {
-            return false
+            return .failed
         }
         guard finished.wait(timeout: .now() + launchctlTimeoutInSeconds) == .success else {
             process.terminate()
-            return false
+            return .timedOut
         }
-        return process.terminationStatus == ExitCode.success
+        return process.terminationStatus == ExitCode.success ? .succeeded : .failed
     }
 }

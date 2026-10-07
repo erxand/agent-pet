@@ -38,6 +38,7 @@ package struct DockAccessReport: Codable, Equatable {
 package struct DockAccessFiles {
     private static let reportFileName = "dock-access.json"
     private static let requestFileName = "dock-access-ask"
+    private static let claimSuffix = ".claimed-"
 
     package let reportFile: URL
     package let requestFile: URL
@@ -75,9 +76,21 @@ package struct DockAccessFiles {
         PetStateFile.writeAtomically(Data(nonce.utf8), to: requestFile)
     }
 
+    package func removeStaleClaims(olderThan age: TimeInterval, now: Date = Date()) {
+        let directory = requestFile.deletingLastPathComponent()
+        let claimPrefix = ".\(requestFile.lastPathComponent)\(DockAccessFiles.claimSuffix)"
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+        for name in names where name.hasPrefix(claimPrefix) {
+            let claimed = directory.appendingPathComponent(name, isDirectory: false)
+            let modified = (try? FileManager.default.attributesOfItem(atPath: claimed.path))?[.modificationDate] as? Date
+            guard let modified, now.timeIntervalSince(modified) > age else { continue }
+            try? FileManager.default.removeItem(at: claimed)
+        }
+    }
+
     package func consumeRequest() -> String? {
         let claimed = requestFile.deletingLastPathComponent()
-            .appendingPathComponent(".\(requestFile.lastPathComponent).claimed-\(UUID().uuidString)", isDirectory: false)
+            .appendingPathComponent(".\(requestFile.lastPathComponent)\(DockAccessFiles.claimSuffix)\(UUID().uuidString)", isDirectory: false)
         guard rename(requestFile.path, claimed.path) == 0 else { return nil }
         defer { try? FileManager.default.removeItem(at: claimed) }
         guard let payload = try? Data(contentsOf: claimed) else { return "" }
@@ -88,6 +101,7 @@ package struct DockAccessFiles {
 package final class DockAccessReporter {
     package static let checkIntervalInSeconds: TimeInterval = 5
     package static let askCooldownInSeconds: TimeInterval = 10
+    package static let staleClaimAgeInSeconds: TimeInterval = 5
 
     private let files: DockAccessFiles
     private let access: DockAccessChecking
@@ -96,6 +110,7 @@ package final class DockAccessReporter {
     private var lastCheckAt: TimeInterval?
     private var lastWritten: Bool?
     private var lastAskAt: TimeInterval?
+    private var removedStaleClaims = false
 
     package private(set) var isGranted = false
 
@@ -113,6 +128,10 @@ package final class DockAccessReporter {
 
     package func tick() {
         let now = clock()
+        if !removedStaleClaims {
+            removedStaleClaims = true
+            files.removeStaleClaims(olderThan: DockAccessReporter.staleClaimAgeInSeconds)
+        }
         if let nonce = files.consumeRequest() {
             answer(nonce: nonce, now: now)
             return

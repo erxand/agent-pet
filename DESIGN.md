@@ -465,7 +465,8 @@ crash left every later hook updating records that nothing drew.
   old detached spawn, guarded by the liveness check on `daemon.pid`. The spawn disclaims responsibility
   where macOS allows it, so the daemon is not judged by the terminal that ran the command (see "Who is asked"), and
   sets `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the daemon inherits only its standard streams and never holds a caller's
-  pipe or lock. `launchctl` calls are cut off after 5 s.
+  pipe or lock. `launchctl` calls are cut off after 5 s, and a `kickstart` that timed out is not followed by a
+  `bootstrap`.
 - Every path that shows a pet ensures the daemon: `on`, `show`, `preview`, and the `hook` command
   on `Stop` and on a `Notification` of type `permission_prompt` or `agent_needs_input`. The hook
   ensures only after `PetTurnState.show` reports that the record exists and is enabled, so a
@@ -687,17 +688,29 @@ segment top while any part of that body span is over the bar, else the base. A h
 profile whose segment is below the base, so a pet falls off it rather than snapping down. Lanes, homes and wander
 widths are unchanged; the profile moves pets only vertically.
 
-**Vertical state.** Each grounded pet on a `dock` profile has a `GroundBody` (AgentPetCore, pure): a height and a
-vertical velocity under gravity (`SpaceMotion.fallAcceleration`, 1400 pt/s squared) with the ground under its body
-as a floor, moved by the exact step for constant gravity so the apex does not depend on the tick. A floor rising
-faster than 60 pt/s carries the pet with it; when it stops rising, a pet it lifted by 8 pt or more is launched at
-`springSpeed`, which is derived so it peaks `springOvershoot` (16 pt) above the floor's final top, and falls back
-onto it: the spring. A launch at the end rather than a speed taken from the floor makes the overshoot the same for
-any slide curve, any slide length and any poll rate. A floor that drops away faster than gravity leaves the pet in
-the air, and it falls. Walking is still `PetAnimator`'s; every step
-also asks the body: a step onto ground more than 2 pt higher is refused, and a standing pet then jumps with the
-speed that clears the edge by `jumpClearance` (16 pt), taking the step once it is above the top. A step up of more than 160 pt is
-refused with no jump, so the pet turns as it does at a neighbour. With a `flat` profile there is no body and the
+**Vertical state.** Each grounded pet on a `dock` profile has a `GroundBody` (AgentPetCore, pure): a height, a
+vertical velocity under gravity (`SpaceMotion.fallAcceleration`, 1400 pt/s squared, moved by the exact step for
+constant gravity so the apex does not depend on the tick) with the ground under its body as a floor, and a phase:
+`standing`, `riding`, `rising` or `falling`. The phase alone picks the animation: `rising` plays `jump`, `falling`
+plays `fall`, and `standing` and `riding` play whatever the walk does, so a pet enters `fall` once per time in the
+air and goes straight back to its ground animation on the tick it lands.
+
+- **Riding and the spring.** A floor rising faster than 60 pt/s (`rideSpeed`) under a pet makes it ride: it moves
+  with the floor at no velocity of its own, from the height it had before that tick. The ride ends only once the
+  floor has been still for 0.1 s (`rideSettleSeconds`), so a repeated reading mid-slide never ends it early. Then a
+  pet the floor lifted by 8 pt or more (`springMinimumRise`) is launched at `springSpeed`, derived so it peaks
+  `springOvershoot` (16 pt) above the floor, and falls back onto it: the spring. The same overshoot results for any
+  slide curve, slide length and poll rate. A floor that drops faster than `rideSpeed` mid-ride (a Dock that starts
+  hiding) or that the pet walks off ends the ride with no launch, and the pet falls.
+- **Falling.** A floor that drops away faster than gravity leaves the pet in the air, and it falls.
+- **Steps and jumps.** Walking is still `PetAnimator`'s; every step also asks the body. A step is measured from the
+  ground under the pet now, not from its last height, so a floor rising under a walking pet is never mistaken for
+  an edge. A step onto ground more than 2 pt higher is refused, and a pet on the ground (standing or riding) then
+  jumps with the speed that clears the edge by `jumpClearance` (16 pt), which leaves any ride, and takes the step
+  once it is above the top. A step up of more than 160 pt is refused with no jump, so the pet turns as it does at
+  a neighbour.
+
+With a `flat` profile there is no body and the
 window is placed exactly as before. A body is dropped when the pet floats or its display changes, and a new one
 starts standing on the ground under the pet. `GroundPlacement.windowBottom` is the one rule the overlay calls, through
 `PetGround`, which also answers the step check; both measure the body at the pet's center after its window is
@@ -731,8 +744,9 @@ pure, driven by a `DockSensing`) decides when to read and turns readings into th
   is estimated from `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents
   and other items, plus Finder and Trash, centered on that display. `DockSlide` eases it in over 0.23 s and out over
   0.2 s. Minimized windows and folder stacks are not counted, so the estimate can be shorter than the real bar.
-- With `magnification` on, a bar read while the pointer is in the band over the Dock (the only time it can be
-  magnified) and taller than the last bar read with the pointer away is cut back to that bar's height and span, so
+- With `magnification` on, a bar is trusted as resting only after the pointer has been out of the band over the Dock
+  (the only place it can magnify) for 0.3 s, so the Dock has shrunk back. Any other bar taller than the last resting
+  one is cut back to that bar's height and span, so
   hovering the icons never lifts or widens the ground. Before any resting bar was seen, the height for the tile size
   and the estimated width centred on the bar stand in.
 - Preferences are read every 5 s. The Dock is read every 0.3 s while idle, and every tick (30 Hz) while the pointer
@@ -763,6 +777,8 @@ it only when its pid is the running daemon's. `agent-pet dock-access --ask` is t
   `AXIsProcessTrustedWithOptions` with the prompt, stamps `askedAt` after that call returns and writes the report
   with the nonce. A request within 10 s of the last prompt is answered from `AXIsProcessTrusted` with no second
   prompt.
+
+Claimed requests a crashed daemon left behind are deleted at the next daemon start once they are more than 5 s old.
 
 A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
 

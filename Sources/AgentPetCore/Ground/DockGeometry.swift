@@ -232,6 +232,7 @@ package struct DockTracker {
     package static let accessibilityGraceInSeconds: TimeInterval = 1.5
     package static let goneDepth: CGFloat = 5
     package static let restingTolerance: CGFloat = 0.5
+    package static let pointerAwayInSeconds: TimeInterval = 0.3
 
     package private(set) var bar: CGRect?
     package private(set) var source: DockBarSource?
@@ -243,6 +244,7 @@ package struct DockTracker {
     private var dockScreen: CGRect?
     private var lastAccessibilityReadAt: TimeInterval?
     private var restingBar: CGRect?
+    private var pointerAwaySince: TimeInterval?
 
     package init() {}
 
@@ -270,6 +272,12 @@ package struct DockTracker {
             dockSpan: bar.map { frame in frame.minX...frame.maxX },
             preferences: preferences
         )
+        if pointerNearDock {
+            pointerAwaySince = nil
+        } else if pointerAwaySince == nil {
+            pointerAwaySince = now
+        }
+        let pointerSettledAway = pointerAwaySince.map { since in now - since >= DockTracker.pointerAwayInSeconds } ?? false
         let slideMoving = slide?.isMoving ?? false
         if slideMoving || cadence.shouldRead(now: now, pointerNearDock: pointerNearDock) {
             read(
@@ -278,7 +286,7 @@ package struct DockTracker {
                 preferences: preferences,
                 screens: screens,
                 sensing: sensing,
-                pointerNearDock: pointerNearDock
+                pointerSettledAway: pointerSettledAway
             )
         } else if source == .estimate {
             advanceEstimate(elapsedSeconds: elapsedSeconds, preferences: preferences, screens: screens)
@@ -310,14 +318,14 @@ package struct DockTracker {
         preferences: DockPreferences,
         screens: DockScreens,
         sensing: DockSensing,
-        pointerNearDock: Bool
+        pointerSettledAway: Bool
     ) {
         let previous = bar
         let inset = DockBarInset.scaled(forTileSize: preferences.tileSize)
         if let accessibilityFrame = sensing.accessibilityListFrame() {
             let listFrame = DockListFrame.appKitFrame(fromTopLeftFrame: accessibilityFrame, primaryScreenHeight: screens.primaryFrame.maxY)
             let drawn = inset.drawnBar(fromListFrame: listFrame)
-            bar = capped(drawn, preferences: preferences, inset: inset, screens: screens, pointerNearDock: pointerNearDock)
+            bar = capped(drawn, preferences: preferences, inset: inset, screens: screens, pointerSettledAway: pointerSettledAway)
             dockScreen = screens.screen(underDockList: listFrame) ?? dockScreen
             source = .accessibility
             slide = nil
@@ -357,10 +365,10 @@ package struct DockTracker {
         preferences: DockPreferences,
         inset: DockBarInset,
         screens: DockScreens,
-        pointerNearDock: Bool
+        pointerSettledAway: Bool
     ) -> CGRect {
         let restingHeight = restingBar?.height ?? inset.restingHeight(tileSize: preferences.tileSize)
-        let isResting = !pointerNearDock || drawn.height <= restingHeight + DockTracker.restingTolerance
+        let isResting = pointerSettledAway || drawn.height <= restingHeight + DockTracker.restingTolerance
         if isResting {
             restingBar = drawn
             return drawn

@@ -217,6 +217,22 @@ struct DockGroundContractTests {
         #expect(leftovers == [files.requestFile.lastPathComponent])
     }
 
+    @Test func theDaemonClearsClaimsLeftByAnEarlierRunAtStart() throws {
+        let (files, folder) = try temporaryFiles()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let directory = files.requestFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stale = directory.appendingPathComponent(".dock-access-ask.claimed-old")
+        let fresh = directory.appendingPathComponent(".dock-access-ask.claimed-new")
+        try Data("old".utf8).write(to: stale)
+        try Data("new".utf8).write(to: fresh)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: stale.path)
+        let reporter = DockAccessReporter(files: files, access: FakeDockAccess(granted: false), processIdentifier: 4242)
+        reporter.tick()
+        #expect(!FileManager.default.fileExists(atPath: stale.path))
+        #expect(FileManager.default.fileExists(atPath: fresh.path))
+    }
+
     private final class StarterLog {
         var started = 0
         var spawned = 0
