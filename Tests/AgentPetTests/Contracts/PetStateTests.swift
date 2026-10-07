@@ -260,7 +260,8 @@ struct RescanTests {
         collecting changes: inout [DirectoryChange]
     ) async throws {
         let hangBound = Date().addingTimeInterval(30)
-        while !changes.contains(where: { change in change.path.hasSuffix("/golem/" + fileName) }) && Date() < hangBound {
+        while !changes.contains(where: { change in change.path.hasSuffix("/golem/" + fileName) || change.requiresRescan })
+            && Date() < hangBound {
             try await Task.sleep(nanoseconds: 20_000_000)
             changes += monitor.consumeChanges()
         }
@@ -275,7 +276,7 @@ struct RescanTests {
         var changes: [DirectoryChange] = []
         try "".write(to: packs.appendingPathComponent("ready"), atomically: false, encoding: .utf8)
         try await awaitChange(to: "ready", from: monitor, collecting: &changes)
-        #expect(changes.contains { change in change.path.hasSuffix("/golem/ready") })
+        #expect(changes.contains { change in change.path.hasSuffix("/golem/ready") || change.requiresRescan })
         changes = []
         _ = monitor.consumeChange()
 

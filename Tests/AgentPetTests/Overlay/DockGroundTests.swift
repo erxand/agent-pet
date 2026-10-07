@@ -305,6 +305,22 @@ struct GroundBodyTests {
         #expect(launches(sinkingPhases) == 1)
     }
 
+    @Test func theSettleTimeCountsTicksWhoseSumFallsJustShort() {
+        let step = GroundBody.rideSettleSeconds / 6
+        var sum = 0.0
+        for _ in 0..<6 { sum += step }
+        #expect(sum < GroundBody.rideSettleSeconds)
+        var body = GroundBody(height: inset)
+        body.advance(elapsedSeconds: step, ground: inset)
+        body.advance(elapsedSeconds: step, ground: inset + 30)
+        var stillTicks = 0
+        while body.phase != .rising && stillTicks < 20 {
+            body.advance(elapsedSeconds: step, ground: inset + 30)
+            stillTicks += 1
+        }
+        #expect(stillTicks == 6)
+    }
+
     @Test func aJumpStartedOnARisingDockLeavesTheRide() {
         var body = GroundBody(height: inset)
         body.advance(elapsedSeconds: tick, ground: inset)

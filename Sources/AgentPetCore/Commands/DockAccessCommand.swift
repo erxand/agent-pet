@@ -106,7 +106,7 @@ package final class DockAccessReporter {
     private var lastCheckAt: TimeInterval?
     private var lastWritten: Bool?
     private var lastAskAt: TimeInterval?
-    private var removedStaleClaims = false
+    private var removedClaims = false
 
     package private(set) var isGranted = false
 
@@ -124,8 +124,8 @@ package final class DockAccessReporter {
 
     package func tick() {
         let now = clock()
-        if !removedStaleClaims {
-            removedStaleClaims = true
+        if !removedClaims {
+            removedClaims = true
             files.removeClaims()
         }
         if let nonce = files.consumeRequest() {
