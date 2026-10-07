@@ -20,7 +20,7 @@ struct EnrollmentCharacterizationTests {
         #expect(record["agent"] as? String == "claude-code")
         #expect(record["tmuxTarget"] == nil)
         #expect(sandbox.tmuxCalls().isEmpty)
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
     }
 
     @Test func withNoPacksTheRecordHasNoSpriteAndTheAccentComesFromTheSessionId() throws {
@@ -142,7 +142,7 @@ struct EnrollmentCharacterizationTests {
 
         try sandbox.run(["remove", "--session", sessionId])
         #expect(sandbox.record(sessionId) == nil)
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
     }
 
     @Test func showOnAnUnenrolledOrDisabledSessionIsANoOp() throws {
