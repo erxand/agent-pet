@@ -500,8 +500,11 @@ crash left every later hook updating records that nothing drew.
   heading 70% of the time in the middle of its range (`keepHeadingProbability`), and the chance of heading further
   out falls in proportion to how close it is to the end it faces, so near an edge the next stroll almost always
   heads back in. A destination is always inside the range; a stroll shorter than 8 pt (`shortestStroll`) is turned
-  round, or skipped for a pause. A stroll a neighbour blocks for a second (`strollGiveUpInSeconds`) ends, and the
-  next one heads the other way. Between strolls the pet waves (35%, as before) or idles for 0.6 to 4 s with the
+  round, or skipped for a pause. While a neighbour blocks a stroll the pet stands on `idle`, keeps its destination
+  and tries again every tick, walking on as soon as the way is clear; blocked for a second (`strollGiveUpInSeconds`)
+  the stroll ends, and the next one heads the other way. The pet faces the way it walks on every tick, and a lane
+  change moves the destination with the home, so it never walks backwards. While it is in the air (a hop, a
+  spring, a fall) it starts no stroll and does not look around. Between strolls the pet waves (35%, as before) or idles for 0.6 to 4 s with the
   shorter pauses likelier, and one idle in five it turns to look the other way halfway through
   (`lookAroundProbability`). `sit` keeps meaning blocked.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
