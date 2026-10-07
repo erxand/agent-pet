@@ -808,7 +808,10 @@ it only when its pid is the running daemon's. `agent-pet dock-access --ask` is t
 
 Claimed requests a crashed daemon left behind are all deleted at the next daemon start, since only one daemon runs.
 
-A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
+A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it. `install.sh`
+signs the release binary with the identifier `com.agent-pet` when `AGENT_PET_SIGN_IDENTITY` names a code signing
+identity (default: no signing, as before), which keeps the designated requirement, and so the grant, the same
+across rebuilds; README "Letting pets stand on the Dock exactly" has the steps.
 
 **Animations.** A pet in the air plays `jump` while it rises (a jump, or the spring) and `fall` while it comes
 down: off the Dock, off an edge, after the spring, and in a float when `physics` goes back to `ground`. Both are
