@@ -92,12 +92,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         if oldFrame != screenFrames.visibleFrame { screenChangedSincePlan = true }
         refreshGround(screenFrames: screenFrames, elapsedSeconds: nil)
         for presence in presencesBySessionId.values {
-            presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
-                presence.homeHorizontalCenter,
-                from: oldFrame,
-                to: screenFrames.visibleFrame
-            )
-            presence.groundBody = nil
+            carry(presence, from: oldFrame, to: screenFrames.visibleFrame)
+        }
+        assignLanes(screenFrame: screenFrames.visibleFrame)
+        for presence in presencesBySessionId.values {
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
     }
@@ -382,46 +380,24 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         guard let oldFrame = homeScreenFrame, oldFrame != visibleFrame else { return }
         screenChangedSincePlan = true
         for presence in presencesBySessionId.values {
-            presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
-                presence.homeHorizontalCenter,
-                from: oldFrame,
-                to: visibleFrame
-            )
-            presence.groundBody = nil
+            carry(presence, from: oldFrame, to: visibleFrame)
         }
+        assignLanes(screenFrame: visibleFrame)
     }
 
     private func assignLanes(newcomers: Set<String> = [], screenFrame: CGRect) {
         let presences = lanePetKeys.compactMap { petKey in presencesBySessionId[petKey] }
-        let laneCenters = LaneLayout.laneCenters(count: presences.count, screenFrame: screenFrame)
-        let lanes = LaneLayout.assignedLanes(
-            currentCenters: presences.map { presence in
-                newcomers.contains(presence.sessionId) || presence.spaceMotion != nil
-                    ? nil
-                    : presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
-            },
-            laneCenters: laneCenters
-        )
-        let widestPet = presences.map { presence in presence.view.contentSize.width }.max() ?? 0
-        minimumGroundGap = LaneLayout.minimumGroundGap(
-            widestPet: widestPet,
-            laneCount: presences.count,
+        minimumGroundGap = LaneRedivision.apply(
+            to: presences,
+            keepingStanding: presences.map { presence in !newcomers.contains(presence.sessionId) },
             screenFrame: screenFrame
         )
-        let wanderHalfWidth = LaneLayout.wanderHalfWidth(
-            laneCount: presences.count,
-            screenFrame: screenFrame,
-            minimumGap: minimumGroundGap
-        )
-        for (presence, lane) in zip(presences, lanes) {
-            let home = laneCenters[lane]
-            if !newcomers.contains(presence.sessionId) && presence.spaceMotion == nil {
-                presence.animator.moveHome(by: home - presence.homeHorizontalCenter)
-            }
-            presence.homeHorizontalCenter = home
-            presence.animator.limitWander(to: wanderHalfWidth)
-        }
         sendCrowdedNeighboursHome()
+    }
+
+    private func carry(_ presence: PetPresence, from oldFrame: CGRect, to newFrame: CGRect) {
+        presence.groundBody = nil
+        LaneRedivision.carry(presence, from: oldFrame, to: newFrame)
     }
 
     private func sendCrowdedNeighboursHome() {

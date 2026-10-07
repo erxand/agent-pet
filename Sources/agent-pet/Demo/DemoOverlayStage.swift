@@ -276,7 +276,7 @@ final class DemoOverlayStage: DemoStage {
         let ground = ground(in: screenFrame)
         let sideLengths = states.map { mark in spriteSideLength(forPackNamed: mark.sprite) }
         let petsHeight = sideLengths.map { side in PetGeometry.totalHeight(spriteSideLength: side, labelPlacement: .pill) }.max() ?? 0
-        let laneSpacing = screenFrame.width / CGFloat(states.count + 1)
+        let laneSpacing = LaneLayout.laneSpacing(laneCount: states.count, screenFrame: screenFrame)
         let pixelSide = DemoStateLabelView.pixelSide(for: states, laneSpacing: laneSpacing)
         let labelBottom = ground + petsHeight + DemoOverlayStage.stateLabelGap
         for (slotIndex, mark) in states.enumerated() {

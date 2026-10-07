@@ -685,7 +685,8 @@ struct PetGroundTests {
         let window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
         let presence = PetPresence(
             sessionId: "pet-dock", window: window, view: view,
-            spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit
+            spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit,
+            animator: PetAnimator(random: { 0.99 })
         )
         presence.homeHorizontalCenter = home
         return presence

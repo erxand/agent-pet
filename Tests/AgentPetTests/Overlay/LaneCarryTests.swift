@@ -10,7 +10,7 @@ struct LaneCarryTests {
     @Test func theLaneFractionIsKept() {
         let home = LaneLayout.homeHorizontalCenter(laneIndex: 0, laneCount: 3, screenFrame: laptop)
         let carried = LaneLayout.carriedHorizontalCenter(home, from: laptop, to: monitor)
-        #expect(carried == LaneLayout.homeHorizontalCenter(laneIndex: 0, laneCount: 3, screenFrame: monitor))
+        #expect(abs(carried - LaneLayout.homeHorizontalCenter(laneIndex: 0, laneCount: 3, screenFrame: monitor)) < 0.001)
     }
 
     @Test func theSameFrameLeavesTheHomeAlone() {
