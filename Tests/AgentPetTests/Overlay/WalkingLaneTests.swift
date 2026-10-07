@@ -201,7 +201,7 @@ struct FloatingBounceTests {
         for _ in 0..<(30 * 120) {
             SpaceMotion.collide(&motions) { _, _ in 80 }
             for index in motions.indices {
-                motions[index].advance(elapsedSeconds: 1.0 / 30.0, area: small, homeCenterX: 0)
+                motions[index].advance(elapsedSeconds: 1.0 / 30.0, area: small)
             }
         }
         for (motion, cruiseSpeed) in zip(motions, cruise) {

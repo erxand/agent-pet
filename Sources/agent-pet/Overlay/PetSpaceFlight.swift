@@ -30,8 +30,7 @@ enum PetSpaceFlight {
         if !floats { motion.returnToGround() }
         motion.advance(
             elapsedSeconds: elapsedSeconds,
-            area: area(for: presence, screenFrame: screenFrame, groundBottom: groundBottom),
-            homeCenterX: homeCenterX
+            area: area(for: presence, screenFrame: screenFrame, groundBottom: groundBottom)
         )
         guard !motion.isOnGround else {
             presence.spaceMotion = nil

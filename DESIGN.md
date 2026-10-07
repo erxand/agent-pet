@@ -695,8 +695,10 @@ screen frame, minus half the window, and never below its ground), and spins at 0
 way. While it floats, `PetView` uses a square window as wide as the diagonal of its content and rotates
 its content view about the center, and the sprite plays `idle`. Back to `ground`, each floating pet
 falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half second, and it turns
-toward upright by the short way at 3 rad/s. It lands exactly upright, the lanes are assigned again from where
-the pets are (see "Lane position"), it walks at 40 pt/s with `walk` frames to its lane home, never through
+toward upright by the short way at 3 rad/s. While it falls the sprite plays `fall` on the 8 fps clock (`idle`, its
+stand-in, for a pack without `fall.txt`). It lands exactly upright and its `SpaceMotion` ends there (phase
+`landed`); the lanes are assigned again from where the pets are (see "Lane position"), and `PetAnimator` walks it at
+40 pt/s with `walk` frames to its lane home, never through
 another pet, and then the normal mood behavior takes over. Two floating pets that touch (closer than 60% of
 their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 0.97,
 each speed capped at 72 pt/s (`SpaceMotion.collide`); a floating pet's speed eases back toward its launch
@@ -727,8 +729,8 @@ records are untouched; back to `shown`, the next reconcile brings the visible pe
 is data (a `[Character: NSColor]`, nothing else) and the compiled-in palette is its default instance, so a sprite
 image depends only on its pack, animation, frame and facing, plus the session's chosen accent when the pack names
 `accentInks` (the recolor swaps palette entries and leaves the contract types alone). The
-initializer is `SpriteSheet(idle:walk:wave:sit:emerge:dive:colorsByCharacter:)` with `emerge` and `dive` defaulting
-to `[]`, and `SpriteAnimationName` covers all six. `ClaudeSprite.swift` provides the built-in art as
+initializer is `SpriteSheet(idle:walk:wave:sit:emerge:dive:jump:fall:colorsByCharacter:)` with `emerge`, `dive`,
+`jump` and `fall` defaulting to `[]`, and `SpriteAnimationName` covers all eight. `ClaudeSprite.swift` provides the built-in art as
 `extension SpriteSheet { static let claude8Bit: SpriteSheet }`: frames of `PixelInk` raw characters, `.` transparent,
 idle 2 frames, walk 4, wave 3, sit 2, facing right for the renderer to mirror. The character is a squat, rounded,
 friendly orange critter in the spirit of the pixel Claude persona Anthropic uses (terracotta body, two dark eyes,
@@ -748,6 +750,7 @@ sprites/<pack-name>/
   idle.txt       frames of <frameSize> rows, separated by one blank line
   walk.txt, wave.txt, sit.txt
   emerge.txt, dive.txt         optional, 3 frames each recommended
+  jump.txt, fall.txt           optional, 2 frames each
 ```
 
 - Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
@@ -795,9 +798,18 @@ sprites/<pack-name>/
   one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
   different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
+- `jump.txt` and `fall.txt` are optional, 2 frames each. `fall` plays while a pet falls back to the ground from a
+  float, on the usual 8 fps clock. No motion plays `jump` yet: a float starts as a drift, not a jump, so the
+  frames are drawn for a later rise and `render --animation jump` shows them. The fallback rule is
+  `SpriteAnimationName.standIn`: a pack without `jump.txt` plays `walk` for it, and one without `fall.txt` plays
+  `idle`, which is what every pet showed in those moments before the files existed. `shown(in:)` applies it, then
+  the first animation the pack has.
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
   then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
+  jump 2 = frame 0 a takeoff crouch with the legs tucked, frame 1 stretched upward with the arms or ears up.
+  fall 2 = frame 0 the apex, arms or ears up and eyes wide; frame 1 the later fall, the body a pixel longer. The
+  frames face right like the rest and keep the creature on its idle baseline.
 
 ## Demo
 
@@ -885,7 +897,8 @@ anyone who never runs it, and it never touches real state:
   `space`: three pets come up, a stand-in screensaver (a dark panel over the chosen screen, one level
   below the pets) comes up at 2 s, the pets float with `PetSpaceFlight`, and at 9 s it goes and they fall,
   land and walk home. `--snapshot DIR` with `--scene space` also writes `space-1.png` to `space-5.png`,
-  the same `SpaceMotion` stepped at 30 Hz to five moments on a 960 by 560 stand-in screen.
+  the same `SpaceMotion` stepped at 30 Hz to five moments on a 960 by 560 stand-in screen; the last shows the
+  pets where they landed.
 - `--dry-run` swaps in `DemoTranscriptStage`, which prints the timeline, so the whole flow is testable
   without a window server. `--snapshot DIR` renders the panels offscreen to PNGs.
 

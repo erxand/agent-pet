@@ -285,7 +285,7 @@ final class PetAnimator {
             if remainingActivityInSeconds <= 0 { beginResting() }
         case .idle, .wave:
             if remainingActivityInSeconds <= 0 { beginWalking() }
-        case .sit, .emerge, .dive:
+        case .sit, .emerge, .dive, .jump, .fall:
             beginWalking()
         }
     }

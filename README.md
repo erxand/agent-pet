@@ -64,7 +64,8 @@ Eight commands are useful from any shell, plus `agent-pet demo`, described under
   running and prints how many it dropped. It exits 2 when the session has no record.
 - `agent-pet render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` draws a sprite in the
   terminal with truecolor half blocks, two pixel rows per line, so a picker can show the pets without
-  the overlay. `--accent` shows the pet as a session that chose that color would see it.
+  the overlay. `--accent` shows the pet as a session that chose that color would see it. `--animation`
+  is one of `idle`, `walk`, `wave`, `sit`, `emerge`, `dive`, `jump` and `fall`.
 - `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
   them, and how many live pets use each.
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
@@ -405,6 +406,7 @@ sprites/README.md for the full rules.
 <pack-name>/pack.json                    name, frameSize, optional accent and accentInks, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
+<pack-name>/jump.txt fall.txt            optional, 2 frames each (takeoff, rise; apex, later fall); without them a jump shows walk and a fall shows idle
 ```
 
 Every color in a pack comes from its palette, except the inks named in the optional `accentInks`

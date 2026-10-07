@@ -296,14 +296,13 @@ enum DemoSnapshot {
                     for index in motions.indices { motions[index].returnToGround() }
                 }
                 for (laneIndex, template) in templates.enumerated() {
-                    let home = LaneLayout.homeHorizontalCenter(laneIndex: laneIndex, laneCount: templates.count, screenFrame: screenFrame)
                     template.update(spaceRotationInRadians: 0)
                     let halfSide = template.preferredSize.width / 2
                     let area = SpaceArea(
                         lowestCenter: CGPoint(x: halfSide, y: margin + template.contentSize.height / 2),
                         highestCenter: CGPoint(x: screenFrame.maxX - halfSide, y: screenFrame.maxY - halfSide)
                     )
-                    motions[laneIndex].advance(elapsedSeconds: SpaceSnapshot.stepInSeconds, area: area, homeCenterX: home)
+                    motions[laneIndex].advance(elapsedSeconds: SpaceSnapshot.stepInSeconds, area: area)
                 }
                 elapsedSeconds += SpaceSnapshot.stepInSeconds
             }

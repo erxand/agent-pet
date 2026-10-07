@@ -24,7 +24,7 @@ struct FloatingLabelTests {
         motion.returnToGround()
         #expect(PetChrome.shownOpacity(1, spaceMotion: motion, hidesLabelsWhileFloating: true) == 0)
         for _ in 0..<200 where !motion.isOnGround {
-            motion.advance(elapsedSeconds: 1.0 / 30.0, area: area, homeCenterX: 400)
+            motion.advance(elapsedSeconds: 1.0 / 30.0, area: area)
         }
         #expect(motion.isOnGround)
         #expect(PetChrome.shownOpacity(1, spaceMotion: motion, hidesLabelsWhileFloating: true) == 1)
