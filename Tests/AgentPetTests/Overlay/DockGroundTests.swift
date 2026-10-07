@@ -800,7 +800,7 @@ struct PetGroundTests {
                 labelPlacement: .pill, spriteSideLength: spriteSide
             )
         )
-        let window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
+        let window = FakePetWindow(frame: CGRect(origin: .zero, size: view.preferredSize))
         let presence = PetPresence(
             sessionId: "pet-dock", window: window, view: view,
             spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit,
@@ -1083,8 +1083,6 @@ struct PetGroundTests {
     }
 }
 
-private let runningApplicationsKey = "runningApplications"
-
 final class FakeDockSystem: DockSystem {
     var processChanges = 0
     var clock: TimeInterval = 0
@@ -1189,12 +1187,16 @@ struct SystemDockSensingTests {
     }
 
     @Test func theRunningApplicationsObserverCountsAChange() {
-        let system = LiveDockSystem()
+        var changed: (() -> Void)?
+        let observation = NSObject()
+        let system = LiveDockSystem { handler in
+            changed = handler
+            return observation
+        }
         let before = system.processChanges
-        let workspace = NSWorkspace.shared
-        workspace.willChangeValue(forKey: runningApplicationsKey)
-        workspace.didChangeValue(forKey: runningApplicationsKey)
-        #expect(system.processChanges > before)
+        changed?()
+        changed?()
+        #expect(system.processChanges == before + 2)
     }
 
     @Test func withoutTheGrantTheAccessibilityApiIsNeverCalled() {

@@ -291,7 +291,8 @@ struct DockGroundContractTests {
         let spawned = try #require(ResponsibilityDisclaimingSpawn.spawn(
             executablePath: "/bin/sh",
             arguments: ["-c", "for descriptor in 0 1 2 \(descriptors[0]) \(descriptors[1]); do [ -e /dev/fd/$descriptor ] && echo open $descriptor; done"],
-            logPath: logPath
+            logPath: logPath,
+            disclaim: true
         ))
         var status: Int32 = 0
         waitpid(spawned.processIdentifier, &status, 0)

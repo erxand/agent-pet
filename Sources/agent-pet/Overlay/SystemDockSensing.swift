@@ -109,15 +109,19 @@ final class LiveDockSystem: DockSystem {
     private static let shownRecentsLimit = 3
 
     private(set) var processChanges = 0
-    private var runningApplicationsObservation: NSKeyValueObservation?
+    private var runningApplicationsObservation: AnyObject?
     private var elementsProcessIdentifier: pid_t?
     private var dockApplication: AXUIElement?
     private var dockList: AXUIElement?
 
-    init() {
-        runningApplicationsObservation = NSWorkspace.shared.observe(\.runningApplications, options: []) { [weak self] _, _ in
+    init(observeRunningApplications: (@escaping () -> Void) -> AnyObject = LiveDockSystem.observeWorkspaceApplications) {
+        runningApplicationsObservation = observeRunningApplications { [weak self] in
             self?.processChanges += 1
         }
+    }
+
+    static func observeWorkspaceApplications(_ changed: @escaping () -> Void) -> AnyObject {
+        NSWorkspace.shared.observe(\.runningApplications, options: []) { _, _ in changed() }
     }
 
     func uptime() -> TimeInterval {

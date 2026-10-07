@@ -56,7 +56,7 @@ struct GroundGapTests {
                 labelPlacement: .nametag, spriteSideLength: side, feetFlush: feetFlush
             )
         )
-        let window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
+        let window = FakePetWindow(frame: CGRect(origin: .zero, size: view.preferredSize))
         return PetPresence(sessionId: "pet-gap", window: window, view: view, spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit)
     }
 
