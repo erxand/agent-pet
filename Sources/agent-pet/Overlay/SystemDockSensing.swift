@@ -270,6 +270,8 @@ final class DockGround {
 
     private(set) var lastBar: CGRect?
 
+    var lastRestingTop: CGFloat? { tracker.restingTop }
+
     func bar(now: TimeInterval, elapsedSeconds: Double) -> CGRect? {
         let frames = screenFrames()
         guard let primaryFrame = frames.first else { return nil }

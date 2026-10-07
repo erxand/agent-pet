@@ -9,7 +9,11 @@ struct PetAppearance {
     let bubbleCaption: String?
     let labelPlacement: LabelPlacement
     let spriteSideLength: CGFloat
+    var feetFlush = false
 
+    var labelLayout: LabelLayout {
+        LabelLayout(placement: labelPlacement, feetFlush: feetFlush)
+    }
 }
 
 extension PetAppearance {
@@ -33,7 +37,8 @@ extension PetAppearance {
             message: message,
             bubbleCaption: fittedCaption,
             labelPlacement: labelPlacement,
-            spriteSideLength: spriteSideLength
+            spriteSideLength: spriteSideLength,
+            feetFlush: feetFlush
         )
     }
 }
@@ -283,10 +288,10 @@ final class PetView: NSView {
         contentView.frameCenterRotation = rotationInDegrees
         let sideLength = petAppearance.spriteSideLength
         let groundOffset = groundOffsetFraction
-            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, labelPlacement: petAppearance.labelPlacement)
+            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, layout: petAppearance.labelLayout)
         spriteView.frame = CGRect(
             x: (content.width - sideLength) / 2,
-            y: PetGeometry.spriteBaseline(labelPlacement: petAppearance.labelPlacement) - groundOffset,
+            y: PetGeometry.spriteBaseline(layout: petAppearance.labelLayout) - groundOffset,
             width: sideLength,
             height: sideLength
         )
@@ -325,7 +330,7 @@ final class PetView: NSView {
             width: ceil(max(petAppearance.spriteSideLength, labelWidth, bubbleWidth)),
             height: ceil(PetGeometry.totalHeight(
                 spriteSideLength: petAppearance.spriteSideLength,
-                labelPlacement: petAppearance.labelPlacement
+                layout: petAppearance.labelLayout
             ))
         )
     }
@@ -359,7 +364,9 @@ final class PetView: NSView {
         let pillWidth = PetView.labelPillWidth(for: petAppearance.label)
         let pillRect = CGRect(
             x: (contentBounds.width - pillWidth) / 2,
-            y: 0,
+            y: petAppearance.labelLayout.labelUnderFeet
+                ? 0
+                : PetGeometry.labelOverHeadBaseline(spriteSideLength: petAppearance.spriteSideLength, layout: petAppearance.labelLayout),
             width: pillWidth,
             height: PetGeometry.labelPillHeight
         )
@@ -394,7 +401,7 @@ final class PetView: NSView {
         let tagWidth = PetView.nametagWidth(for: label)
         let tagRect = CGRect(
             x: ((contentBounds.width - tagWidth) / 2).rounded(),
-            y: PetGeometry.nametagBaseline(spriteSideLength: petAppearance.spriteSideLength),
+            y: PetGeometry.labelOverHeadBaseline(spriteSideLength: petAppearance.spriteSideLength, layout: petAppearance.labelLayout),
             width: tagWidth,
             height: PetGeometry.nametagHeight
         )
@@ -434,7 +441,7 @@ final class PetView: NSView {
     private func drawBubble(symbol: PetBubbleSymbol?, caption: String?) {
         let bubbleBaseline = PetGeometry.bubbleBaseline(
             spriteSideLength: petAppearance.spriteSideLength,
-            labelPlacement: petAppearance.labelPlacement
+            layout: petAppearance.labelLayout
         )
         let bubbleWidth = PetView.bubbleWidth(symbol: symbol, caption: caption)
         let bubbleRect = CGRect(

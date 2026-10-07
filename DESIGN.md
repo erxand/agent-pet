@@ -318,7 +318,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "downloaded"}]}` with `accent` null for a pack that yields none. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key) and `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key) `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground") and `ground-gap` (the `groundGap` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `dock-access [--ask]` | print `granted`, `not granted` or `unknown`: whether the running daemon may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". The answer is the daemon's, read from `dock-access.json`, never the command's own process, because a command started from a terminal is judged by the terminal's grant. `unknown` means no running daemon has written a report. Without `--ask` it reads and never prompts. `--ask` ensures the daemon, leaves `control/dock-access-ask`, and waits up to 3 s for the daemon to call macOS itself (which shows the system prompt) and report. Exit 0 only for `granted` |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
@@ -695,14 +695,20 @@ constant gravity so the apex does not depend on the tick) with the ground under 
 plays `fall`, and `standing` and `riding` play whatever the walk does, so a pet enters `fall` once per time in the
 air and goes straight back to its ground animation on the tick it lands.
 
-- **Riding and the spring.** A floor rising faster than 60 pt/s (`rideSpeed`) under a pet makes it ride: it moves
-  with the floor at no velocity of its own, from the height it had before that tick. The ride ends only once the
-  floor has been still (moved less than 0.5 pt a tick, `stillFloorTolerance`) for 0.1 s (`rideSettleSeconds`), so
-  a repeated reading mid-slide never ends it early and a slow sink does not count as settled. Then a
-  pet the floor lifted by 8 pt or more (`springMinimumRise`) is launched at `springSpeed`, derived so it peaks
-  `springOvershoot` (16 pt) above the floor, and falls back onto it: the spring. The same overshoot results for any
-  slide curve, slide length and poll rate. A floor that drops faster than `rideSpeed` mid-ride (a Dock that starts
-  hiding) or that the pet walks off ends the ride with no launch and no speed of its own, and the pet falls.
+- **Riding and the spring.** The pet is always a ballistic body; a rising floor pushes it. The floor's speed is the
+  rise of the floor under the pet's body since the last tick (so walking across an edge never reads as a moving
+  floor), averaged over the last 3 ticks (`floorVelocitySamples`) so one repeated reading mid-slide cannot stop the
+  push. When the floor meets the pet while that speed is above 60 pt/s (`rideSpeed`), the pet rides: it stands on
+  the floor and its velocity becomes the smaller of the floor's speed and the speed that would carry it, in free
+  flight, to `springOvershoot` (16 pt) above the Dock's resting top (`speedToPeak`). As long as the floor is faster
+  the floor keeps pushing; the moment the floor slows below that speed, the pet simply keeps going, decelerates
+  under gravity, peaks 16 pt above where the Dock comes to rest and falls back onto it. There is no pause and no
+  second impulse: the velocity is continuous except where the floor itself changes speed abruptly. The Dock's
+  resting top comes from the geometry source (`DockTracker.restingTop`: the last top seen with the Dock standing
+  still, else one predicted from the list's height), so the apex is the same for any slide curve, slide length and
+  poll rate. A ride shows the walk's animation; it turns into `rising` only when the pet is more than 3 pt
+  (`rideGap`) above the floor and has not been pushed for more than one tick, so a stuttered reading never flickers
+  into `jump`. A floor that drops away, or that the pet walks off, leaves it in the air with the velocity it had.
 - **Falling.** A floor that drops away faster than gravity leaves the pet in the air, and it falls.
 - **Steps and jumps.** Walking is still `PetAnimator`'s; every step also asks the body. A step is measured from the
   ground under the pet now, not from its last height, so a floor rising under a walking pet is never mistaken for
@@ -1267,6 +1273,11 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   recomputes every home on the newly chosen display. `primary` may be the better default; it stays
   `focused` so that no config keeps today's behavior, and that call is left to the maintainer.
 
+- `groundGap` is a number of points from 0 to 200, absent by default: the gap between a pet's feet and whatever it
+  stands on, the bottom of the screen and the top of the Dock alike. Absent keeps the old look: the window sits
+  4 pt up with the label pill (or 3 pt of padding, with `nametag`) under the feet, 25 pt or 7 pt in all. Set, the
+  feet sit exactly that many points up and the pill moves over the head (where the nametag already is), so nothing
+  is drawn below the feet and no label lies over the Dock's icons. Any other value means absent.
 - `dockGround` is a boolean, default `true`: a bottom Dock is ground pets stand on, see "The Dock as ground".
   `false` keeps the ground at `visibleFrame.minY + 4` everywhere.
 - `whenFullScreen` is a list of rules, default `[]`, see "Pet states". A rule needs a non-empty

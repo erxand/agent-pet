@@ -5,6 +5,7 @@ final class PetGround {
     private let makeDockGround: () -> DockGround
     private var dockGround: DockGround?
     private(set) var profile = GroundProfile.flat(base: PetGeometry.windowBottomInset)
+    private(set) var previousProfile: GroundProfile?
     private(set) var visibleFrame = CGRect.zero
 
     var watchesTheDock: Bool { dockGround != nil }
@@ -13,7 +14,13 @@ final class PetGround {
         self.makeDockGround = makeDockGround
     }
 
-    func refresh(standsOnDock: Bool, screenFrames: OverlayScreenFrames, now: TimeInterval, elapsedSeconds: Double?) {
+    func refresh(
+        standsOnDock: Bool,
+        screenFrames: OverlayScreenFrames,
+        now: TimeInterval,
+        elapsedSeconds: Double?,
+        bottomInset: CGFloat = PetGeometry.windowBottomInset
+    ) {
         visibleFrame = screenFrames.visibleFrame
         let dockBar: CGRect?
         if !standsOnDock {
@@ -26,12 +33,14 @@ final class PetGround {
         } else {
             dockBar = dockGround?.lastBar
         }
+        if elapsedSeconds != nil { previousProfile = profile }
         profile = GroundProfile.resolve(
             standsOnDock: standsOnDock,
             screenFrame: screenFrames.screenFrame,
             visibleFrame: screenFrames.visibleFrame,
             dockBar: dockBar,
-            bottomInset: PetGeometry.windowBottomInset
+            dockRestingTop: standsOnDock ? dockGround?.lastRestingTop : nil,
+            bottomInset: bottomInset
         )
     }
 
@@ -84,7 +93,8 @@ final class PetGround {
             body: &presence.groundBody,
             profile: profile,
             span: bodySpan(of: presence, centerX: center),
-            elapsedSeconds: elapsedSeconds
+            elapsedSeconds: elapsedSeconds,
+            previousProfile: elapsedSeconds > 0 && previousProfile?.kind == .dock ? previousProfile : nil
         )
     }
 }

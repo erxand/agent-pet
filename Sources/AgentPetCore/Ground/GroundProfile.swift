@@ -4,11 +4,13 @@ package struct GroundSegment: Equatable {
     package let minX: CGFloat
     package let maxX: CGFloat
     package let top: CGFloat
+    package let restingTop: CGFloat
 
-    package init(minX: CGFloat, maxX: CGFloat, top: CGFloat) {
+    package init(minX: CGFloat, maxX: CGFloat, top: CGFloat, restingTop: CGFloat? = nil) {
         self.minX = minX
         self.maxX = maxX
         self.top = top
+        self.restingTop = max(top, restingTop ?? top)
     }
 
     package func overlaps(_ span: ClosedRange<CGFloat>) -> Bool {
@@ -39,13 +41,19 @@ package struct GroundProfile: Equatable {
         screenFrame: CGRect,
         visibleFrame: CGRect,
         dockBar: CGRect?,
+        dockRestingTop: CGFloat? = nil,
         bottomInset: CGFloat
     ) -> GroundProfile {
         let today = flat(base: visibleFrame.minY + bottomInset)
         guard standsOnDock, let dockBar, isAtTheBottom(of: screenFrame, dockBar: dockBar) else { return today }
         return dock(
             base: screenFrame.minY + bottomInset,
-            segment: GroundSegment(minX: dockBar.minX, maxX: dockBar.maxX, top: dockBar.maxY + bottomInset)
+            segment: GroundSegment(
+                minX: dockBar.minX,
+                maxX: dockBar.maxX,
+                top: dockBar.maxY + bottomInset,
+                restingTop: dockRestingTop.map { restingTop in restingTop + bottomInset }
+            )
         )
     }
 
@@ -57,6 +65,11 @@ package struct GroundProfile: Equatable {
     package func height(over span: ClosedRange<CGFloat>) -> CGFloat {
         guard let segment, segment.overlaps(span) else { return base }
         return max(base, segment.top)
+    }
+
+    package func restingHeight(over span: ClosedRange<CGFloat>) -> CGFloat {
+        guard let segment, segment.overlaps(span) else { return base }
+        return max(base, segment.restingTop)
     }
 
     private static func isAtTheBottom(of screenFrame: CGRect, dockBar: CGRect) -> Bool {
