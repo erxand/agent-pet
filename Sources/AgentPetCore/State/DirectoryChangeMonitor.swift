@@ -1,18 +1,31 @@
 import CoreServices
 import Foundation
 
+package struct DirectoryChange: Equatable {
+    package let path: String
+    package let requiresRescan: Bool
+
+    package init(path: String, requiresRescan: Bool) {
+        self.path = path
+        self.requiresRescan = requiresRescan
+    }
+}
+
 package final class DirectoryChangeMonitor {
     package static let defaultLatencyInSeconds: TimeInterval = 0.05
 
     private let latencyInSeconds: TimeInterval
+    private let recordsPaths: Bool
+    private var changes: [DirectoryChange] = []
     private let queue = DispatchQueue(label: "agent-pet.directory-changes")
     private let lock = NSLock()
     private var changeReported = false
     private var stream: FSEventStreamRef?
     private(set) package var watchedPaths: [String] = []
 
-    package init(latencyInSeconds: TimeInterval = DirectoryChangeMonitor.defaultLatencyInSeconds) {
+    package init(latencyInSeconds: TimeInterval = DirectoryChangeMonitor.defaultLatencyInSeconds, recordsPaths: Bool = false) {
         self.latencyInSeconds = latencyInSeconds
+        self.recordsPaths = recordsPaths
     }
 
     deinit {
@@ -38,11 +51,22 @@ package final class DirectoryChangeMonitor {
         return reported
     }
 
-    fileprivate func noteChange() {
+    package func consumeChanges() -> [DirectoryChange] {
+        lock.lock()
+        defer { lock.unlock() }
+        let consumed = changes
+        changes = []
+        return consumed
+    }
+
+    package func noteChange(_ noted: [DirectoryChange]) {
         lock.lock()
         changeReported = true
+        if recordsPaths { changes += noted }
         lock.unlock()
     }
+
+    fileprivate var wantsPaths: Bool { recordsPaths }
 
     private func startStream(paths: [String]) {
         var context = FSEventStreamContext(
@@ -92,7 +116,18 @@ private func directoryChangeCallback(
     eventIdentifiers: UnsafePointer<FSEventStreamEventId>
 ) {
     guard let clientInfo, eventCount > 0 else { return }
-    Unmanaged<DirectoryChangeMonitor>.fromOpaque(clientInfo).takeUnretainedValue().noteChange()
+    let monitor = Unmanaged<DirectoryChangeMonitor>.fromOpaque(clientInfo).takeUnretainedValue()
+    guard monitor.wantsPaths else {
+        monitor.noteChange([])
+        return
+    }
+    let pathPointers = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
+    let rescanFlags = FSEventStreamEventFlags(
+        kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped
+    )
+    monitor.noteChange((0..<eventCount).map { index in
+        DirectoryChange(path: String(cString: pathPointers[index]), requiresRescan: eventFlags[index] & rescanFlags != 0)
+    })
 }
 
 package struct RescanGate {
