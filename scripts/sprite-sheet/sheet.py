@@ -1,12 +1,12 @@
 """Render agent-pet sprite packs. Layout matches docs/sprite-sheet.png in
 erxand/agent-pet: scale 4, 4px margin, 4px between frames, 16px between
-animations, animations idle walk wave sit emerge dive, one pack per row.
+animations, animations idle walk wave sit emerge dive jump fall, one pack per row.
 
 Run from anywhere: python3 scripts/sprite-sheet/sheet.py [OUT.png [PACK_DIR ...]]
 With no arguments it writes docs/sprite-sheet.png from every pack in sprites/."""
 import json, os, sys
 sys.path.insert(0, os.path.dirname(__file__)); import png
-ANIMS = [('idle',2),('walk',4),('wave',3),('sit',2),('emerge',3),('dive',3)]
+ANIMS = [('idle',2),('walk',4),('wave',3),('sit',2),('emerge',3),('dive',3),('jump',2),('fall',2)]
 def hexrgb(h):
     h=h.lstrip('#'); return tuple(int(h[i:i+2],16) for i in (0,2,4))+(255 if len(h)<8 else int(h[6:8],16),)
 def load(d):
@@ -24,9 +24,10 @@ def load(d):
             else: cur.append(l)
         if cur: frames.append(cur)
         anims[a]=frames
-    # missing emerge/dive: agent-pet holds idle frame 0
+    # missing emerge/dive: agent-pet holds idle frame 0; missing jump plays walk, missing fall plays idle
+    stand_in={'jump':'walk','fall':'idle'}
     for a,c in ANIMS:
-        if anims[a] is None: anims[a]=[anims['idle'][0]]*c
+        if anims[a] is None: anims[a]=anims[stand_in[a]] if a in stand_in else [anims['idle'][0]]*c
     return meta,n,pal,anims
 def frame_px(frame,n,pal):
     T=(0,0,0,0)
