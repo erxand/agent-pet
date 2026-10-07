@@ -109,7 +109,7 @@ struct WalkingLaneTests {
 
     @Test func petsAtTheEdgesOfTheirWanderStillKeepTheGroundGap() {
         for laneCount in 1...14 {
-            let gap = LaneLayout.minimumGroundGap(bodyWidths: (128, 128), laneCount: laneCount, screenFrame: screen)
+            let gap = LaneLayout.minimumGroundGap(widestPet: 128, laneCount: laneCount, screenFrame: screen)
             let wander = LaneLayout.wanderHalfWidth(laneCount: laneCount, screenFrame: screen, minimumGap: gap)
             let spacing = screen.width / CGFloat(laneCount + 1)
             #expect(wander <= LaneLayout.wanderHalfWidth)
@@ -155,10 +155,10 @@ struct WalkingLaneTests {
     }
 
     @Test func theGroundGapNeverKeepsAPetFromItsLane() {
-        let crowded = LaneLayout.minimumGroundGap(bodyWidths: (128, 128), laneCount: 12, screenFrame: screen)
+        let crowded = LaneLayout.minimumGroundGap(widestPet: 128, laneCount: 12, screenFrame: screen)
         let laneSpacing = screen.width / 13
         #expect(crowded < laneSpacing)
-        #expect(LaneLayout.minimumGroundGap(bodyWidths: (128, 128), laneCount: 2, screenFrame: screen) == 128 * LaneLayout.bodyWidthFraction)
+        #expect(LaneLayout.minimumGroundGap(widestPet: 128, laneCount: 2, screenFrame: screen) == 128 + LaneLayout.neighbourPadding)
     }
 }
 

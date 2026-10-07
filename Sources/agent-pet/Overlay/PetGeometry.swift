@@ -97,10 +97,18 @@ enum LaneLayout {
         }
     }
 
-    static func minimumGroundGap(bodyWidths: (CGFloat, CGFloat), laneCount: Int, screenFrame: CGRect) -> CGFloat {
-        let bodies = (bodyWidths.0 + bodyWidths.1) / 2 * bodyWidthFraction
-        let laneSpacing = screenFrame.width / CGFloat(max(laneCount, 1) + 1)
-        return min(bodies, laneSpacing * laneSpacingFraction)
+    static let neighbourPadding: CGFloat = 8
+
+    static func laneSpacing(laneCount: Int, screenFrame: CGRect) -> CGFloat {
+        screenFrame.width / CGFloat(max(laneCount, 1) + 1)
+    }
+
+    static func minimumGroundGap(widestPet: CGFloat, laneCount: Int, screenFrame: CGRect) -> CGFloat {
+        min(widestPet + neighbourPadding, laneSpacing(laneCount: laneCount, screenFrame: screenFrame) * laneSpacingFraction)
+    }
+
+    static func maximumPetWidth(laneCount: Int, screenFrame: CGRect) -> CGFloat {
+        laneSpacing(laneCount: laneCount, screenFrame: screenFrame) * laneSpacingFraction - neighbourPadding
     }
 
     static func allowsStep(from current: CGFloat, to next: CGFloat, neighbour: CGFloat, minimumGap: CGFloat) -> Bool {
@@ -111,8 +119,8 @@ enum LaneLayout {
     }
 
     static func wanderHalfWidth(laneCount: Int, screenFrame: CGRect, minimumGap: CGFloat) -> CGFloat {
-        let laneSpacing = screenFrame.width / CGFloat(max(laneCount, 1) + 1)
-        return min(wanderHalfWidth, max(0, (laneSpacing - minimumGap) / 2))
+        let spacing = laneSpacing(laneCount: laneCount, screenFrame: screenFrame)
+        return min(wanderHalfWidth, max(0, (spacing - minimumGap) / 2))
     }
 
     static func assignedLanes(currentCenters: [CGFloat?], laneCenters: [CGFloat]) -> [Int] {

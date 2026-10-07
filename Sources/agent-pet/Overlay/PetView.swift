@@ -23,6 +23,39 @@ struct PetAppearance {
     }
 }
 
+extension PetAppearance {
+    func fitted(toWidth maximumWidth: CGFloat) -> PetAppearance {
+        let fittedLabel = PetAppearance.trimmed(String(label.prefix(PetGeometry.labelCharacterLimit))) { text in
+            PetView.labelWidth(for: text, placement: labelPlacement) <= maximumWidth
+        }
+        let symbol = PetBubbleSymbol.forMood(mood)
+        let fittedCaption = bubbleCaption.map { caption in
+            PetAppearance.trimmed(String(caption.prefix(PetGeometry.labelCharacterLimit))) { text in
+                PetView.bubbleWidth(symbol: symbol, caption: text) <= maximumWidth
+            }
+        }
+        guard fittedLabel != label || fittedCaption != bubbleCaption else { return self }
+        return PetAppearance(
+            label: fittedLabel,
+            accent: accent,
+            mood: mood,
+            message: message,
+            bubbleCaption: fittedCaption,
+            labelPlacement: labelPlacement,
+            spriteSideLength: spriteSideLength
+        )
+    }
+
+    private static func trimmed(_ text: String, fits: (String) -> Bool) -> String {
+        var fitted = text
+        while fitted.count > 1 && !fits(fitted) {
+            fitted.removeLast()
+            while fitted.last == " " { fitted.removeLast() }
+        }
+        return fitted
+    }
+}
+
 protocol PetViewInteractionHandler: AnyObject {
     func petViewDidReceiveLeftClick(sessionId: String)
     func petViewDidReceiveRightClick(sessionId: String)
@@ -224,12 +257,15 @@ final class PetView: NSView {
         interactionHandler?.petViewDidReceiveRightClick(sessionId: sessionId)
     }
 
-    static func size(for petAppearance: PetAppearance) -> CGSize {
-        let labelWidth: CGFloat
-        switch petAppearance.labelPlacement {
-        case .pill: labelWidth = labelPillWidth(for: petAppearance.label)
-        case .nametag: labelWidth = nametagWidth(for: petAppearance.label)
+    static func labelWidth(for label: String, placement: LabelPlacement) -> CGFloat {
+        switch placement {
+        case .pill: return labelPillWidth(for: label)
+        case .nametag: return nametagWidth(for: label)
         }
+    }
+
+    static func size(for petAppearance: PetAppearance) -> CGSize {
+        let labelWidth = labelWidth(for: petAppearance.label, placement: petAppearance.labelPlacement)
         let bubbleWidth = bubbleWidth(symbol: PetBubbleSymbol.forMood(petAppearance.mood), caption: petAppearance.bubbleCaption)
         return CGSize(
             width: ceil(max(petAppearance.spriteSideLength, labelWidth, bubbleWidth)),
@@ -387,7 +423,7 @@ final class PetView: NSView {
         attributedCaption.draw(at: CGPoint(x: cursor, y: bubbleRect.midY - attributedCaption.size().height / 2))
     }
 
-    private static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
+    static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
         guard let caption else { return PetGeometry.bubbleSideLength }
         var contentWidth = attributedCaption(caption).size().width
         if let symbol {
