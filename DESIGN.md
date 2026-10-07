@@ -43,6 +43,8 @@ agent-pet/
   config.json                  optional, see "Configuration"
   focus.json                   written by a terminal integration: the pane in front, see "Held back"
   daemon.pid                   pid of the running overlay daemon
+  dock-access.json             the daemon's own Accessibility state, see "The Dock as ground"
+  control/dock-access-ask      a request from `dock-access --ask`, consumed by the daemon
   daemon.log                   daemon stderr
   hooks.log                    one line per handled hook event
 ```
@@ -317,7 +319,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
 | `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key) and `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
-| `dock-access [--ask]` | print `granted` or `not granted`: whether this binary may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". Exit 0 when granted, 1 when not. Without `--ask` it only checks and never shows a prompt; `--ask` asks macOS once (the system prompt opens System Settings) and says where to turn it on |
+| `dock-access [--ask]` | print `granted`, `not granted` or `unknown`: whether the running daemon may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". The answer is the daemon's, read from `dock-access.json`, never the command's own process, because a command started from a terminal is judged by the terminal's grant. `unknown` means no running daemon has written a report. Without `--ask` it reads and never prompts. `--ask` ensures the daemon, leaves `control/dock-access-ask`, and waits up to 3 s for the daemon to call macOS itself (which shows the system prompt) and report. Exit 0 only for `granted` |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -670,7 +672,8 @@ With `dockGround` on (the default), a pet never stands over the Dock's icons. Wh
 pets, they are sprung up onto its top, overshoot a little and land on it; they walk on it, fall off when it hides or
 when they walk past its end, and jump up onto it when its edge is in their lane. An always-visible Dock is a step on
 the screen bottom: pets beside it stand on the true bottom of the screen and jump up and down its edges. With the key
-off, or with no bottom Dock on the pets' display, nothing changes: the ground is `visibleFrame.minY + 4` as before.
+off, or with no bottom Dock on the pets' display, the ground is `visibleFrame.minY + 4` as before. One thing is not
+tied to the key: a float that falls back to the ground plays `fall` (with `idle` as its stand-in), whatever the key says.
 
 **Ground profile.** `GroundProfile` (AgentPetCore, pure) is what a pet stands on, rebuilt every animation tick by
 `GroundProfile.resolve`. It is `flat` (the old ground, `visibleFrame.minY + 4`) when the key is off, the Dock is not
@@ -690,30 +693,48 @@ also asks the body: a step onto ground more than 2 pt higher is refused, and a s
 speed that clears the edge by 10 pt, taking the step once it is above the top. A step up of more than 160 pt is
 refused with no jump, so the pet turns as it does at a neighbour. With a `flat` profile there is no body and the
 window is placed exactly as before. A body is dropped when the pet floats or its display changes, and a new one
-starts standing on the ground under the pet. `GroundPlacement.windowBottom` is the one rule the overlay calls.
+starts standing on the ground under the pet. `GroundPlacement.windowBottom` is the one rule the overlay calls, through
+`PetGround`, which also answers the step check; both measure the body at the pet's center after its window is
+clamped to the screen, so the check and the placement never disagree at a screen edge.
 
 **Geometry source.** The Dock posts no event when it slides, so the overlay polls. `DockTracker` (AgentPetCore,
 pure, driven by a `DockSensing`) decides when to read and turns readings into the drawn bar in AppKit coordinates;
 `SystemDockSensing` (overlay) does the reading:
 
-- With Accessibility granted to the binary, it reads the Dock's `AXList` position and size (about 1 ms; the Dock
+- With Accessibility granted to the daemon, it reads the Dock's `AXList` position and size (about 1 ms; the Dock
   moves it every 16 ms through a 0.23 s show and a 0.2 s hide; hidden, the list sits just below the screen). The
-  drawn bar is that list frame through `DockBarInset.measured`: top 5 pt lower, 26 pt wider on each side, bottom
-  3 pt lower (measured on a bottom Dock with tile size 54 and no magnification). A 50 ms messaging timeout keeps a
-  stuck Dock from stalling the overlay.
-- Without the grant, it never asks. It reads the free shown flag (the Dock's layer 20 window is in the on-screen
-  window list only while the Dock is shown; always shown when `autohide` is off) and estimates the bar from
-  `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents and other items,
-  plus Finder and Trash, centered on the primary display. `DockSlide` eases the estimate in over 0.23 s and out over
+  drawn bar is that list frame through `DockBarInset`: measured at tile size 54 as top 5 pt lower, 26 pt wider on
+  each side and bottom 3 pt lower, and scaled in proportion to the tile size (`DockBarInset.scaled`), on the
+  assumption that the Dock draws its bar padding in proportion to its tiles. Only tile size 54 was measured. A 50 ms
+  messaging timeout, set on the application element and on the list element, keeps a stuck Dock from stalling the
+  overlay's main thread.
+- A read that fails keeps the last real frame for 1.5 s (`DockTracker.accessibilityGraceInSeconds`) before the
+  estimate takes over, so one bad read never moves the ground.
+- No Dock process means no ground. The Dock's pid is cached and kept current by `NSWorkspace` launch and terminate
+  notifications; while there is none, the last bar is lowered out of sight, so pets standing on it fall, and nothing
+  is read.
+- Without the grant, it never asks. It reads the shown flag of the Dock's layer 20 window, autohide or not (the
+  window is on screen only while the Dock is shown, so a full screen Space with no Dock is flat ground), and takes
+  the Dock's display from that window's bounds, which cover the whole display it is on. The window ids are looked
+  up once (again every 2 s while none is known) and then described by id, so no read lists every window. The bar
+  is estimated from `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents
+  and other items, plus Finder and Trash, centered on that display. `DockSlide` eases it in over 0.23 s and out over
   0.2 s. Minimized windows and folder stacks are not counted, so the estimate can be shorter than the real bar.
+- With `magnification` on, the bar's top is capped at the resting height for the tile size, so hovering the icons
+  never lifts the ground.
 - Preferences are read every 5 s. The Dock is read every 0.3 s while idle, and every tick (30 Hz) while the pointer
-  is in the bottom band of a display (tile size plus 50 pt), for 0.6 s after a change, and while an estimate slides.
-- A left or right Dock gives no ground (the profile stays flat). The estimate assumes the Dock is on the primary
-  display; the Accessibility frame is wherever the Dock really is, and the profile checks it against the pets'
-  display.
+  is in the band over the Dock (its span plus 40 pt each side, tile size plus 50 pt deep, on the Dock's display),
+  for 0.6 s after a change, and while an estimate slides.
+- A left or right Dock gives no ground (the profile stays flat). The Accessibility frame is wherever the Dock really
+  is, and the profile checks it against the pets' display.
 
-`agent-pet dock-access` reports the grant without prompting; `agent-pet dock-access --ask` is the only path that
-asks. A grant belongs to the binary's code signature, so a binary that is re-signed on every build loses it.
+**Who is asked.** macOS judges Accessibility by the process that asks and, for a command started from a terminal,
+by that terminal. So the daemon is the authority: `DockAccessReporter` checks `AXIsProcessTrusted` every 5 s (and at
+start) and writes `dock-access.json` (`granted`, the daemon's pid, when it checked, and when it last asked) when the
+answer changes. `agent-pet dock-access` reads that file and trusts it only when its pid is the running daemon's.
+`agent-pet dock-access --ask` is the only path that asks: it leaves a request in `control/`, and the daemon, on its
+next 0.3 s poll, calls `AXIsProcessTrustedWithOptions` with the prompt itself and writes the answer. A grant belongs
+to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
 
 **Animations.** A pet in the air plays `jump` while it rises (a jump, or the spring) and `fall` while it comes
 down: off the Dock, off an edge, after the spring, and in a float when `physics` goes back to `ground`. Both are

@@ -44,7 +44,7 @@ final class PetAnimator {
     private var bubblePhaseInSeconds: Double = 0
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
-    private var walkWasBlocked = false
+    private(set) var walkWasBlocked = false
     private var diveStartGroundOffsetFraction: Double = PetAnimator.fullyAboveGround
     private var diveStartChromeOpacity: Double = PetAnimator.opaqueChrome
 

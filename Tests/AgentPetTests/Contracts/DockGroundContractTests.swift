@@ -23,6 +23,11 @@ private final class FakeDockAccess: DockAccessChecking {
     }
 }
 
+private final class ClockBox {
+    var now: TimeInterval = 0
+    var ensured = 0
+}
+
 @Suite("the Dock as ground: config, capability, access and pack format")
 struct DockGroundContractTests {
     @Test func theConfigKeyDefaultsOn() {
@@ -36,21 +41,84 @@ struct DockGroundContractTests {
         #expect(AgentPetCapability.allCases.map { capability in capability.rawValue }.contains("dock-ground"))
     }
 
-    @Test func checkingAccessNeverAsks() {
-        let access = FakeDockAccess(granted: false)
-        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: []), access: access) == ExitCode.failure)
-        #expect(access.asks == 0)
-        #expect(access.checks == 1)
-        access.granted = true
-        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: []), access: access) == ExitCode.success)
-        #expect(access.asks == 0)
+    private func temporaryFiles() throws -> (DockAccessFiles, URL) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("dock-access-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let files = DockAccessFiles(
+            reportFile: folder.appendingPathComponent("dock-access.json"),
+            requestFile: folder.appendingPathComponent("control/dock-access-ask")
+        )
+        return (files, folder)
     }
 
-    @Test func onlyAskAsksMacOS() {
-        let access = FakeDockAccess(granted: true)
-        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: ["--ask"]), access: access) == ExitCode.success)
+    @Test func theDaemonReportsItsOwnAccessAndOnlyAsksWhenRequested() throws {
+        let (files, folder) = try temporaryFiles()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let access = FakeDockAccess(granted: false)
+        let reporter = DockAccessReporter(files: files, access: access, processIdentifier: 4242)
+        reporter.tick(now: 100)
+        #expect(files.loadReport() == DockAccessReport(granted: false, processIdentifier: 4242, checkedAt: 100, askedAt: nil))
+        reporter.tick(now: 101)
+        #expect(access.checks == 1)
+        #expect(access.asks == 0)
+
+        access.granted = true
+        reporter.tick(now: 106)
+        #expect(reporter.isGranted)
+        #expect(files.loadReport()?.granted == true)
+        #expect(access.asks == 0)
+
+        files.writeRequest()
+        reporter.tick(now: 107)
         #expect(access.asks == 1)
-        #expect(access.checks == 0)
+        #expect(files.loadReport()?.askedAt == 107)
+        #expect(!FileManager.default.fileExists(atPath: files.requestFile.path))
+    }
+
+    private func environment(files: DockAccessFiles, daemon: Int32?, clock: ClockBox, onSleep: @escaping () -> Void = {}) -> DockAccessCommand.Environment {
+        DockAccessCommand.Environment(
+            files: files,
+            liveDaemonProcessIdentifier: { daemon },
+            ensureDaemon: { clock.ensured += 1 },
+            now: { clock.now },
+            sleep: { seconds in
+                clock.now += seconds
+                onSleep()
+            }
+        )
+    }
+
+    @Test func theCommandAnswersWithTheDaemonsReportNotItsOwnProcess() throws {
+        let (files, folder) = try temporaryFiles()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clock = ClockBox()
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: []), environment: environment(files: files, daemon: 4242, clock: clock)) == ExitCode.failure)
+
+        files.save(DockAccessReport(granted: true, processIdentifier: 99, checkedAt: 1, askedAt: nil))
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: []), environment: environment(files: files, daemon: 4242, clock: clock)) == ExitCode.failure)
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: []), environment: environment(files: files, daemon: nil, clock: clock)) == ExitCode.failure)
+
+        files.save(DockAccessReport(granted: true, processIdentifier: 4242, checkedAt: 1, askedAt: nil))
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: []), environment: environment(files: files, daemon: 4242, clock: clock)) == ExitCode.success)
+        #expect(!FileManager.default.fileExists(atPath: files.requestFile.path))
+        #expect(clock.ensured == 0)
+    }
+
+    @Test func askIsHandedToTheDaemonWhichCallsMacOSItself() throws {
+        let (files, folder) = try temporaryFiles()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clock = ClockBox()
+        clock.now = 500
+        let access = FakeDockAccess(granted: true)
+        let reporter = DockAccessReporter(files: files, access: access, processIdentifier: 4242)
+        let asking = environment(files: files, daemon: 4242, clock: clock) { reporter.tick(now: clock.now) }
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: ["--ask"]), environment: asking) == ExitCode.success)
+        #expect(clock.ensured == 1)
+        #expect(access.asks == 1)
+
+        let silent = environment(files: files, daemon: 4242, clock: clock)
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: ["--ask"]), environment: silent) == ExitCode.failure)
+        #expect(access.asks == 1)
     }
 
     @Test func jumpAndFallAreOptionalAndStandInForWalkAndIdle() {

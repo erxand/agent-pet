@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
-import AgentPetCore
+@testable import AgentPetCore
 @testable import agent_pet
 
 private let tick = 1.0 / 30.0
@@ -204,8 +204,6 @@ struct GroundBodyTests {
     @Test func aHiddenDockLeavesLanesAndWalkingUntouched() {
         let flat = GroundProfile.flat(base: inset)
         let hidden = dockProfile(bar(shownFraction: 0))
-        let lanes = LaneLayout.laneCenters(count: 5, screenFrame: screenFrame)
-        #expect(lanes == LaneLayout.laneCenters(count: 5, screenFrame: screenFrame))
         var onFlat = Walker(centerX: 100, profile: flat)
         var onHidden = Walker(centerX: 100, profile: hidden)
         for _ in 0..<300 {
@@ -224,98 +222,153 @@ struct GroundBodyTests {
     }
 }
 
-private final class FakeDockSensing: DockSensing {
+final class FakeDockSensing: DockSensing {
     var dockPreferences = DockPreferences(orientation: .bottom, autohides: true, tileSize: 54, tileCount: 19, separatorCount: 2)
+    var running = true
     var listFrame: CGRect?
-    var shownOnScreen: Bool? = false
+    var window: DockWindowState? = DockWindowState(isOnScreen: false, topLeftFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117))
     var pointer = CGPoint(x: 800, y: 600)
     private(set) var preferenceReads = 0
     private(set) var listFrameReads = 0
+    private(set) var windowReads = 0
+
+    var reads: Int { preferenceReads + listFrameReads + windowReads }
 
     func preferences() -> DockPreferences {
         preferenceReads += 1
         return dockPreferences
     }
 
+    func dockIsRunning() -> Bool { running }
+
     func accessibilityListFrame() -> CGRect? {
         listFrameReads += 1
         return listFrame
     }
 
-    func dockIsShownOnScreen() -> Bool? { shownOnScreen }
+    func dockWindow() -> DockWindowState? {
+        windowReads += 1
+        return window
+    }
 
     func pointerLocation() -> CGPoint { pointer }
 }
 
+private let hiddenListFrame = CGRect(x: 76, y: 1117, width: 1576, height: 74)
+private let shownListFrame = CGRect(x: 76, y: 1033, width: 1576, height: 74)
+
 @Suite("the Dock geometry source")
 struct DockGeometrySourceTests {
-    private let screens = DockScreens(primaryFrame: screenFrame, dockScreenFrame: screenFrame, allFrames: [screenFrame])
+    private let screens = DockScreens(primaryFrame: screenFrame, allFrames: [screenFrame])
+
+    private func run(_ tracker: inout DockTracker, _ sensing: FakeDockSensing, ticks: Range<Int>) {
+        for index in ticks {
+            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        }
+    }
 
     @Test func theAccessibilityFrameBecomesTheDrawnBarInAppKitCoordinates() {
-        let listFrame = DockListFrame.appKitFrame(
-            fromAccessibilityFrame: CGRect(x: 76, y: 1033, width: 1576, height: 74),
-            primaryScreenHeight: 1117
-        )
+        let listFrame = DockListFrame.appKitFrame(fromTopLeftFrame: shownListFrame, primaryScreenHeight: 1117)
         #expect(listFrame == CGRect(x: 76, y: 10, width: 1576, height: 74))
         let drawn = DockBarInset.measured.drawnBar(fromListFrame: listFrame)
         #expect(drawn == CGRect(x: 50, y: 7, width: 1628, height: 72))
         #expect(drawn.maxY == listFrame.maxY - 5)
     }
 
+    @Test func theInsetScalesWithTheTileSize() {
+        #expect(DockBarInset.scaled(forTileSize: 54) == DockBarInset.measured)
+        let large = DockBarInset.scaled(forTileSize: 108)
+        #expect(large == DockBarInset(top: 10, sides: -52, bottom: -6))
+        #expect(DockBarInset.scaled(forTileSize: 27).sides == -13)
+    }
+
     @Test func theTrackerFollowsTheAccessibilityFrameWhenItIsReadable() {
         let sensing = FakeDockSensing()
-        sensing.listFrame = CGRect(x: 76, y: 1117, width: 1576, height: 74)
+        sensing.listFrame = hiddenListFrame
         var tracker = DockTracker()
         let hidden = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
         #expect(tracker.source == .accessibility)
         #expect(hidden.map { frame in frame.maxY } == -5)
-        sensing.listFrame = CGRect(x: 76, y: 1033, width: 1576, height: 74)
+        sensing.listFrame = shownListFrame
         let shown = tracker.update(now: 0.31, elapsedSeconds: tick, screens: screens, sensing: sensing)
         #expect(shown == CGRect(x: 50, y: 7, width: 1628, height: 72))
     }
 
-    @Test func idleReadsAreSlowAndTheEdgeBandOrAChangeMakesThemFast() {
+    @Test func aFailedReadKeepsTheLastRealFrameForAGraceThenFallsBackToTheEstimate() {
         let sensing = FakeDockSensing()
-        sensing.listFrame = CGRect(x: 76, y: 1117, width: 1576, height: 74)
+        sensing.listFrame = shownListFrame
         var tracker = DockTracker()
-        for index in 0..<90 {
-            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        let real = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        sensing.listFrame = nil
+        for index in 1...40 {
+            let kept = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
+            #expect(kept == real)
+            #expect(tracker.source == .accessibility)
         }
+        run(&tracker, sensing, ticks: 41..<80)
+        #expect(tracker.source == .estimate)
+        #expect((tracker.bar?.maxY ?? 0) <= screenFrame.minY)
+    }
+
+    @Test func noDockProcessIsNoGroundAndPetsFallRatherThanSpringing() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = shownListFrame
+        var tracker = DockTracker()
+        _ = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        sensing.running = false
+        let readsBefore = sensing.listFrameReads + sensing.windowReads
+        let gone = tracker.update(now: tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect((gone?.maxY ?? 0) < screenFrame.minY)
+        #expect(sensing.listFrameReads + sensing.windowReads == readsBefore)
+        let profile = dockProfile(gone)
+        #expect(profile.height(over: span(800)) == inset)
+
+        sensing.listFrame = nil
+        sensing.window = nil
+        var fresh = DockTracker()
+        let neverSeen = fresh.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(neverSeen == nil)
+    }
+
+    @Test func idleReadsAreSlowAndOnlyTheDocksOwnBandOrAChangeMakesThemFast() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = CGRect(x: 600, y: 1117, width: 500, height: 74)
+        var tracker = DockTracker()
+        run(&tracker, sensing, ticks: 0..<90)
         #expect(sensing.listFrameReads >= 9 && sensing.listFrameReads <= 11)
 
-        let idleReads = sensing.listFrameReads
+        var reads = sensing.listFrameReads
+        sensing.pointer = CGPoint(x: 10, y: 2)
+        run(&tracker, sensing, ticks: 90..<120)
+        #expect(sensing.listFrameReads - reads <= 4)
+
+        reads = sensing.listFrameReads
         sensing.pointer = CGPoint(x: 800, y: 2)
-        for index in 90..<120 {
-            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        }
-        #expect(sensing.listFrameReads - idleReads == 30)
+        run(&tracker, sensing, ticks: 120..<150)
+        #expect(sensing.listFrameReads - reads == 30)
 
         sensing.pointer = CGPoint(x: 800, y: 600)
-        sensing.listFrame = CGRect(x: 76, y: 1033, width: 1576, height: 74)
-        let beforeChange = sensing.listFrameReads
-        for index in 120..<150 {
-            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        }
-        #expect(sensing.listFrameReads - beforeChange >= 15)
+        sensing.listFrame = CGRect(x: 600, y: 1033, width: 500, height: 74)
+        reads = sensing.listFrameReads
+        run(&tracker, sensing, ticks: 150..<180)
+        #expect(sensing.listFrameReads - reads >= 15)
     }
 
     @Test func preferencesAreReadOnceEveryFewSeconds() {
         let sensing = FakeDockSensing()
         var tracker = DockTracker()
-        for index in 0..<300 {
-            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        }
+        run(&tracker, sensing, ticks: 0..<300)
         #expect(sensing.preferenceReads == 2)
     }
 
-    @Test func withoutAccessTheFreeShownFlagSlidesAnEstimatedBarInAndOut() {
+    @Test func withoutAccessTheWindowFlagSlidesAnEstimatedBarInAndOut() {
         let sensing = FakeDockSensing()
         var tracker = DockTracker()
         let hidden = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
         #expect(tracker.source == .estimate)
         #expect((hidden?.maxY ?? 0) <= screenFrame.minY)
 
-        sensing.shownOnScreen = true
+        sensing.window = DockWindowState(isOnScreen: true, topLeftFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117))
         var tops: [CGFloat] = []
         for index in 1...12 {
             let estimated = tracker.update(now: 0.4 + Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
@@ -330,20 +383,46 @@ struct DockGeometrySourceTests {
         #expect(abs(shownBar.midX - screenFrame.midX) < 0.5)
         #expect(shownBar.width > 19 * 54)
 
-        sensing.shownOnScreen = false
-        for index in 1...10 {
-            _ = tracker.update(now: 1 + Double(index) * tick, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        }
+        sensing.window = DockWindowState(isOnScreen: false, topLeftFrame: nil)
+        run(&tracker, sensing, ticks: 40..<50)
         #expect((tracker.bar?.maxY ?? 0) <= screenFrame.minY)
     }
 
-    @Test func anAlwaysVisibleDockIsShownWithoutAskingTheWindowList() {
+    @Test func anAlwaysVisibleDockStillFollowsTheWindowFlagSoAFullScreenSpaceIsFlat() {
         let sensing = FakeDockSensing()
         sensing.dockPreferences.autohides = false
-        sensing.shownOnScreen = nil
+        sensing.window = DockWindowState(isOnScreen: false, topLeftFrame: nil)
         var tracker = DockTracker()
         let estimated = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        #expect((estimated?.maxY ?? 0) > 60)
+        let profile = dockProfile(estimated)
+        #expect(profile.height(over: span(800)) == inset)
+    }
+
+    @Test func theEstimateSitsOnTheDisplayTheDocksWindowIsOn() {
+        let secondScreen = CGRect(x: 1728, y: -200, width: 1920, height: 1080)
+        let twoScreens = DockScreens(primaryFrame: screenFrame, allFrames: [screenFrame, secondScreen])
+        let sensing = FakeDockSensing()
+        let topLeftOfSecond = CGRect(x: 1728, y: 1117 - secondScreen.maxY, width: 1920, height: 1080)
+        sensing.window = DockWindowState(isOnScreen: true, topLeftFrame: topLeftOfSecond)
+        var tracker = DockTracker()
+        for index in 0..<20 {
+            _ = tracker.update(now: Double(index) * tick, elapsedSeconds: tick, screens: twoScreens, sensing: sensing)
+        }
+        let estimated = tracker.bar ?? .zero
+        #expect(abs(estimated.midX - secondScreen.midX) < 0.5)
+        #expect(estimated.minY > secondScreen.minY - 10 && estimated.maxY < secondScreen.minY + 100)
+    }
+
+    @Test func magnificationNeverRaisesTheGroundAboveTheRestingDock() {
+        let sensing = FakeDockSensing()
+        sensing.dockPreferences.magnifies = true
+        sensing.listFrame = CGRect(x: 76, y: 1033 - 60, width: 1576, height: 134)
+        var tracker = DockTracker()
+        let magnified = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(magnified?.maxY == 79)
+        sensing.dockPreferences.magnifies = false
+        var plain = DockTracker()
+        #expect((plain.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)?.maxY ?? 0) > 79)
     }
 
     @Test func aSideDockGivesNoGround() {
@@ -353,5 +432,128 @@ struct DockGeometrySourceTests {
         var tracker = DockTracker()
         #expect(tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing) == nil)
         #expect(sensing.listFrameReads == 0)
+    }
+}
+
+@Suite("the overlay's ground with a fake Dock")
+@MainActor
+struct PetGroundTests {
+    private let screenFrames = OverlayScreenFrames(visibleFrame: screenFrame, screenFrame: screenFrame)
+
+    private func makePresence(home: CGFloat) -> PetPresence {
+        let view = PetView(
+            sessionId: "pet-dock",
+            petAppearance: PetAppearance(
+                label: "dock", accent: .cyan, mood: .ready, message: nil, bubbleCaption: nil,
+                labelPlacement: .pill, spriteSideLength: spriteSide
+            )
+        )
+        let window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
+        let presence = PetPresence(
+            sessionId: "pet-dock", window: window, view: view,
+            spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit
+        )
+        presence.homeHorizontalCenter = home
+        return presence
+    }
+
+    private func makeGround(_ sensing: FakeDockSensing) -> PetGround {
+        PetGround(dockGround: DockGround(sensing: sensing, screenFrames: { [screenFrame] }))
+    }
+
+    private func step(_ presence: PetPresence, ground: PetGround, now: Double, standsOnDock: Bool = true, sawWait: inout Bool) -> CGFloat {
+        ground.refresh(standsOnDock: standsOnDock, screenFrames: screenFrames, now: now, elapsedSeconds: tick)
+        presence.animator.advance(elapsedSeconds: tick, mood: .ready) { offset in
+            let allowed = ground.allowsStep(presence, toOffset: offset)
+            if presence.waitsOnJump { sawWait = true }
+            return allowed
+        }
+        ground.finishStep(presence)
+        #expect(!presence.waitsOnJump)
+        let width = presence.view.preferredSize.width
+        let center = PetGround.horizontalOrigin(
+            desiredCenter: presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome,
+            windowWidth: width,
+            visibleFrame: screenFrame
+        ) + width / 2
+        return ground.windowBottom(for: presence, standingCenter: center, elapsedSeconds: tick)
+    }
+
+    @Test func theKeyOffPathReadsNoDockAndPlacesPetsAsBefore() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = shownListFrame
+        let ground = makeGround(sensing)
+        let presence = makePresence(home: 800)
+        var sawWait = false
+        for index in 0..<120 {
+            let bottom = step(presence, ground: ground, now: Double(index) * tick, standsOnDock: false, sawWait: &sawWait)
+            #expect(bottom == screenFrame.minY + PetGeometry.windowBottomInset)
+            #expect(presence.groundBody == nil)
+        }
+        #expect(sensing.reads == 0)
+        #expect(ground.profile == .flat(base: screenFrame.minY + PetGeometry.windowBottomInset))
+        presence.window.close()
+    }
+
+    @Test func aWalkingPetJumpsUpTheEdgeAndItsBlockedWalkIsForgotten() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = CGRect(x: 300, y: 1033, width: 600, height: 74)
+        let ground = makeGround(sensing)
+        let barLeft: CGFloat = 274
+        let presence = makePresence(home: barLeft - 40)
+        let top = shownBar.maxY + inset
+        var sawWait = false
+        var stoodOnTop = false
+        for index in 0..<240 {
+            let bottom = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
+            let center = presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
+            if ground.profile.segment?.overlaps(ground.bodySpan(of: presence, centerX: center)) == true {
+                #expect(bottom >= top - GroundBody.stepUpTolerance)
+                if bottom == top { stoodOnTop = true }
+            }
+            if presence.groundBody?.isJumping == true { #expect(!presence.animator.walkWasBlocked) }
+        }
+        #expect(sawWait)
+        #expect(stoodOnTop)
+        presence.window.close()
+    }
+
+    @Test func theStepCheckStandsWhereTheWindowIsClampedNotWhereTheHomeWouldPutIt() {
+        let narrowVisibleFrame = CGRect(x: 0, y: 0, width: 1500, height: 1117)
+        let presence = makePresence(home: narrowVisibleFrame.maxX - 4)
+        let width = presence.view.preferredSize.width
+        let clampedCenter = narrowVisibleFrame.maxX - width / 2
+        let halfBody = spriteSide * LaneLayout.bodyWidthFraction / 2
+        let sensing = FakeDockSensing()
+        sensing.listFrame = CGRect(x: clampedCenter + halfBody + 30, y: 1033, width: 60, height: 74)
+        let ground = makeGround(sensing)
+        ground.refresh(
+            standsOnDock: true,
+            screenFrames: OverlayScreenFrames(visibleFrame: narrowVisibleFrame, screenFrame: screenFrame),
+            now: 0,
+            elapsedSeconds: tick
+        )
+        #expect(ground.profile.segment?.overlaps(ground.bodySpan(of: presence, centerX: presence.homeHorizontalCenter)) == true)
+        #expect(ground.profile.segment?.overlaps(ground.bodySpan(of: presence, centerX: clampedCenter)) == false)
+        let bottom = ground.windowBottom(for: presence, standingCenter: clampedCenter, elapsedSeconds: tick)
+        #expect(bottom == inset)
+        #expect(ground.allowsStep(presence, toOffset: 1))
+        #expect(presence.groundBody?.isJumping == false)
+        presence.window.close()
+    }
+
+    @Test func aHiddenDockRefusesNoStepAnywhere() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = hiddenListFrame
+        let ground = makeGround(sensing)
+        ground.refresh(standsOnDock: true, screenFrames: screenFrames, now: 0, elapsedSeconds: tick)
+        #expect(ground.profile.kind == .dock)
+        let presence = makePresence(home: 0)
+        _ = ground.windowBottom(for: presence, standingCenter: 0, elapsedSeconds: tick)
+        for offset in stride(from: CGFloat(0), through: screenFrame.maxX, by: 8) {
+            #expect(ground.allowsStep(presence, toOffset: offset))
+        }
+        #expect(presence.groundBody?.isAirborne == false)
+        presence.window.close()
     }
 }

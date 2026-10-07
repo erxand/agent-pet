@@ -12,6 +12,7 @@ package struct DockPreferences: Equatable {
     package static let orientationKey = "orientation"
     package static let autohideKey = "autohide"
     package static let tileSizeKey = "tilesize"
+    package static let magnificationKey = "magnification"
     package static let showsRecentsKey = "show-recents"
     package static let persistentAppsKey = "persistent-apps"
     package static let persistentOthersKey = "persistent-others"
@@ -21,6 +22,7 @@ package struct DockPreferences: Equatable {
     package var orientation: DockOrientation
     package var autohides: Bool
     package var tileSize: CGFloat
+    package var magnifies: Bool
     package var tileCount: Int
     package var separatorCount: Int
 
@@ -28,18 +30,21 @@ package struct DockPreferences: Equatable {
         orientation: DockOrientation = .bottom,
         autohides: Bool = false,
         tileSize: CGFloat = DockPreferences.defaultTileSize,
+        magnifies: Bool = false,
         tileCount: Int = 0,
         separatorCount: Int = 0
     ) {
         self.orientation = orientation
         self.autohides = autohides
         self.tileSize = tileSize
+        self.magnifies = magnifies
         self.tileCount = tileCount
         self.separatorCount = separatorCount
     }
 }
 
 package struct DockBarInset: Equatable {
+    package static let measuredTileSize: CGFloat = 54
     package static let measured = DockBarInset(top: 5, sides: -26, bottom: -3)
 
     package let top: CGFloat
@@ -52,6 +57,11 @@ package struct DockBarInset: Equatable {
         self.bottom = bottom
     }
 
+    package static func scaled(forTileSize tileSize: CGFloat) -> DockBarInset {
+        let scale = tileSize / measuredTileSize
+        return DockBarInset(top: measured.top * scale, sides: measured.sides * scale, bottom: measured.bottom * scale)
+    }
+
     package func drawnBar(fromListFrame listFrame: CGRect) -> CGRect {
         CGRect(
             x: listFrame.minX + sides,
@@ -59,6 +69,10 @@ package struct DockBarInset: Equatable {
             width: max(0, listFrame.width - sides * 2),
             height: max(0, listFrame.height - top - bottom)
         )
+    }
+
+    package func restingHeight(tileSize: CGFloat) -> CGFloat {
+        max(0, tileSize + DockListFrame.verticalPadding - top - bottom)
     }
 }
 
@@ -69,12 +83,12 @@ package enum DockListFrame {
     package static let shownBottomGap: CGFloat = 10
     package static let separatorWidthPerTileSize: CGFloat = 0.48
 
-    package static func appKitFrame(fromAccessibilityFrame accessibilityFrame: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
+    package static func appKitFrame(fromTopLeftFrame topLeftFrame: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
         CGRect(
-            x: accessibilityFrame.minX,
-            y: primaryScreenHeight - accessibilityFrame.maxY,
-            width: accessibilityFrame.width,
-            height: accessibilityFrame.height
+            x: topLeftFrame.minX,
+            y: primaryScreenHeight - topLeftFrame.maxY,
+            width: topLeftFrame.width,
+            height: topLeftFrame.height
         )
     }
 
@@ -148,32 +162,54 @@ package struct DockPollCadence: Equatable {
 
 package enum DockEdgeBand {
     package static let extraDepth: CGFloat = 30
+    package static let sideMargin: CGFloat = 40
 
-    package static func contains(_ pointer: CGPoint, screens: [CGRect], preferences: DockPreferences) -> Bool {
+    package static func contains(
+        _ pointer: CGPoint,
+        dockScreen: CGRect,
+        dockSpan: ClosedRange<CGFloat>?,
+        preferences: DockPreferences
+    ) -> Bool {
         let depth = preferences.tileSize + DockListFrame.verticalPadding + extraDepth
-        return screens.contains { screen in
-            pointer.x >= screen.minX && pointer.x <= screen.maxX
-                && pointer.y >= screen.minY && pointer.y <= screen.minY + depth
-        }
+        let span = dockSpan ?? dockScreen.minX...dockScreen.maxX
+        let left = max(dockScreen.minX, span.lowerBound - sideMargin)
+        let right = min(dockScreen.maxX, span.upperBound + sideMargin)
+        return pointer.x >= left && pointer.x <= right
+            && pointer.y >= dockScreen.minY && pointer.y <= dockScreen.minY + depth
     }
 }
 
 package struct DockScreens: Equatable {
     package let primaryFrame: CGRect
-    package let dockScreenFrame: CGRect
     package let allFrames: [CGRect]
 
-    package init(primaryFrame: CGRect, dockScreenFrame: CGRect, allFrames: [CGRect]) {
+    package init(primaryFrame: CGRect, allFrames: [CGRect]) {
         self.primaryFrame = primaryFrame
-        self.dockScreenFrame = dockScreenFrame
         self.allFrames = allFrames
+    }
+
+    package func screen(containing topLeftWindowFrame: CGRect) -> CGRect? {
+        let windowFrame = DockListFrame.appKitFrame(fromTopLeftFrame: topLeftWindowFrame, primaryScreenHeight: primaryFrame.maxY)
+        let center = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
+        return allFrames.first { frame in frame.contains(center) }
+    }
+}
+
+package struct DockWindowState: Equatable {
+    package let isOnScreen: Bool
+    package let topLeftFrame: CGRect?
+
+    package init(isOnScreen: Bool, topLeftFrame: CGRect?) {
+        self.isOnScreen = isOnScreen
+        self.topLeftFrame = topLeftFrame
     }
 }
 
 package protocol DockSensing {
     func preferences() -> DockPreferences
+    func dockIsRunning() -> Bool
     func accessibilityListFrame() -> CGRect?
-    func dockIsShownOnScreen() -> Bool?
+    func dockWindow() -> DockWindowState?
     func pointerLocation() -> CGPoint
 }
 
@@ -184,6 +220,8 @@ package enum DockBarSource: Equatable {
 
 package struct DockTracker {
     package static let preferencesIntervalInSeconds: TimeInterval = 5
+    package static let accessibilityGraceInSeconds: TimeInterval = 1.5
+    package static let goneDepth: CGFloat = 5
 
     package private(set) var bar: CGRect?
     package private(set) var source: DockBarSource?
@@ -191,7 +229,9 @@ package struct DockTracker {
     private var preferencesReadAt: TimeInterval?
     private var cadence = DockPollCadence()
     private var slide: DockSlide?
-    private var estimateShown = true
+    private var estimateShown = false
+    private var dockScreen: CGRect?
+    private var lastAccessibilityReadAt: TimeInterval?
 
     package init() {}
 
@@ -208,7 +248,17 @@ package struct DockTracker {
             slide = nil
             return nil
         }
-        let pointerNearDock = DockEdgeBand.contains(sensing.pointerLocation(), screens: screens.allFrames, preferences: preferences)
+        guard sensing.dockIsRunning() else {
+            lowerBarOutOfSight(screens: screens)
+            return bar
+        }
+        let screen = dockScreen ?? screens.primaryFrame
+        let pointerNearDock = DockEdgeBand.contains(
+            sensing.pointerLocation(),
+            dockScreen: screen,
+            dockSpan: bar.map { frame in frame.minX...frame.maxX },
+            preferences: preferences
+        )
         let slideMoving = slide?.isMoving ?? false
         if slideMoving || cadence.shouldRead(now: now, pointerNearDock: pointerNearDock) {
             read(now: now, elapsedSeconds: elapsedSeconds, preferences: preferences, screens: screens, sensing: sensing)
@@ -228,6 +278,14 @@ package struct DockTracker {
         return fresh
     }
 
+    private mutating func lowerBarOutOfSight(screens: DockScreens) {
+        estimateShown = false
+        slide = DockSlide(shown: false)
+        guard let current = bar else { return }
+        let bottom = (dockScreen ?? screens.primaryFrame).minY
+        bar = current.offsetBy(dx: 0, dy: bottom - DockTracker.goneDepth - current.maxY)
+    }
+
     private mutating func read(
         now: TimeInterval,
         elapsedSeconds: Double,
@@ -236,16 +294,25 @@ package struct DockTracker {
         sensing: DockSensing
     ) {
         let previous = bar
+        let inset = DockBarInset.scaled(forTileSize: preferences.tileSize)
         if let accessibilityFrame = sensing.accessibilityListFrame() {
-            let listFrame = DockListFrame.appKitFrame(
-                fromAccessibilityFrame: accessibilityFrame,
-                primaryScreenHeight: screens.primaryFrame.maxY
-            )
-            bar = DockBarInset.measured.drawnBar(fromListFrame: listFrame)
+            let listFrame = DockListFrame.appKitFrame(fromTopLeftFrame: accessibilityFrame, primaryScreenHeight: screens.primaryFrame.maxY)
+            let drawn = inset.drawnBar(fromListFrame: listFrame)
+            bar = capped(drawn, preferences: preferences, inset: inset)
+            dockScreen = screens.allFrames.first { frame in drawn.midX >= frame.minX && drawn.midX <= frame.maxX } ?? dockScreen
             source = .accessibility
             slide = nil
+            lastAccessibilityReadAt = now
+        } else if source == .accessibility, let lastAccessibilityReadAt,
+                  now - lastAccessibilityReadAt < DockTracker.accessibilityGraceInSeconds {
+            return
         } else {
-            estimateShown = preferences.autohides ? (sensing.dockIsShownOnScreen() ?? true) : true
+            if let window = sensing.dockWindow() {
+                estimateShown = window.isOnScreen
+                if let topLeftFrame = window.topLeftFrame, let screen = screens.screen(containing: topLeftFrame) {
+                    dockScreen = screen
+                }
+            }
             if source != .estimate { slide = DockSlide(shown: estimateShown) }
             source = .estimate
             advanceEstimate(elapsedSeconds: elapsedSeconds, preferences: preferences, screens: screens)
@@ -257,11 +324,19 @@ package struct DockTracker {
         var moving = slide ?? DockSlide(shown: estimateShown)
         moving.advance(elapsedSeconds: elapsedSeconds, shown: estimateShown)
         slide = moving
+        let inset = DockBarInset.scaled(forTileSize: preferences.tileSize)
         let listFrame = DockListFrame.estimated(
             preferences: preferences,
-            screenFrame: screens.dockScreenFrame,
+            screenFrame: dockScreen ?? screens.primaryFrame,
             shownFraction: moving.shownFraction
         )
-        bar = DockBarInset.measured.drawnBar(fromListFrame: listFrame)
+        bar = inset.drawnBar(fromListFrame: listFrame)
+    }
+
+    private func capped(_ drawn: CGRect, preferences: DockPreferences, inset: DockBarInset) -> CGRect {
+        guard preferences.magnifies else { return drawn }
+        var resting = drawn
+        resting.size.height = min(drawn.height, inset.restingHeight(tileSize: preferences.tileSize))
+        return resting
     }
 }
