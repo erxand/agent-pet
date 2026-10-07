@@ -185,9 +185,13 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    outside its wander range; a pet that lands, or that went under in a float and comes back up, walks
    home from wherever it is, however close. Only at home does it wander again, within
    `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: 120 px, or less when lanes are close,
-   so that two neighbours at the ends of their ranges still keep the gap. On the ground a step that would
-   cross a neighbour, or bring it closer than `LaneLayout.minimumGroundGap` (60% of the widest sprite,
-   capped at 90% of the lane spacing so every lane stays reachable), is not taken: the pet runs in place,
+   so that two neighbours at the ends of their ranges still keep the gap. The gap is the widest pet on the
+   ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the lane
+   spacing so every lane stays reachable. So the names of two pets side by side never overlap: a label or
+   bubble caption wider than that cap less 8 px is cut short, character by character from the end
+   (`PetAppearance.fitted(toWidth:)`), when the pets are planned, never per frame. Only a sprite wider than
+   the cap, which takes about ten pets on a laptop screen, can still touch its neighbour. On the ground a
+   step that would cross a neighbour, or bring it closer than that gap, is not taken: the pet runs in place,
    and a wandering pet turns round when its next walk starts. A pet walking home that is refused sends
    the neighbour in its way home too, so a walker behind a pet that stands still (a question) never waits
    for ever. Moving apart is always allowed. Floating and diving pets are not in the way. Only the two

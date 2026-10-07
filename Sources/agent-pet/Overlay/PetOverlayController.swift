@@ -317,6 +317,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         followScreen(to: screenFrames.visibleFrame)
         let newcomers = Set(items.map { item in item.petKey }.filter { petKey in presencesBySessionId[petKey] == nil })
+        let widthPerPet = LaneLayout.maximumPetWidth(laneCount: items.count, screenFrame: screenFrames.visibleFrame)
         for item in items {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
@@ -333,7 +334,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 bubbleCaption: item.bubbleCaption,
                 labelPlacement: contracts.configuration.labelPlacement,
                 spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize)
-            )
+            ).fitted(toWidth: widthPerPet)
             let presence = presencesBySessionId[item.petKey]
                 ?? makePresence(
                     sessionId: item.petKey,
@@ -381,9 +382,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             },
             laneCenters: laneCenters
         )
-        let widestSprite = presences.map { presence in presence.view.petAppearance.spriteSideLength }.max() ?? 0
+        let widestPet = presences.map { presence in presence.view.contentSize.width }.max() ?? 0
         minimumGroundGap = LaneLayout.minimumGroundGap(
-            bodyWidths: (widestSprite, widestSprite),
+            widestPet: widestPet,
             laneCount: presences.count,
             screenFrame: screenFrame
         )
