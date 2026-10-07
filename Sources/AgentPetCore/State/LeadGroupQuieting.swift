@@ -14,6 +14,6 @@ enum LeadGroupQuieting {
     }
 
     static func isQuietedWithTheLead(_ member: PetSession) -> Bool {
-        member.visible && member.mood == .ready
+        (member.visible && member.mood == .ready) || member.held != nil
     }
 }
