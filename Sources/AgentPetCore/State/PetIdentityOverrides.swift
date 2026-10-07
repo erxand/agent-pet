@@ -63,8 +63,8 @@ struct PetIdentityOverrides {
         if let group { updated.group = group }
         if owner { updated.owner = true }
         if let groupMode { updated.groupMode = groupMode == .shared ? nil : groupMode }
-        if let disambiguator { updated.disambiguator = disambiguator }
-        if let disambiguationScope { updated.disambiguationScope = disambiguationScope }
+        if let disambiguator { updated.disambiguator = disambiguator.isEmpty ? nil : disambiguator }
+        if let disambiguationScope { updated.disambiguationScope = disambiguationScope.isEmpty ? nil : disambiguationScope }
         if updated.group != nil, updated.enrolledAt == nil { updated.enrolledAt = Date().timeIntervalSince1970 }
         return updated
     }

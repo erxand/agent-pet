@@ -97,10 +97,12 @@ file on every write (temp file in the same dir, then rename).
   is the key of the pet the session belongs to; absent means the session id, which is the one pet per
   session model. `owner` is `true` on the member flagged with `--owner`. `enrolledAt` is stamped once,
   when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
-- `groupMode` is optional and absent unless `--group-mode lead` was passed; `--group-mode shared` removes it.
+- `groupMode` is optional and absent unless `--group-mode lead` was passed; `--group-mode shared` or an empty
+  `--group-mode ""` removes it.
   A group with any member whose `groupMode` is `lead` follows the lead rules, see "Lead groups".
 - `disambiguator` and `disambiguationScope` are optional and absent unless `--disambiguator TEXT` and
-  `--disambiguation-scope KEY` were passed. They change a label only on a clash, see "Session differentiation".
+  `--disambiguation-scope KEY` were passed, and an empty value removes each. They change a label only on a
+  clash, see "Session differentiation".
 - `focusTarget` is optional and opaque: `--focus-target` stores it and the command focuser hands it on as
   `AGENT_PET_FOCUS_TARGET`. agent-pet never interprets it.
 - `handoverPendingSince` is optional and present only on a record a `SessionEnd` with `reason` `clear` or
@@ -268,7 +270,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID \| --focus-target T \| --pid N]` | visible false. When a selected record is the flagged owner of a lead group, every other member of that group that is visible and `ready` is hidden too, see "Lead groups" |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
-| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
+| `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...]}` with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session), `flaggedOwner` (the record's own `owner` flag), `groupMode` (`shared` or `lead`), `disambiguator` and `disambiguationScope` (null when absent) |
 | (selection) | `hide` and `remove` act on `--session`, else on every record whose `focusTarget` is `--focus-target` (what a terminal knows about its pane), else on every record whose `pid` is `--pid` (what knows the process after a `/clear` changed its id), else on `$CLAUDE_CODE_SESSION_ID` |
 | `hook` | read one Claude Code hook JSON object from stdin, dispatch below; always exit 0; never write to stdout |
 | `preview [--mood MOOD] [--seconds N]` | show a fake pet (sessionId `preview-<random>`, label `preview`, `sprite` assigned like `on` unless `--sprite` is given) for N seconds (default 20) so the overlay can be tested without a real session |
@@ -496,7 +498,8 @@ session id, and the planner applies these rules to the live members of each key:
 ### Lead groups
 
 A group in which any member has `groupMode` `lead` is a lead group, for a window where one session leads and
-the others support it. With a live member flagged `owner` (the lead):
+the others support it. The lead is the live member flagged `owner`, the earliest enrolled when two are
+flagged. With a lead:
 
 - The lead's pet keeps the group key. It is waiting while the lead is waiting, in any mood, or while any
   member is visible and `ready` and no member is working (the rule above). Its label, sprite, accent and
@@ -504,8 +507,11 @@ the others support it. With a live member flagged `owner` (the lead):
 - A visible `needsInput` or `blocked` member other than the lead gets its own pet at once, keyed
   `<group>#<session id>`, with that member's own label, sprite, message and click. Its click hides only
   that member, and the lead's pet leaves it out of the members it hides.
-- `hide` naming the lead (by `--session`, `--focus-target` or `--pid`) also hides every other member that
-  is visible and `ready`, so seeing the lead counts as seeing the window. A member's question stays up.
+- `hide` naming the lead (by `--session`, `--focus-target` or `--pid`) also hides every other enabled member
+  whose process is alive and that is visible and `ready`, so seeing the lead counts as seeing the window. A
+  member's question stays up.
+- A member's own pet counts as up for settling, like the group's pet, so a new question on a pet that is
+  already up never takes it down to settle again.
 
 With no live flagged owner, the group follows the plain rules, except that the label is the waiting
 member's own and there is no bubble caption. A group without the mode is unchanged.

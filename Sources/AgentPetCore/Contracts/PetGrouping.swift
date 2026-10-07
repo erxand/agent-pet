@@ -14,13 +14,16 @@ package struct PetGroup: Equatable {
     }
 
     package var owner: PetSession? {
-        let byEnrollment = members.sorted { leftMember, rightMember in
+        flaggedOwner ?? membersByEnrollment.first
+    }
+
+    private var membersByEnrollment: [PetSession] {
+        members.sorted { leftMember, rightMember in
             if leftMember.enrollmentOrder != rightMember.enrollmentOrder {
                 return leftMember.enrollmentOrder < rightMember.enrollmentOrder
             }
             return leftMember.sessionId < rightMember.sessionId
         }
-        return byEnrollment.first { member in member.isFlaggedOwner } ?? byEnrollment.first
     }
 
     package var isLead: Bool {
@@ -28,7 +31,7 @@ package struct PetGroup: Equatable {
     }
 
     package var flaggedOwner: PetSession? {
-        members.first { member in member.isFlaggedOwner }
+        membersByEnrollment.first { member in member.isFlaggedOwner }
     }
 
     package var askingMembersBesideTheLead: [PetSession] {

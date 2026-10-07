@@ -48,7 +48,7 @@ package struct PetDisplayPlanner {
             .sorted { leftRecord, rightRecord in leftRecord.updatedAt < rightRecord.updatedAt }
         let waitingGroups = grouping.groups(of: liveMembers)
             .map { group in
-                settled(group, claudeSessions: claudeSessions, now: now, isShown: shownPetKeys.contains(group.key))
+                settled(group, claudeSessions: claudeSessions, now: now, shownPetKeys: shownPetKeys)
             }
             .filter { group in group.isWaiting }
             .sorted { leftGroup, rightGroup in
@@ -72,9 +72,11 @@ package struct PetDisplayPlanner {
         _ group: PetGroup,
         claudeSessions: [String: ClaudeSessionRecord],
         now: TimeInterval,
-        isShown: Bool
+        shownPetKeys: Set<String>
     ) -> PetGroup {
         let members = group.members.map { member -> PetSession in
+            let isShown = shownPetKeys.contains(group.key)
+                || shownPetKeys.contains(PetDisplayPlanner.memberPetKey(group: group.key, sessionId: member.sessionId))
             guard member.visible, let waitingSince = member.waitingSince else { return member }
             var heldBack = member
             if holdsWhileBusy,
@@ -102,7 +104,7 @@ package struct PetDisplayPlanner {
         let askingSessionIds = Set(askingMembers.map { member in member.sessionId })
         let memberItems = askingMembers.map { member in
             PetDisplayItem(
-                petKey: group.key + PetDisplayPlanner.memberPetKeySeparator + member.sessionId,
+                petKey: PetDisplayPlanner.memberPetKey(group: group.key, sessionId: member.sessionId),
                 session: member,
                 label: PetLabel.resolve(session: member, claudeSession: claudeSessions[member.sessionId]),
                 mood: member.mood,
@@ -166,6 +168,10 @@ package struct PetDisplayPlanner {
             memberSessionIds: group.members.map { member in member.sessionId },
             focusRequest: FocusRequest(session: focusMember, claudeSession: focusClaudeSession)
         )
+    }
+
+    package static func memberPetKey(group: String, sessionId: String) -> String {
+        group + memberPetKeySeparator + sessionId
     }
 
     package static func memberName(_ member: PetSession, claudeSession: ClaudeSessionRecord?) -> String {
