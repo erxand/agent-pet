@@ -43,7 +43,8 @@ package struct SpaceMotion: Equatable {
     package static let fallDriftDampingPerSecond: CGFloat = 2
     package static let uprightRadiansPerSecond: Double = 3
     package static let walkSpeedInPointsPerSecond: CGFloat = 40
-    package static let bounceRestitution: CGFloat = 1.15
+    package static let bounceRestitution: CGFloat = 0.97
+    package static let cruiseRecoveryPerSecond: Double = 0.5
     package static let maximumBounceSpeed: CGFloat = 72
     private static let fullTurn = Double.pi * 2
 
@@ -53,6 +54,7 @@ package struct SpaceMotion: Equatable {
     package private(set) var spinRadiansPerSecond: Double
     package private(set) var phase: SpacePhase = .floating
     package private(set) var facingLeft: Bool
+    package private(set) var cruiseSpeed: CGFloat
 
     package init(launchingFrom center: CGPoint, seed: UInt64, facingLeft: Bool = false) {
         var generator = SeededGenerator(seed: seed)
@@ -67,6 +69,7 @@ package struct SpaceMotion: Equatable {
         velocity = CGVector(dx: speed * CGFloat(cos(angle)), dy: speed * CGFloat(sin(angle)))
         spinRadiansPerSecond = spinsClockwise ? -spin : spin
         self.facingLeft = facingLeft
+        cruiseSpeed = speed
     }
 
     package static func seed(forPetKey petKey: String) -> UInt64 {
@@ -110,6 +113,7 @@ package struct SpaceMotion: Equatable {
     }
 
     private mutating func drift(elapsedSeconds: Double, area: SpaceArea) {
+        easeTowardCruiseSpeed(elapsedSeconds: elapsedSeconds)
         let seconds = CGFloat(elapsedSeconds)
         var next = CGPoint(x: center.x + velocity.dx * seconds, y: center.y + velocity.dy * seconds)
         if next.x < area.lowestCenter.x || next.x > area.highestCenter.x {
@@ -181,6 +185,14 @@ package struct SpaceMotion: Equatable {
         other.velocity = SpaceMotion.capped(
             CGVector(dx: other.velocity.dx + impulse * normal.dx, dy: other.velocity.dy + impulse * normal.dy)
         )
+    }
+
+    private mutating func easeTowardCruiseSpeed(elapsedSeconds: Double) {
+        let speed = hypot(velocity.dx, velocity.dy)
+        guard speed > 0, speed != cruiseSpeed else { return }
+        let blend = CGFloat(1 - exp(-SpaceMotion.cruiseRecoveryPerSecond * elapsedSeconds))
+        let scale = (speed + (cruiseSpeed - speed) * blend) / speed
+        velocity = CGVector(dx: velocity.dx * scale, dy: velocity.dy * scale)
     }
 
     private static func capped(_ velocity: CGVector) -> CGVector {
