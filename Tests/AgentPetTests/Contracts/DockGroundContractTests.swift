@@ -205,6 +205,20 @@ struct DockGroundContractTests {
         #expect(access.asks == 4)
     }
 
+    @Test func aForeignHomeAsksNothingAndWaitsForNothing() throws {
+        let (files, folder) = try temporaryFiles()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clock = ClockBox()
+        var slept = 0
+        var errors: [String] = []
+        var asking = environment(files: files, daemon: nil, clock: clock, start: .refusedForeignHome) { slept += 1 }
+        asking.writeError = { line in errors.append(line) }
+        #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: ["--ask"]), environment: asking) == ExitCode.failure)
+        #expect(errors == [AccountHome.foreignHomeMessage])
+        #expect(slept == 0)
+        #expect(files.pendingRequestNonce() == nil)
+    }
+
     @Test func theDaemonClaimsARequestSoALaterOneSurvives() throws {
         let (files, folder) = try temporaryFiles()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -245,6 +259,7 @@ struct DockGroundContractTests {
         log: StarterLog
     ) -> DaemonCommand.Starter {
         DaemonCommand.Starter(
+            homeIsForeign: { false },
             launchAgentIsInstalled: { agent },
             startLaunchAgent: { log.started += 1 },
             runningDaemon: { running },

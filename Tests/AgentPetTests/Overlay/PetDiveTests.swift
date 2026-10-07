@@ -129,7 +129,8 @@ struct PetDiveTests {
                 ),
                 access: UngrantedDockAccess(),
                 processIdentifier: 4242
-            )
+            ),
+            appWindowWatcher: NoAppWindows()
         )
         var completions = 0
         controller.beginShutdown { completions += 1 }
@@ -138,6 +139,11 @@ struct PetDiveTests {
         controller.beginShutdown { completions += 1 }
         #expect(completions == 1)
     }
+}
+
+private final class NoAppWindows: AppWindowWatching {
+    func watch(bundleIdentifiers wanted: Set<String>) {}
+    func summaries(now: TimeInterval) -> [String: AppWindowSummary] { [:] }
 }
 
 private struct UngrantedDockAccess: DockAccessChecking {

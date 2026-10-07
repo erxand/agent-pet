@@ -9,5 +9,4 @@ enum EnvironmentVariableName {
     static let focusTarget = "AGENT_PET_FOCUS_TARGET"
     static let focusGroup = "AGENT_PET_GROUP"
     static let focusAgent = "AGENT_PET_AGENT"
-    static let neverStartDaemon = "AGENT_PET_NEVER_START_DAEMON"
 }

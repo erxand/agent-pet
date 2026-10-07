@@ -60,6 +60,17 @@ final class Sandbox {
         fileManager.fileExists(atPath: fileURL.path)
     }
 
+    func environment(merging extraEnvironment: [String: String] = [:]) -> [String: String] {
+        var environment = [
+            "HOME": home.path,
+            "CFFIXED_USER_HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+            "TMUX_EXECUTABLE": tmuxStub.path
+        ]
+        environment.merge(extraEnvironment) { _, extraValue in extraValue }
+        return environment
+    }
+
     @discardableResult
     func run(
         _ arguments: [String],
@@ -75,15 +86,7 @@ final class Sandbox {
             process.executableURL = try Sandbox.binaryURL()
             process.arguments = arguments
         }
-        var environment = [
-            "HOME": home.path,
-            "CFFIXED_USER_HOME": home.path,
-            "PATH": "/usr/bin:/bin",
-            "TMUX_EXECUTABLE": tmuxStub.path,
-            "AGENT_PET_NEVER_START_DAEMON": "1"
-        ]
-        environment.merge(extraEnvironment) { _, extraValue in extraValue }
-        process.environment = environment
+        process.environment = environment(merging: extraEnvironment)
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         let errorPipe = Pipe()

@@ -2,7 +2,12 @@ import AgentPetCore
 import AppKit
 import CoreGraphics
 
-final class AppWindowWatcher {
+protocol AppWindowWatching: AnyObject {
+    func watch(bundleIdentifiers wanted: Set<String>)
+    func summaries(now: TimeInterval) -> [String: AppWindowSummary]
+}
+
+final class AppWindowWatcher: AppWindowWatching {
     static let pollIntervalInSeconds: TimeInterval = 1
 
     private var bundleIdentifiers: Set<String> = []
