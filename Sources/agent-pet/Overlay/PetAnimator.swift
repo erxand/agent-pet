@@ -37,6 +37,7 @@ final class PetAnimator {
     private(set) var chromeOpacity: Double = PetAnimator.transparentChrome
     private(set) var groundAnimationProgress: Double = 0
     private(set) var isWalkingHome = false
+    private(set) var wanderHalfWidth: CGFloat = LaneLayout.wanderHalfWidth
 
     private var frameClockInSeconds: Double = 0
     private var remainingActivityInSeconds: Double = 0
@@ -132,10 +133,25 @@ final class PetAnimator {
         beginWalking()
     }
 
+    func limitWander(to halfWidth: CGFloat) {
+        wanderHalfWidth = max(0, halfWidth)
+        if abs(horizontalOffsetFromHome) > wanderHalfWidth { isWalkingHome = true }
+    }
+
+    func walkHomeNow() {
+        guard horizontalOffsetFromHome != 0 else { return }
+        isWalkingHome = true
+    }
+
+    func stand(atHorizontalOffsetFromHome offset: CGFloat) {
+        horizontalOffsetFromHome = offset
+        isWalkingHome = abs(offset) > wanderHalfWidth
+    }
+
     func moveHome(by shift: CGFloat) {
         guard shift != 0 else { return }
         horizontalOffsetFromHome -= shift
-        if abs(horizontalOffsetFromHome) > LaneLayout.wanderHalfWidth {
+        if abs(horizontalOffsetFromHome) > wanderHalfWidth {
             isWalkingHome = true
         }
     }
@@ -312,11 +328,11 @@ final class PetAnimator {
             * PetAnimator.walkSpeedInPointsPerSecond
             * CGFloat(elapsedSeconds)
         var turns = false
-        if next > LaneLayout.wanderHalfWidth {
-            next = LaneLayout.wanderHalfWidth
+        if next > wanderHalfWidth {
+            next = wanderHalfWidth
             turns = true
-        } else if next < -LaneLayout.wanderHalfWidth {
-            next = -LaneLayout.wanderHalfWidth
+        } else if next < -wanderHalfWidth {
+            next = -wanderHalfWidth
             turns = true
         }
         guard canMoveTo(next) else {

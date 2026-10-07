@@ -17,6 +17,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
 
     private var presencesBySessionId: [String: PetPresence] = [:]
     private var lanePetKeys: [String] = []
+    private var groundPets: [PetPresence] = []
+    private var minimumGroundGap: CGFloat = 0
     private let spriteFrames = PetSpriteFrames()
     private var lastPetSessionsSignature: SessionsDirectorySignature?
     private var lastClaudeSessionsSignature: SessionSourceSignature?
@@ -313,7 +315,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
-        homeScreenFrame = screenFrames.visibleFrame
+        followScreen(to: screenFrames.visibleFrame)
         let newcomers = Set(items.map { item in item.petKey }.filter { petKey in presencesBySessionId[petKey] == nil })
         for item in items {
             let record = item.session
@@ -356,28 +358,48 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
     }
 
-    private func assignLanes(newcomers: Set<String> = [], screenFrame: CGRect) {
-        let presences = lanePetKeys.compactMap { petKey in presencesBySessionId[petKey] }
-        let lanes = LaneLayout.assignedLanes(
-            currentCenters: presences.map { presence in
-                newcomers.contains(presence.sessionId) ? nil : currentHorizontalCenter(of: presence)
-            },
-            laneCenters: LaneLayout.laneCenters(count: presences.count, screenFrame: screenFrame)
-        )
-        let laneCenters = LaneLayout.laneCenters(count: presences.count, screenFrame: screenFrame)
-        for (presence, lane) in zip(presences, lanes) {
-            let home = laneCenters[lane]
-            if newcomers.contains(presence.sessionId) {
-                presence.homeHorizontalCenter = home
-            } else {
-                presence.animator.moveHome(by: home - presence.homeHorizontalCenter)
-                presence.homeHorizontalCenter = home
-            }
+    private func followScreen(to visibleFrame: CGRect) {
+        defer { homeScreenFrame = visibleFrame }
+        guard let oldFrame = homeScreenFrame, oldFrame != visibleFrame else { return }
+        for presence in presencesBySessionId.values {
+            presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
+                presence.homeHorizontalCenter,
+                from: oldFrame,
+                to: visibleFrame
+            )
         }
     }
 
-    private func currentHorizontalCenter(of presence: PetPresence) -> CGFloat {
-        presence.spaceMotion?.center.x ?? presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
+    private func assignLanes(newcomers: Set<String> = [], screenFrame: CGRect) {
+        let presences = lanePetKeys.compactMap { petKey in presencesBySessionId[petKey] }
+        let laneCenters = LaneLayout.laneCenters(count: presences.count, screenFrame: screenFrame)
+        let lanes = LaneLayout.assignedLanes(
+            currentCenters: presences.map { presence in
+                newcomers.contains(presence.sessionId) || presence.spaceMotion != nil
+                    ? nil
+                    : presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
+            },
+            laneCenters: laneCenters
+        )
+        let widestSprite = presences.map { presence in presence.view.petAppearance.spriteSideLength }.max() ?? 0
+        minimumGroundGap = LaneLayout.minimumGroundGap(
+            bodyWidths: (widestSprite, widestSprite),
+            laneCount: presences.count,
+            screenFrame: screenFrame
+        )
+        let wanderHalfWidth = LaneLayout.wanderHalfWidth(
+            laneCount: presences.count,
+            screenFrame: screenFrame,
+            minimumGap: minimumGroundGap
+        )
+        for (presence, lane) in zip(presences, lanes) {
+            let home = laneCenters[lane]
+            if !newcomers.contains(presence.sessionId) && presence.spaceMotion == nil {
+                presence.animator.moveHome(by: home - presence.homeHorizontalCenter)
+            }
+            presence.homeHorizontalCenter = home
+            presence.animator.limitWander(to: wanderHalfWidth)
+        }
     }
 
     private func petLanded(_ presence: PetPresence) {
@@ -386,6 +408,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func collideFloatingPets() {
+        guard presencesBySessionId.values.contains(where: { presence in presence.spaceMotion?.phase == .floating }) else { return }
         let floating = presencesBySessionId.values.filter { presence in presence.spaceMotion?.phase == .floating }
         guard floating.count > 1 else { return }
         var motions = floating.compactMap { presence in presence.spaceMotion }
@@ -398,27 +421,41 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
     }
 
-    private func groundObstacles() -> [PetPresence] {
-        presencesBySessionId.values.filter { presence in
-            presence.spaceMotion == nil && !presence.animator.isDiving && !presence.animator.isSubmerged
+    private func sortGroundPets() {
+        groundPets.removeAll(keepingCapacity: true)
+        for presence in presencesBySessionId.values {
+            presence.groundIndex = -1
+            guard presence.spaceMotion == nil, !presence.animator.isDiving, !presence.animator.isSubmerged else { continue }
+            groundPets.append(presence)
+        }
+        guard groundPets.count > 1 else { return }
+        groundPets.sort { left, right in groundCenter(of: left) < groundCenter(of: right) }
+        for (index, presence) in groundPets.enumerated() {
+            presence.groundIndex = index
         }
     }
 
-    private func allowsStep(_ presence: PetPresence, toOffset offset: CGFloat, obstacles: [PetPresence], screenFrame: CGRect) -> Bool {
-        let neighbours = obstacles.filter { obstacle in obstacle !== presence }
-        guard !neighbours.isEmpty else { return true }
-        let laneCount = max(lanePetKeys.count, neighbours.count + 1)
-        return LaneLayout.allowsStep(
-            from: presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome,
-            to: presence.homeHorizontalCenter + offset,
-            neighbours: neighbours.map { neighbour in currentHorizontalCenter(of: neighbour) }
-        ) { index in
-            LaneLayout.minimumGroundGap(
-                bodyWidths: (presence.view.petAppearance.spriteSideLength, neighbours[index].view.petAppearance.spriteSideLength),
-                laneCount: laneCount,
-                screenFrame: screenFrame
-            )
+    private func groundCenter(of presence: PetPresence) -> CGFloat {
+        presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
+    }
+
+    private func allowsStep(_ presence: PetPresence, toOffset offset: CGFloat) -> Bool {
+        let index = presence.groundIndex
+        guard index >= 0, groundPets.count > 1 else { return true }
+        let current = groundCenter(of: presence)
+        let next = presence.homeHorizontalCenter + offset
+        return allowsStep(presence, from: current, to: next, besideGroundPetAt: index - 1)
+            && allowsStep(presence, from: current, to: next, besideGroundPetAt: index + 1)
+    }
+
+    private func allowsStep(_ presence: PetPresence, from current: CGFloat, to next: CGFloat, besideGroundPetAt index: Int) -> Bool {
+        guard groundPets.indices.contains(index) else { return true }
+        let neighbour = groundPets[index]
+        guard !LaneLayout.allowsStep(from: current, to: next, neighbour: groundCenter(of: neighbour), minimumGap: minimumGroundGap) else {
+            return true
         }
+        if presence.animator.isWalkingHome { neighbour.animator.walkHomeNow() }
+        return false
     }
 
     private func makePresence(
@@ -485,9 +522,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
+        followScreen(to: screenFrames.visibleFrame)
         var submergedSessionIds: [String] = []
         collideFloatingPets()
-        let obstacles = groundObstacles()
+        sortGroundPets()
         for presence in presencesBySessionId.values {
             defer { applyInputPolicy(to: presence) }
             if PetSpaceFlight.advance(
@@ -501,7 +539,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 landed: { landedPresence in self.petLanded(landedPresence) }
             ) { continue }
             presence.animator.advance(elapsedSeconds: elapsedSeconds, mood: presence.view.petAppearance.mood) { offset in
-                obstacles.count < 2 || self.allowsStep(presence, toOffset: offset, obstacles: obstacles, screenFrame: screenFrames.visibleFrame)
+                self.allowsStep(presence, toOffset: offset)
             }
             if presence.animator.isSubmerged {
                 submergedSessionIds.append(presence.sessionId)

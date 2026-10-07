@@ -178,14 +178,22 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
 4. **Lane position**: pets never overlap. Lane `i` of `n` is home x at `(i + 1) / (n + 1)` of the
    screen width. Lanes go to pets in the order they stand: `LaneLayout.assignedLanes` keeps the
    left to right order of the pets already up and picks, among the order keeping choices, the one
-   that moves them least, and a new pet takes a lane left free, where it emerges. The same runs when
-   a pet lands from a float, from where the pets are then, so nobody crosses the screen. A pet whose
-   home moves keeps where it stands and walks to the new home at 40 px/s with `walk` frames,
-   whatever its mood, when that is more than 120 px away; only at home does it wander within +/-120 px
-   again. On the ground a step that would cross a neighbour, or bring it closer than
-   `LaneLayout.minimumGroundGap` (60% of the two sprite widths, capped at 90% of the lane spacing so
-   every lane stays reachable), is not taken: the pet runs in place, and a wandering pet turns round
-   when its next walk starts. Moving apart is always allowed. Floating and diving pets are not in the way.
+   that moves them least, and a new pet takes a lane left free, where it emerges. A pet still in a
+   float is left out of that order and takes a free lane too; when a pet lands the lanes are assigned
+   again, from where the pets are then, so nobody crosses the screen. A pet whose home moves keeps where
+   it stands, and walks to the new home at 40 px/s with `walk` frames, whatever its mood, when it ends up
+   outside its wander range; a pet that lands, or that went under in a float and comes back up, walks
+   home from wherever it is, however close. Only at home does it wander again, within
+   `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: 120 px, or less when lanes are close,
+   so that two neighbours at the ends of their ranges still keep the gap. On the ground a step that would
+   cross a neighbour, or bring it closer than `LaneLayout.minimumGroundGap` (60% of the widest sprite,
+   capped at 90% of the lane spacing so every lane stays reachable), is not taken: the pet runs in place,
+   and a wandering pet turns round when its next walk starts. A pet walking home that is refused sends
+   the neighbour in its way home too, so a walker behind a pet that stands still (a question) never waits
+   for ever. Moving apart is always allowed. Floating and diving pets are not in the way. Only the two
+   neighbours in a per-frame sorted list are checked. When the display the pets use changes (for example
+   `focused` and focus moves to another screen) every home is carried to the same fraction of the new
+   screen, which is the one place a pet jumps.
 
 ### Accent on the sprite
 
@@ -711,8 +719,10 @@ falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half 
 toward upright by the short way at 3 rad/s. It lands exactly upright, the lanes are assigned again from where
 the pets are (see "Lane position"), it walks at 40 pt/s with `walk` frames to its lane home, never through
 another pet, and then the normal mood behavior takes over. Two floating pets that touch (closer than 60% of
-their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 1.15, a
-little livelier than elastic, each speed capped at 72 pt/s (`SpaceMotion.collide`). A pet hidden while it floats dives where
+their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 0.97,
+each speed capped at 72 pt/s (`SpaceMotion.collide`); a floating pet's speed eases back toward its launch
+speed at a rate of 0.5 per second, so a long float never ends with every pet racing. A pet that dives in
+a float goes under where it is and, back up, walks home from there. A pet hidden while it floats dives where
 it is, upright. The frame clock and the bubble bob run while a pet floats, so nothing jumps when it lands.
 
 **Input.** With `input off`, and for a pet still falling or walking home from a float, a pet is inert

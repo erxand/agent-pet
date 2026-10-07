@@ -52,6 +52,7 @@ enum PetSpaceFlight {
         guard let motion = presence.spaceMotion else { return }
         presence.spaceMotion = nil
         presence.view.update(spaceRotationInRadians: nil)
+        presence.animator.stand(atHorizontalOffsetFromHome: motion.center.x - presence.homeHorizontalCenter)
         place(presence, center: motion.center)
     }
 

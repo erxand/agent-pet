@@ -86,12 +86,72 @@ struct WalkingLaneTests {
     }
 
     @Test func aStepThatWouldOverlapANeighbourIsRefused() {
-        let gap: (Int) -> CGFloat = { _ in 80 }
-        #expect(!LaneLayout.allowsStep(from: 500, to: 521, neighbours: [600], minimumGap: gap))
-        #expect(LaneLayout.allowsStep(from: 500, to: 519, neighbours: [600], minimumGap: gap))
-        #expect(LaneLayout.allowsStep(from: 560, to: 559, neighbours: [600], minimumGap: gap))
-        #expect(!LaneLayout.allowsStep(from: 560, to: 561, neighbours: [600], minimumGap: gap))
-        #expect(!LaneLayout.allowsStep(from: 580, to: 640, neighbours: [600], minimumGap: gap))
+        #expect(!LaneLayout.allowsStep(from: 500, to: 521, neighbour: 600, minimumGap: 80))
+        #expect(LaneLayout.allowsStep(from: 500, to: 519, neighbour: 600, minimumGap: 80))
+        #expect(LaneLayout.allowsStep(from: 560, to: 559, neighbour: 600, minimumGap: 80))
+        #expect(!LaneLayout.allowsStep(from: 560, to: 561, neighbour: 600, minimumGap: 80))
+        #expect(!LaneLayout.allowsStep(from: 580, to: 640, neighbour: 600, minimumGap: 80))
+    }
+
+    @Test func aFloatingPetTakesALeftoverLaneUntilItLands() {
+        let lanes = LaneLayout.laneCenters(count: 3, screenFrame: screen)
+        #expect(LaneLayout.assignedLanes(currentCenters: [nil, 300, 1100], laneCenters: lanes) == [1, 0, 2])
+    }
+
+    @Test func aPetFollowsTheFocusedDisplayToItsLaneThere() {
+        let laptop = CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let monitor = CGRect(x: 1440, y: 0, width: 2560, height: 1415)
+        let home = LaneLayout.homeHorizontalCenter(laneIndex: 1, laneCount: 3, screenFrame: laptop)
+        let carried = LaneLayout.carriedHorizontalCenter(home, from: laptop, to: monitor)
+        #expect(carried == LaneLayout.homeHorizontalCenter(laneIndex: 1, laneCount: 3, screenFrame: monitor))
+        #expect(monitor.contains(CGPoint(x: carried, y: monitor.midY)))
+    }
+
+    @Test func petsAtTheEdgesOfTheirWanderStillKeepTheGroundGap() {
+        for laneCount in 1...14 {
+            let gap = LaneLayout.minimumGroundGap(bodyWidths: (128, 128), laneCount: laneCount, screenFrame: screen)
+            let wander = LaneLayout.wanderHalfWidth(laneCount: laneCount, screenFrame: screen, minimumGap: gap)
+            let spacing = screen.width / CGFloat(laneCount + 1)
+            #expect(wander <= LaneLayout.wanderHalfWidth)
+            #expect(spacing - 2 * wander >= gap - 0.001)
+        }
+    }
+
+    @Test func aWalkerBehindAPetWithAQuestionGetsHome() {
+        let gap: CGFloat = 77
+        let walker = grounded()
+        let asker = grounded()
+        asker.limitWander(to: 120)
+        walker.limitWander(to: 40)
+        let askerHome: CGFloat = 700
+        var walkerHome: CGFloat = 300
+        asker.stand(atHorizontalOffsetFromHome: -120)
+        asker.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .needsInput)
+        asker.limitWander(to: 40)
+        walker.stand(atHorizontalOffsetFromHome: 0)
+        walker.moveHome(by: 250)
+        walkerHome += 250
+        var ticks = 0
+        while walker.isWalkingHome && ticks < 3000 {
+            let askerX = askerHome + asker.horizontalOffsetFromHome
+            walker.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .ready) { offset in
+                let allowed = LaneLayout.allowsStep(
+                    from: walkerHome + walker.horizontalOffsetFromHome,
+                    to: walkerHome + offset,
+                    neighbour: askerX,
+                    minimumGap: gap
+                )
+                if !allowed && walker.isWalkingHome { asker.walkHomeNow() }
+                return allowed
+            }
+            asker.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .needsInput)
+            #expect(askerHome + asker.horizontalOffsetFromHome - (walkerHome + walker.horizontalOffsetFromHome) >= gap - 0.001)
+            ticks += 1
+        }
+        #expect(walkerHome == 550)
+        #expect(!walker.isWalkingHome)
+        #expect(walker.horizontalOffsetFromHome == 0)
+        #expect(asker.horizontalOffsetFromHome == 0)
     }
 
     @Test func theGroundGapNeverKeepsAPetFromItsLane() {
@@ -121,16 +181,33 @@ struct FloatingBounceTests {
         }
     }
 
-    @Test func aHeadOnBounceIsALittleLively() {
+    @Test func aHeadOnBounceLosesALittleSpeedAndNeverGains() {
         var first = SpaceMotion(launchingFrom: CGPoint(x: 500, y: 400), seed: 3)
         var second = SpaceMotion(launchingFrom: CGPoint(x: 560, y: 400), seed: 4)
-        let approach = (first.velocity.dx - second.velocity.dx)
+        let firstSpeed = hypot(first.velocity.dx, first.velocity.dy)
+        let secondSpeed = hypot(second.velocity.dx, second.velocity.dy)
         first.bounce(off: &second, minimumDistance: 80)
-        let departure = (second.velocity.dx - first.velocity.dx)
-        if approach > 0 {
-            #expect(departure > approach * 0.99)
-        } else {
-            #expect(departure >= -approach - 0.001)
+        let energyBefore = firstSpeed * firstSpeed + secondSpeed * secondSpeed
+        let energyAfter = pow(hypot(first.velocity.dx, first.velocity.dy), 2) + pow(hypot(second.velocity.dx, second.velocity.dy), 2)
+        #expect(energyAfter <= energyBefore + 0.001)
+    }
+
+    @Test func aLongFloatOfBouncingPetsStaysAtCruisingSpeed() {
+        let small = SpaceArea(lowestCenter: CGPoint(x: 40, y: 40), highestCenter: CGPoint(x: 400, y: 300))
+        var motions = (0..<4).map { index in
+            SpaceMotion(launchingFrom: CGPoint(x: 100 + CGFloat(index) * 60, y: 150), seed: UInt64(index + 10))
+        }
+        let cruise = motions.map { motion in motion.cruiseSpeed }
+        for _ in 0..<(30 * 120) {
+            SpaceMotion.collide(&motions) { _, _ in 80 }
+            for index in motions.indices {
+                motions[index].advance(elapsedSeconds: 1.0 / 30.0, area: small, homeCenterX: 0)
+            }
+        }
+        for (motion, cruiseSpeed) in zip(motions, cruise) {
+            let speed = hypot(motion.velocity.dx, motion.velocity.dy)
+            #expect(speed < SpaceMotion.maximumBounceSpeed * 0.9)
+            #expect(abs(speed - cruiseSpeed) < cruiseSpeed * 0.5)
         }
     }
 

@@ -103,14 +103,16 @@ enum LaneLayout {
         return min(bodies, laneSpacing * laneSpacingFraction)
     }
 
-    static func allowsStep(from current: CGFloat, to next: CGFloat, neighbours: [CGFloat], minimumGap: (Int) -> CGFloat) -> Bool {
-        for (index, neighbour) in neighbours.enumerated() {
-            let side = current - neighbour
-            if side != 0 && (next - neighbour) * side <= 0 { return false }
-            let nextDistance = abs(next - neighbour)
-            if nextDistance < minimumGap(index) && nextDistance < abs(side) { return false }
-        }
-        return true
+    static func allowsStep(from current: CGFloat, to next: CGFloat, neighbour: CGFloat, minimumGap: CGFloat) -> Bool {
+        let side = current - neighbour
+        if side != 0 && (next - neighbour) * side <= 0 { return false }
+        let nextDistance = abs(next - neighbour)
+        return !(nextDistance < minimumGap && nextDistance < abs(side))
+    }
+
+    static func wanderHalfWidth(laneCount: Int, screenFrame: CGRect, minimumGap: CGFloat) -> CGFloat {
+        let laneSpacing = screenFrame.width / CGFloat(max(laneCount, 1) + 1)
+        return min(wanderHalfWidth, max(0, (laneSpacing - minimumGap) / 2))
     }
 
     static func assignedLanes(currentCenters: [CGFloat?], laneCenters: [CGFloat]) -> [Int] {

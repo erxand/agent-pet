@@ -15,6 +15,7 @@ final class PetPresence {
     var spriteTint: AccentColor?
     var spaceMotion: SpaceMotion?
     var walksHomeFromSpace = false
+    var groundIndex = -1
 
     var shownAnimationName: SpriteAnimationName {
         spaceMotion?.animationName ?? animator.animationName
