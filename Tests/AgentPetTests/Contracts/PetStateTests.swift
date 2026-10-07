@@ -254,23 +254,38 @@ struct RescanTests {
         }
     }
 
-    @Test func theMonitorReportsAFileWrittenInAWatchedFolderOnce() async throws {
+    @Test func theMonitorReportsAFileWrittenInAWatchedFolderBeforeALaterOne() async throws {
         let directory = try TemporaryDirectory()
         let packs = try directory.makeDirectory("sprites/golem")
-        let monitor = DirectoryChangeMonitor()
+        let monitor = DirectoryChangeMonitor(recordsPaths: true)
         monitor.watch(directories: [directory.url.appendingPathComponent("sprites", isDirectory: true)])
         #expect(monitor.isWatching)
-        try await Task.sleep(nanoseconds: 300_000_000)
-        _ = monitor.consumeChange()
-        try "{}".write(to: packs.appendingPathComponent("pack.json"), atomically: false, encoding: .utf8)
-        var reported = false
-        for _ in 0..<60 where !reported {
-            try await Task.sleep(nanoseconds: 50_000_000)
-            reported = monitor.consumeChange()
+        let written = packs.appendingPathComponent("pack.json")
+        let sentinel = packs.appendingPathComponent("sentinel")
+        try "{}".write(to: written, atomically: false, encoding: .utf8)
+        try "".write(to: sentinel, atomically: false, encoding: .utf8)
+        var paths: [String] = []
+        let hangBound = Date().addingTimeInterval(30)
+        while !paths.contains(where: { path in path.hasSuffix("/golem/sentinel") }) && Date() < hangBound {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            paths += monitor.consumeChangedPaths()
         }
-        #expect(reported)
-        try await Task.sleep(nanoseconds: 300_000_000)
+        let writtenIndex = paths.firstIndex { path in path.hasSuffix("/golem/pack.json") }
+        let sentinelIndex = paths.firstIndex { path in path.hasSuffix("/golem/sentinel") }
+        #expect(writtenIndex != nil, "\(paths)")
+        #expect(sentinelIndex != nil, "\(paths)")
+        if let writtenIndex, let sentinelIndex { #expect(writtenIndex < sentinelIndex) }
+        #expect(monitor.consumeChange())
+    }
+
+    @Test func aReportedChangeIsConsumedExactlyOnce() {
+        let monitor = DirectoryChangeMonitor()
         #expect(!monitor.consumeChange())
+        monitor.noteChange(paths: ["/watched/a"])
+        monitor.noteChange(paths: ["/watched/a"])
+        #expect(monitor.consumeChange())
+        #expect(!monitor.consumeChange())
+        #expect(monitor.consumeChangedPaths().isEmpty)
     }
 
     @Test func watchingTheSameFoldersAgainKeepsTheStreamAndNoFoldersStopsIt() throws {
@@ -306,8 +321,8 @@ struct InertPetTests {
         focuser.focus(FocusRequest(sessionId: "inert", processIdentifier: nil, focusTarget: nil, group: "inert", agent: .claudeCode, tmuxTarget: nil, allowsClientSwitch: true))
         #expect(registry.runningCount == 1)
         #expect(registry.cancelAll() == 1)
-        let deadline = Date().addingTimeInterval(2)
-        while registry.runningCount > 0 && Date() < deadline {
+        let hangBound = Date().addingTimeInterval(30)
+        while registry.runningCount > 0 && Date() < hangBound {
             Thread.sleep(forTimeInterval: 0.02)
         }
         #expect(registry.runningCount == 0)

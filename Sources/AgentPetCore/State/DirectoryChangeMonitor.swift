@@ -5,14 +5,17 @@ package final class DirectoryChangeMonitor {
     package static let defaultLatencyInSeconds: TimeInterval = 0.05
 
     private let latencyInSeconds: TimeInterval
+    private let recordsPaths: Bool
+    private var changedPaths: [String] = []
     private let queue = DispatchQueue(label: "agent-pet.directory-changes")
     private let lock = NSLock()
     private var changeReported = false
     private var stream: FSEventStreamRef?
     private(set) package var watchedPaths: [String] = []
 
-    package init(latencyInSeconds: TimeInterval = DirectoryChangeMonitor.defaultLatencyInSeconds) {
+    package init(latencyInSeconds: TimeInterval = DirectoryChangeMonitor.defaultLatencyInSeconds, recordsPaths: Bool = false) {
         self.latencyInSeconds = latencyInSeconds
+        self.recordsPaths = recordsPaths
     }
 
     deinit {
@@ -38,11 +41,22 @@ package final class DirectoryChangeMonitor {
         return reported
     }
 
-    fileprivate func noteChange() {
+    package func consumeChangedPaths() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        let paths = changedPaths
+        changedPaths = []
+        return paths
+    }
+
+    package func noteChange(paths: [String]) {
         lock.lock()
         changeReported = true
+        if recordsPaths { changedPaths += paths }
         lock.unlock()
     }
+
+    fileprivate var wantsPaths: Bool { recordsPaths }
 
     private func startStream(paths: [String]) {
         var context = FSEventStreamContext(
@@ -91,7 +105,13 @@ private func directoryChangeCallback(
     eventIdentifiers: UnsafePointer<FSEventStreamEventId>
 ) {
     guard let clientInfo, eventCount > 0 else { return }
-    Unmanaged<DirectoryChangeMonitor>.fromOpaque(clientInfo).takeUnretainedValue().noteChange()
+    let monitor = Unmanaged<DirectoryChangeMonitor>.fromOpaque(clientInfo).takeUnretainedValue()
+    guard monitor.wantsPaths else {
+        monitor.noteChange(paths: [])
+        return
+    }
+    let pathPointers = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
+    monitor.noteChange(paths: (0..<eventCount).map { index in String(cString: pathPointers[index]) })
 }
 
 package struct RescanGate {

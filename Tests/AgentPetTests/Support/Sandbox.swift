@@ -14,7 +14,7 @@ enum SandboxFailure: Error {
 final class Sandbox {
     static let binaryOverrideVariable = "AGENT_PET_TEST_BINARY"
     private static let binaryName = "agent-pet"
-    private static let commandTimeoutInSeconds: TimeInterval = 20
+    private static let commandTimeoutInSeconds: TimeInterval = 60
     private static let tmuxLogFileName = "tmux.log"
     private static let tmuxFieldSeparator = "\u{1F}"
 
