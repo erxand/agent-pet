@@ -1,6 +1,7 @@
 """Render agent-pet sprite packs. Layout matches docs/sprite-sheet.png in
 erxand/agent-pet: scale 4, 4px margin, 4px between frames, 16px between
-animations, animations idle walk wave sit emerge dive jump fall, one pack per row.
+animations, animations idle walk wave sit emerge dive jump fall highfive,
+one pack per row.
 
 Run from anywhere: python3 scripts/sprite-sheet/sheet.py [OUT.png [PACK_DIR ...]]
 With no arguments it writes docs/sprite-sheet.png from every pack in sprites/."""
@@ -12,9 +13,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 import png
 
 # Each animation and the number of frames the sheet shows for it.
-ANIMATIONS = [('idle', 2), ('walk', 4), ('wave', 3), ('sit', 2), ('emerge', 3), ('dive', 3), ('jump', 2), ('fall', 2)]
+ANIMATIONS = [('idle', 2), ('walk', 4), ('wave', 3), ('sit', 2), ('emerge', 3), ('dive', 3), ('jump', 2), ('fall', 2), ('highfive', 3)]
 # What agent-pet shows when a pack has no file for an optional animation (SpriteAnimationName.standIn).
-STAND_INS = {'jump': 'walk', 'fall': 'idle'}
+STAND_INS = {'jump': 'walk', 'fall': 'idle', 'highfive': 'wave'}
 TRANSPARENT = (0, 0, 0, 0)
 # The eight original packs lead the sheet in this order; the rest follow by name.
 FIRST_PACKS = ['claude', 'golem', 'hatchling', 'mossling', 'nimbus', 'seon', 'tinowl', 'walle']
@@ -56,7 +57,8 @@ def load_pack(pack_dir):
     for animation, _ in ANIMATIONS:
         path = os.path.join(pack_dir, animation + '.txt')
         frames_by_animation[animation] = read_frames(path) if os.path.exists(path) else None
-    # A missing emerge or dive holds idle frame 0; a missing jump plays walk and a missing fall plays idle.
+    # A missing emerge or dive holds idle frame 0; a missing jump plays walk, a missing fall
+    # plays idle and a missing highfive plays wave.
     for animation, frame_count in ANIMATIONS:
         if frames_by_animation[animation] is not None:
             continue
