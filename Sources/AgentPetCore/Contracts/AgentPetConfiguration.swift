@@ -40,6 +40,7 @@ package struct AgentPetConfiguration: Equatable {
     package var display: DisplayChoice
     package var fullScreenRules: [PetFullScreenRule]
     package var hidesLabelsWhileFloating: Bool
+    package var standsOnDock: Bool
 
     package init(
         focuser: FocuserConfiguration,
@@ -56,7 +57,8 @@ package struct AgentPetConfiguration: Equatable {
         subagentToolsKeepNeedsInput: Bool = false,
         display: DisplayChoice = .focused,
         fullScreenRules: [PetFullScreenRule] = [],
-        hidesLabelsWhileFloating: Bool = false
+        hidesLabelsWhileFloating: Bool = false,
+        standsOnDock: Bool = true
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -73,6 +75,7 @@ package struct AgentPetConfiguration: Equatable {
         self.display = display
         self.fullScreenRules = fullScreenRules
         self.hidesLabelsWhileFloating = hidesLabelsWhileFloating
+        self.standsOnDock = standsOnDock
     }
 }
 
@@ -130,6 +133,7 @@ package enum ConfigurationFile {
             configuration.fullScreenRules = rules.compactMap { rule in rule.resolved }
         }
         if let hidesLabels = raw.hideLabelsWhileFloating { configuration.hidesLabelsWhileFloating = hidesLabels }
+        if let standsOnDock = raw.dockGround { configuration.standsOnDock = standsOnDock }
         return configuration
     }
 
@@ -183,6 +187,7 @@ private struct RawConfiguration: Decodable {
     let display: String?
     let whenFullScreen: [RawFullScreenRule]?
     let hideLabelsWhileFloating: Bool?
+    let dockGround: Bool?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -200,6 +205,7 @@ private struct RawConfiguration: Decodable {
         case display
         case whenFullScreen
         case hideLabelsWhileFloating
+        case dockGround
     }
 
     init(from decoder: Decoder) throws {
@@ -217,6 +223,7 @@ private struct RawConfiguration: Decodable {
         display = try? container.decodeIfPresent(String.self, forKey: .display)
         whenFullScreen = try? container.decodeIfPresent([RawFullScreenRule].self, forKey: .whenFullScreen)
         hideLabelsWhileFloating = try? container.decodeIfPresent(Bool.self, forKey: .hideLabelsWhileFloating)
+        dockGround = try? container.decodeIfPresent(Bool.self, forKey: .dockGround)
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?

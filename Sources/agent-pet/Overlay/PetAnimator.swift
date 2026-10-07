@@ -44,7 +44,7 @@ final class PetAnimator {
     private var bubblePhaseInSeconds: Double = 0
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
-    private var walkWasBlocked = false
+    private(set) var walkWasBlocked = false
     private var diveStartGroundOffsetFraction: Double = PetAnimator.fullyAboveGround
     private var diveStartChromeOpacity: Double = PetAnimator.opaqueChrome
 
@@ -136,6 +136,10 @@ final class PetAnimator {
     func limitWander(to halfWidth: CGFloat) {
         wanderHalfWidth = max(0, halfWidth)
         if abs(horizontalOffsetFromHome) > wanderHalfWidth { isWalkingHome = true }
+    }
+
+    func forgetBlockedWalk() {
+        walkWasBlocked = false
     }
 
     func walkHomeNow() {

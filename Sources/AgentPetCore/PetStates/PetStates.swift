@@ -283,7 +283,7 @@ package enum PetStateFile {
     }
 
     @discardableResult
-    private static func writeAtomically(_ payload: Data, to fileURL: URL) -> Bool {
+    package static func writeAtomically(_ payload: Data, to fileURL: URL) -> Bool {
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

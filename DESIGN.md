@@ -19,11 +19,12 @@ agent-pet/
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking, DirectoryChangeMonitor and RescanGate
     PetStates/                 PetStates (physics, input, visibility, level, their resolution and files), WindowDetection, SpaceMotion, see "Pet states"
+    Ground/                    GroundProfile, GroundBody and GroundPlacement, DockTracker and the Dock geometry rules, see "The Dock as ground"
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, SpriteAccentTint, PixelFont (nametag glyphs), TerminalSpriteRenderer
     Demo/                      DemoScript (scenes and cast), DemoRunner (timeline), DemoPlayback (clock and signals), DemoPixelFont, DemoCommand, see "Demo"
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
-    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, AppWindowWatcher, PetSpaceFlight
+    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, AppWindowWatcher, PetSpaceFlight, SystemDockSensing
     Demo/                      the demo's AppKit stage: caption and title card panels, snapshots
   Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
@@ -41,6 +42,8 @@ agent-pet/
   sprites/<pack>/              installed sprite packs
   config.json                  optional, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
+  dock-access.json             the daemon's own Accessibility state, see "The Dock as ground"
+  control/dock-access-ask      a request from `dock-access --ask`, consumed by the daemon
   daemon.log                   daemon stderr
   hooks.log                    one line per handled hook event
 ```
@@ -310,8 +313,9 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` | print one frame, recolored as a session that chose COLOR would see it (see "Accent on the sprite"), to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, N is not a frame of it, or COLOR is not an accent name |
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`) and `hide-labels-floating` (the `hideLabelsWhileFloating` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key) and `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `dock-access [--ask]` | print `granted`, `not granted` or `unknown`: whether the running daemon may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". The answer is the daemon's, read from `dock-access.json`, never the command's own process, because a command started from a terminal is judged by the terminal's grant. `unknown` means no running daemon has written a report. Without `--ask` it reads and never prompts. `--ask` ensures the daemon, leaves `control/dock-access-ask`, and waits up to 3 s for the daemon to call macOS itself (which shows the system prompt) and report. Exit 0 only for `granted` |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -453,7 +457,11 @@ crash left every later hook updating records that nothing drew.
   daemon is left alone. A kickstart of a service that was booted out fails with "could not find
   service", so a failed kickstart is followed by `launchctl bootstrap gui/<uid> <plist>`, which
   loads the agent and starts it through `RunAtLoad`. When the plist is missing, fall back to the
-  old detached spawn, guarded by the liveness check on `daemon.pid`.
+  old detached spawn, guarded by the liveness check on `daemon.pid`. The spawn disclaims responsibility
+  where macOS allows it, so the daemon is not judged by the terminal that ran the command (see "Who is asked"), and
+  sets `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the daemon inherits only its standard streams and never holds a caller's
+  pipe or lock. `launchctl` calls are cut off after 5 s, and a `kickstart` that timed out is not followed by a
+  `bootstrap`.
 - Every path that shows a pet ensures the daemon: `on`, `show`, `preview`, and the `hook` command
   on `Stop` and on a `Notification` of type `permission_prompt` or `agent_needs_input`. The hook
   ensures only after `PetTurnState.show` reports that the record exists and is enabled, so a
@@ -470,7 +478,9 @@ crash left every later hook updating records that nothing drew.
   `isOpaque`/`hasShadow`/`ignoresMouseEvents` false, `collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]`.
 - Sprite rendered at 4x pixel scale (16 px frame -> 64 px), label pill beneath. Window sits on
   `visibleFrame.minY + 4` of the display the DisplayChooser picks, so it rides above the Dock. The
-  default picks `NSScreen.main`, else the first screen, as before.
+  default picks `NSScreen.main`, else the first screen, as before. With `dockGround` on (the
+  default) and a bottom Dock on that display, the ground is the true screen bottom plus the Dock as
+  a raised step, see "The Dock as ground".
 - With a `display` other than `focused`, the daemon observes
   `NSApplication.didChangeScreenParametersNotification`. On it every pet, a diving one included, is
   re-placed on the chosen display with its home at the same fraction of the width
@@ -606,7 +616,8 @@ only stamps `waitingSince`, and the daemon decides.
 ### Emerge and dive
 
 The pet comes up out of the "ground" (the bottom edge of the usable screen) when it appears and dives back down when
-it is hidden. The ground line is `NSScreen.main.visibleFrame.minY`, and the window never moves vertically: `PetView`
+it is hidden. The ground line is `NSScreen.main.visibleFrame.minY` (or the ground profile under the pet, see "The
+Dock as ground"), and an emerge or a dive never moves the window vertically: `PetView`
 draws the sprite with a vertical `groundOffset` and clips at the view's bottom edge, so the underground part is
 invisible whatever sits below. The hook and CLI paths stay instant; only the daemon animates.
 
@@ -628,6 +639,123 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
 - An emerge or dive advances at most 1/15 s per animation tick, so a late tick (a busy main thread or Mac) slows
   the move down rather than skipping its frames. A diving window is not re-placed, so it dives where it was even if
   `NSScreen.main` moves to another display.
+
+### The Dock as ground
+
+With `dockGround` on (the default), a pet never stands over the Dock's icons. When an auto-hidden Dock slides in under
+pets, they are sprung up onto its top, overshoot a little and land on it; they walk on it, fall off when it hides or
+when they walk past its end, and jump up onto it when its edge is in their lane. An always-visible Dock is a step on
+the screen bottom: pets beside it stand on the true bottom of the screen and jump up and down its edges. With the key
+off, or with no bottom Dock on the pets' display, the ground is `visibleFrame.minY + 4` as before. One thing is not
+tied to the key: a float that falls back to the ground plays `fall` (with `idle` as its stand-in), whatever the key says.
+
+**Ground profile.** `GroundProfile` (AgentPetCore, pure) is what a pet stands on, rebuilt every animation tick by
+`GroundProfile.resolve`. It is `flat` (the old ground, `visibleFrame.minY + 4`) when the key is off, the Dock is not
+at the bottom of the pets' display, or its frame is unknown. Otherwise it is `dock`: a base at `screenFrame.minY + 4`
+and one raised `GroundSegment` from the drawn bar's left to right edge at its top plus 4. A pet counts by its body,
+the middle 60% of its sprite (`LaneLayout.bodyWidthFraction`), not by its label or bubble: `height(over:)` is the
+segment top while any part of that body span is over the bar, else the base. A hidden Dock still makes a `dock`
+profile whose segment is below the base, so a pet falls off it rather than snapping down. Lanes, homes and wander
+widths are unchanged; the profile moves pets only vertically.
+
+**Vertical state.** Each grounded pet on a `dock` profile has a `GroundBody` (AgentPetCore, pure): a height, a
+vertical velocity under gravity (`SpaceMotion.fallAcceleration`, 1400 pt/s squared, moved by the exact step for
+constant gravity so the apex does not depend on the tick) with the ground under its body as a floor, and a phase:
+`standing`, `riding`, `rising` or `falling`. The phase alone picks the animation: `rising` plays `jump`, `falling`
+plays `fall`, and `standing` and `riding` play whatever the walk does, so a pet enters `fall` once per time in the
+air and goes straight back to its ground animation on the tick it lands.
+
+- **Riding and the spring.** A floor rising faster than 60 pt/s (`rideSpeed`) under a pet makes it ride: it moves
+  with the floor at no velocity of its own, from the height it had before that tick. The ride ends only once the
+  floor has been still (moved less than 0.5 pt a tick, `stillFloorTolerance`) for 0.1 s (`rideSettleSeconds`), so
+  a repeated reading mid-slide never ends it early and a slow sink does not count as settled. Then a
+  pet the floor lifted by 8 pt or more (`springMinimumRise`) is launched at `springSpeed`, derived so it peaks
+  `springOvershoot` (16 pt) above the floor, and falls back onto it: the spring. The same overshoot results for any
+  slide curve, slide length and poll rate. A floor that drops faster than `rideSpeed` mid-ride (a Dock that starts
+  hiding) or that the pet walks off ends the ride with no launch and no speed of its own, and the pet falls.
+- **Falling.** A floor that drops away faster than gravity leaves the pet in the air, and it falls.
+- **Steps and jumps.** Walking is still `PetAnimator`'s; every step also asks the body. A step is measured from the
+  ground under the pet now, not from its last height, so a floor rising under a walking pet is never mistaken for
+  an edge. A step onto ground more than 2 pt higher is refused, and a pet on the ground (standing or riding) then
+  jumps with the speed that clears the edge by `jumpClearance` (16 pt), which leaves any ride, and takes the step
+  once it is above the top. A step up of more than 160 pt is refused with no jump, so the pet turns as it does at
+  a neighbour.
+
+With a `flat` profile there is no body and the
+window is placed exactly as before. A body is dropped when the pet floats or its display changes, and a new one
+starts standing on the ground under the pet. `GroundPlacement.windowBottom` is the one rule the overlay calls, through
+`PetGround`, which also answers the step check; both measure the body at the pet's center after its window is
+clamped to the screen, so the check and the placement never disagree at a screen edge.
+
+**Geometry source.** The Dock posts no event when it slides, so the overlay polls. `DockTracker` (AgentPetCore,
+pure, driven by a `DockSensing`) decides when to read and turns readings into the drawn bar in AppKit coordinates;
+`SystemDockSensing` (overlay) does the reading:
+
+- With Accessibility granted to the daemon, it reads the Dock's `AXList` position and size (about 1 ms; the Dock
+  moves it every 16 ms through a 0.23 s show and a 0.2 s hide; hidden, the list sits just below the screen). The
+  drawn bar is that list frame through `DockBarInset`: measured at tile size 54 as top 5 pt lower, 26 pt wider on
+  each side and bottom 3 pt lower, and scaled in proportion to the tile size (`DockBarInset.scaled`), on the
+  assumption that the Dock draws its bar padding in proportion to its tiles. Only tile size 54 was measured. A 50 ms
+  messaging timeout, set on the application element and on the list element, keeps a stuck Dock from stalling the
+  overlay's main thread.
+- A read that fails keeps the last real frame for 1.5 s (`DockTracker.accessibilityGraceInSeconds`) before the
+  estimate takes over, so one bad read never moves the ground.
+- No Dock process means no ground. The Dock is an `LSUIElement` app, so `NSWorkspace` posts no launch or terminate
+  notification for it. Its pid is cached, re-checked every 0.5 s (`NSRunningApplication(processIdentifier:)`, still
+  the Dock and not terminated), looked up again at once when key-value observing of
+  `NSWorkspace.shared.runningApplications` reports a change, and looked up at most once a second while there is
+  none, so a Dock that restarts (`killall Dock`, a crash) or starts after the daemon is found without a daemon
+  restart. A new pid drops the cached Accessibility elements and window ids. While there is no Dock, the last bar is
+  lowered out of sight, so pets standing on it fall, and nothing else is read.
+- Without the grant, it never asks. It reads the shown flag of the Dock's layer 20 window, autohide or not (the
+  window is on screen only while the Dock is shown, so a full screen Space with no Dock is flat ground), and takes
+  the Dock's display from that window's bounds, which cover the whole display it is on. The window ids are looked
+  up once (again every 2 s while none is known, and at once when a cached id no longer describes a window) and then
+  described by id, so no read lists every window. The bar
+  is estimated from `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents
+  and other items, plus Finder and Trash, centered on that display. `DockSlide` eases it in over 0.23 s and out over
+  0.2 s. Minimized windows and folder stacks are not counted, so the estimate can be shorter than the real bar.
+- With `magnification` on, a bar is trusted as resting only after the pointer has been out of the band over the Dock
+  (the only place it can magnify) for 0.3 s, so the Dock has shrunk back. Any other bar taller than the last resting
+  one is cut back to that bar's height and span, so
+  hovering the icons never lifts or widens the ground. Before any resting bar was seen, the height for the tile size
+  and the estimated width centred on the bar stand in.
+- Preferences are read every 5 s. The Dock is read every 0.3 s while idle, and every tick (30 Hz) while the pointer
+  is in the band over the Dock (its span plus 40 pt each side, tile size plus 50 pt deep, on the Dock's display),
+  for 0.6 s after a change, and while an estimate slides.
+- A left or right Dock gives no ground (the profile stays flat). The Accessibility frame is wherever the Dock really
+  is: its display is the one under the list's bottom centre, on both axes, so displays stacked above each other are
+  told apart; the profile then checks the bar against the pets' display.
+- With `dockGround` off, the overlay builds no Dock sensing at all, and drops it when the key is turned off: no
+  observers, no reads. Only the access reporter
+  below runs, at one file check per 0.3 s poll and one trust check every 5 s, so `dock-access` still answers.
+
+**Who is asked.** macOS judges Accessibility by the process that asks and, for a process a terminal started, by that
+terminal. So the daemon is the authority: `DockAccessReporter` checks `AXIsProcessTrusted` at start and every 5 s
+and writes `dock-access.json` (`granted`, the daemon's pid, `checkedAt`, `askedAt`, `askNonce`) when the answer
+changes, when the file is missing, or when it names another pid. `agent-pet dock-access` reads that file and trusts
+it only when its pid is the running daemon's. `agent-pet dock-access --ask` is the only path that asks:
+
+- It starts the daemon through `launchctl` when the launch agent is installed. Otherwise it spawns it with
+  `posix_spawn` and its responsibility disclaimed (`responsibility_spawnattrs_setdisclaim`, looked up at run time),
+  so macOS judges the daemon by its own signature. When that is not available, or a daemon is already running
+  whose parent is not launchd (pid 1) or with no launch agent installed, it says on stderr that the grant shown may
+  be the launching app's. A daemon spawned by a command that has since exited is also a child of launchd, so this
+  test catches a daemon whose launcher is still running, not every one.
+- It writes a random nonce to `control/dock-access-ask`, or joins a nonce already waiting there, and waits up to 3 s
+  for a report that echoes it. The daemon, on its next 0.3 s poll, claims the request by renaming it to a unique
+  name (so a request written after the claim is left for the next poll), reads and deletes that copy, calls
+  `AXIsProcessTrustedWithOptions` with the prompt, stamps `askedAt` after that call returns and writes the report
+  with the nonce. A request within 10 s of the last prompt is answered from `AXIsProcessTrusted` with no second
+  prompt.
+
+Claimed requests a crashed daemon left behind are all deleted at the next daemon start, since only one daemon runs.
+
+A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
+
+**Animations.** A pet in the air plays `jump` while it rises (a jump, or the spring) and `fall` while it comes
+down: off the Dock, off an edge, after the spring, and in a float when `physics` goes back to `ground`. Both are
+optional in a pack; see "Sprite packs".
 
 ### Pet states
 
@@ -754,7 +882,7 @@ sprites/<pack-name>/
   idle.txt       frames of <frameSize> rows, separated by one blank line
   walk.txt, wave.txt, sit.txt
   emerge.txt, dive.txt         optional, 3 frames each recommended
-  jump.txt, fall.txt           optional, 2 frames each
+  jump.txt, fall.txt           optional, 2 frames each: picked by flight phase, never looped
 ```
 
 - Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
@@ -802,18 +930,24 @@ sprites/<pack-name>/
   one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
   different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
-- `jump.txt` and `fall.txt` are optional, 2 frames each. `fall` plays while a pet falls back to the ground from a
-  float, on the usual 8 fps clock. No motion plays `jump` yet: a float starts as a drift, not a jump, so the
-  frames are drawn for a later rise and `render --animation jump` shows them. The fallback rule is
+- `jump.txt` and `fall.txt` are optional and do not loop: `GroundBody.frameIndex` picks the frame from the flight
+  phase. `jump` frame 0 is the takeoff crouch, shown only for the first 0.07 s of a hop the pet makes itself
+  (`crouchSeconds`, one or two ticks); frame 1 is the stretch, held for the rest of the rise. A spring from the Dock
+  skips the crouch and shows the stretch at once. `fall` frame 0 is the apex, shown for the first 0.15 s of a fall
+  (`firstFallFrameSeconds`); frame 1 is the later fall, held until the pet lands. Each phase change starts its own
+  frames again, and a frame a pack does not have falls back to its last frame. A pack without the file shows its
+  stand-in (`walk`, `idle`) on the usual 8 fps clock instead. The overlay renders a pet after its
+  body has moved, so the launch tick already shows the rise and the touchdown tick shows the ground animation. A
+  float's fall still uses the 8 fps clock. The fallback rule is
   `SpriteAnimationName.standIn`: a pack without `jump.txt` plays `walk` for it, and one without `fall.txt` plays
   `idle`, which is what every pet showed in those moments before the files existed. `shown(in:)` applies it, then
   the first animation the pack has.
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
   then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
-  jump 2 = frame 0 a takeoff crouch with the legs tucked, frame 1 stretched upward with the arms or ears up.
-  fall 2 = frame 0 the apex, arms or ears up and eyes wide; frame 1 the later fall, the body a pixel longer. The
-  frames face right like the rest and keep the creature on its idle baseline.
+  jump 2 = frame 0 a takeoff crouch with the legs tucked (shown once, at takeoff), frame 1 stretched upward with the
+  arms or ears up (held while rising). fall 2 = frame 0 the apex, arms or ears up and eyes wide; frame 1 the later
+  fall, the body a pixel longer. Neither needs to loop; the frames face right like the rest.
 
 ## Demo
 
@@ -1035,6 +1169,7 @@ the defaults.
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
 | Full screen rules | none | set pet states while a listed app covers a display, see "Pet states" | `whenFullScreen` |
 | Labels while floating | shown: the label and bubble float with the pet | while a pet floats or falls its label and bubble are hidden; they come back the moment it lands | `hideLabelsWhileFloating` |
+| Dock as ground | on: a bottom Dock is a raised step pets stand on, jump onto and fall off, see "The Dock as ground" | off: the ground is `visibleFrame.minY + 4` everywhere | `dockGround` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
@@ -1106,6 +1241,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   recomputes every home on the newly chosen display. `primary` may be the better default; it stays
   `focused` so that no config keeps today's behavior, and that call is left to the maintainer.
 
+- `dockGround` is a boolean, default `true`: a bottom Dock is ground pets stand on, see "The Dock as ground".
+  `false` keeps the ground at `visibleFrame.minY + 4` everywhere.
 - `whenFullScreen` is a list of rules, default `[]`, see "Pet states". A rule needs a non-empty
   `bundleIds` list and an `apply` object with at least one known state; anything else is dropped, and so
   are non-string and empty bundle ids and unknown state values.

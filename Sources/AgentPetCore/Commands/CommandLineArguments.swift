@@ -17,6 +17,7 @@ enum CommandName: String, CaseIterable {
     case render
     case packs
     case capabilities
+    case dockAccess = "dock-access"
     case demo
     case physics
     case input

@@ -38,8 +38,16 @@ final class PetSpriteFrames {
         return spriteImage
     }
 
+    func shownFrame(for presence: PetPresence) -> (animationName: SpriteAnimationName, frameIndex: Int)? {
+        guard let resolvedAnimation = resolveAnimation(presence.shownAnimationName, in: presence.spriteSheet) else { return nil }
+        return (resolvedAnimation.animationName, frameIndex(for: presence, resolvedAnimation: resolvedAnimation))
+    }
+
     private func frameIndex(for presence: PetPresence, resolvedAnimation: ResolvedAnimation) -> Int {
         let frameCount = resolvedAnimation.frames.count
+        if let flightFrame = presence.groundBodyFrameIndex, resolvedAnimation.animationName == presence.shownAnimationName {
+            return min(flightFrame, frameCount - 1)
+        }
         guard presence.animator.playsGroundAnimationOnce else {
             return presence.animator.frameTick % frameCount
         }

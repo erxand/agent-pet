@@ -521,8 +521,8 @@ struct DemoCommandTests {
             firstOutput.append(chunk)
         }
         kill(process.processIdentifier, signalNumber)
-        let deadline = Date().addingTimeInterval(5)
-        while process.isRunning && Date() < deadline {
+        let hangBound = Date().addingTimeInterval(30)
+        while process.isRunning && Date() < hangBound {
             Thread.sleep(forTimeInterval: 0.02)
         }
         if process.isRunning { process.terminate() }

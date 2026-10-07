@@ -5,6 +5,7 @@ package enum AgentPetCapability: String, CaseIterable {
     case groupModeLead = "group-mode-lead"
     case disambiguator = "disambiguator"
     case hideLabelsFloating = "hide-labels-floating"
+    case dockGround = "dock-ground"
 }
 
 enum CapabilitiesCommand {

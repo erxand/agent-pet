@@ -16,9 +16,21 @@ final class PetPresence {
     var spaceMotion: SpaceMotion?
     var walksHomeFromSpace = false
     var groundIndex = -1
+    var groundBody: GroundBody?
+    var waitsOnJump = false
 
     var shownAnimationName: SpriteAnimationName {
-        spaceMotion?.animationName ?? animator.animationName
+        spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName
+    }
+
+    var groundBodyFrameIndex: Int? {
+        guard spaceMotion == nil, animator.isGrounded else { return nil }
+        return groundBody?.frameIndex
+    }
+
+    private var groundBodyAnimationName: SpriteAnimationName? {
+        guard animator.isGrounded else { return nil }
+        return groundBody?.animationName
     }
 
     var shownFacingLeft: Bool {

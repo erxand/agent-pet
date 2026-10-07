@@ -26,12 +26,13 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `emerge.txt` and `dive.txt` are optional, 3 frames each. They play once while the pet rises
   out of the ground as it appears and drops back into it as it hides. A pack without them holds
   `idle` frame 0 for both moves.
-- `jump.txt` and `fall.txt` are optional, 2 frames each. `jump` frame 0 is the takeoff crouch and
-  frame 1 the stretch upward; `fall` frame 0 is the apex and frame 1 the later fall. `fall` plays
-  while a pet falls back to the ground after a float, looping at 8 fps like `walk`. Nothing plays
-  `jump` yet; `agent-pet render --pack <name> --animation jump` shows it. A pack without
-  `jump.txt` shows `walk` instead, and one without `fall.txt` shows `idle`. Keep the creature on
-  its idle baseline in both, so the motion moves the pet and the frames only change its pose.
+- `jump.txt` and `fall.txt` are optional, 2 frames each, and they do not loop: the pet picks the
+  frame from where it is in the air. `jump` frame 0 is the takeoff crouch, shown once for a tick
+  or two when the pet hops onto the Dock; frame 1 is the stretch, held while it rises. Being sprung
+  up by the Dock skips the crouch. `fall` frame 0 is the apex, shown for the first 0.15 s of a fall;
+  frame 1 is the later fall, held until it lands. `fall` plays off the Dock, off its edge, and out
+  of a float (where it loops at 8 fps like `walk`). A pack without `jump.txt` shows `walk`
+  instead, and one without `fall.txt` shows `idle`.
 - Every other color is fixed by the palette. `.` is transparent, and so is any character that is
   not in `palette`. No character is reserved: only the `accentInks` characters ever change color.
 - The shipped packs all use `#` for the outline, `e` for eyes and a lowercase/uppercase pair for
