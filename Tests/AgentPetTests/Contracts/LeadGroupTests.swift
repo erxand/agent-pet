@@ -483,6 +483,17 @@ struct LeadGroupFollowUpTests {
         #expect(record["label"] as? String == "kept")
     }
 
+    @Test func anUnknownModeReadsAsAbsentAndKeepsTheRecord() throws {
+        let sandbox = try Sandbox()
+        try sandbox.run(["on", "--session", LeadGroupFollowUpTests.dev, "--label", "kept", "--no-color-sync"])
+        var record = try #require(sandbox.record(LeadGroupFollowUpTests.dev))
+        record["groupMode"] = "conductor"
+        try sandbox.writeRecord(record)
+        let decoded = try JSONDecoder().decode(PetSession.self, from: Data(contentsOf: sandbox.recordURL(LeadGroupFollowUpTests.dev)))
+        #expect(decoded.groupMode == nil)
+        #expect(decoded.label == "kept")
+    }
+
     @Test func statusJsonReportsTheModeTheHintAndTheFlaggedOwner() throws {
         let sandbox = try Sandbox()
         try sandbox.run([

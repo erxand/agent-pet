@@ -131,7 +131,7 @@ extension PetSession {
             ?? PetSession.initialTranscriptScanOffset
         activeSubagents = try container.decodeIfPresent([TrackedSubagent].self, forKey: .activeSubagents)
             ?? PetSession.decodeLegacySubagents(from: decoder, startedAt: updatedAt)
-        groupMode = try container.decodeIfPresent(PetGroupMode.self, forKey: .groupMode)
+        groupMode = (try? container.decodeIfPresent(PetGroupMode.self, forKey: .groupMode)) ?? nil
         disambiguator = try container.decodeIfPresent(String.self, forKey: .disambiguator)
         disambiguationScope = try container.decodeIfPresent(String.self, forKey: .disambiguationScope)
     }
