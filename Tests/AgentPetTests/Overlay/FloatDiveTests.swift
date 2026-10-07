@@ -15,7 +15,7 @@ struct FloatDiveTests {
                 labelPlacement: .pill, spriteSideLength: 64
             )
         )
-        let window = PetWindow(contentRect: CGRect(origin: .zero, size: view.preferredSize), petContentView: view)
+        let window = FakePetWindow(frame: CGRect(origin: .zero, size: view.preferredSize))
         let presence = PetPresence(
             sessionId: "pet-float", window: window, view: view,
             spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit

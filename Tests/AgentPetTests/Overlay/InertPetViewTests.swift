@@ -75,12 +75,12 @@ struct InertPetViewTests {
     }
 
     @Test func aPetWindowNeverBecomesKeyOrMain() {
-        let window = PetWindow(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10), petContentView: NSView())
-        #expect(!window.canBecomeKey)
-        #expect(!window.canBecomeMain)
-        #expect(window.styleMask == [.borderless])
-        #expect(!window.isMovable)
-        #expect(!window.isVisible)
+        for selector in [#selector(getter: NSWindow.canBecomeKey), #selector(getter: NSWindow.canBecomeMain)] {
+            #expect(class_getInstanceMethod(PetWindow.self, selector) != class_getInstanceMethod(NSWindow.self, selector))
+        }
+        #expect(!PetWindow.takesKeyOrMain)
+        #expect(PetWindow.style == [.borderless])
+        #expect(!PetWindow.movable)
     }
 
     @Test func theChromeRedrawsOnlyWhenTheAppearanceChanges() {

@@ -1,20 +1,54 @@
 import Foundation
 
 enum DaemonCommand {
+    struct Foreground {
+        var prepare: () -> Void
+        var otherLiveDaemon: () -> Int32?
+        var ownExecutableIsFound: () -> Bool
+        var claim: () -> Void
+        var writeError: (String) -> Void
+
+        static var live: Foreground {
+            Foreground(
+                prepare: PetPaths.createStateDirectoriesIfNeeded,
+                otherLiveDaemon: {
+                    guard let recorded = DaemonProcessIdentifierFile.read(),
+                          recorded != ProcessInfo.processInfo.processIdentifier,
+                          ProcessLiveness.isAlive(processIdentifier: recorded) else { return nil }
+                    return recorded
+                },
+                ownExecutableIsFound: OwnExecutable.isFoundThroughMainBundle,
+                claim: {
+                    let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+                    DaemonLogFile.truncateIfOversized()
+                    DaemonLogFile.writeStartupLine(
+                        processIdentifier: ownProcessIdentifier,
+                        parentProcessIdentifier: getppid()
+                    )
+                    DaemonProcessIdentifierFile.write(processIdentifier: ownProcessIdentifier)
+                },
+                writeError: CommandFeedback.writeToStandardError
+            )
+        }
+    }
+
+    static let ownExecutableMissingMessage = "the daemon cannot find its own executable through its main bundle,"
+        + " so the window server would refuse it; not starting. macOS may have denied it the folder it is in."
+
     static func runInForeground(runOverlay: () -> Void) -> Int32 {
-        PetPaths.createStateDirectoriesIfNeeded()
-        let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
-        if let recordedProcessIdentifier = DaemonProcessIdentifierFile.read(),
-           recordedProcessIdentifier != ownProcessIdentifier,
-           ProcessLiveness.isAlive(processIdentifier: recordedProcessIdentifier) {
+        runInForeground(using: .live, runOverlay: runOverlay)
+    }
+
+    static func runInForeground(using foreground: Foreground, runOverlay: () -> Void) -> Int32 {
+        foreground.prepare()
+        if foreground.otherLiveDaemon() != nil {
             return ExitCode.success
         }
-        DaemonLogFile.truncateIfOversized()
-        DaemonLogFile.writeStartupLine(
-            processIdentifier: ownProcessIdentifier,
-            parentProcessIdentifier: getppid()
-        )
-        DaemonProcessIdentifierFile.write(processIdentifier: ownProcessIdentifier)
+        guard foreground.ownExecutableIsFound() else {
+            foreground.writeError(ownExecutableMissingMessage)
+            return ExitCode.failure
+        }
+        foreground.claim()
         runOverlay()
         return ExitCode.success
     }
@@ -41,8 +75,18 @@ enum DaemonCommand {
                 },
                 parentOf: ProcessParent.of,
                 spawnDetached: DaemonCommand.spawnDetached
-            )
+            ).honouringNeverStart(ProcessInfo.processInfo.environment)
         }
+
+        func honouringNeverStart(_ environment: [String: String]) -> Starter {
+            guard environment[EnvironmentVariableName.neverStartDaemon] == Starter.neverStartValue else { return self }
+            var starter = self
+            starter.startLaunchAgent = {}
+            starter.spawnDetached = { false }
+            return starter
+        }
+
+        static let neverStartValue = "1"
     }
 
     static func ensureRunningOnItsOwn() -> DaemonStart {
@@ -70,7 +114,11 @@ enum DaemonCommand {
         if let spawned = ResponsibilityDisclaimingSpawn.spawn(
             executablePath: executablePath,
             arguments: [CommandName.daemon.rawValue],
-            logPath: openDaemonLogPath()
+            logPath: openDaemonLogPath(),
+            disclaim: ResponsibilityDisclaimingSpawn.shouldDisclaim(
+                executablePath: executablePath,
+                accountHome: PrivacyProtectedFolder.accountHome()
+            )
         ) {
             return spawned.disclaimed
         }
@@ -131,13 +179,18 @@ enum ResponsibilityDisclaimingSpawn {
         let disclaimed: Bool
     }
 
-    static func spawn(executablePath: String, arguments: [String], logPath: String) -> Spawned? {
+    static func shouldDisclaim(executablePath: String, accountHome: String?) -> Bool {
+        guard let accountHome else { return false }
+        return !PrivacyProtectedFolder.contains(executablePath, accountHome: accountHome)
+    }
+
+    static func spawn(executablePath: String, arguments: [String], logPath: String, disclaim: Bool) -> Spawned? {
         var attributes: posix_spawnattr_t?
         guard posix_spawnattr_init(&attributes) == 0 else { return nil }
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
         var disclaimed = false
-        if let symbol = dlsym(defaultSymbolScope, disclaimSymbolName) {
+        if disclaim, let symbol = dlsym(defaultSymbolScope, disclaimSymbolName) {
             let setDisclaim = unsafeBitCast(symbol, to: SetDisclaim.self)
             disclaimed = setDisclaim(&attributes, 1) == 0
         }
@@ -153,6 +206,52 @@ enum ResponsibilityDisclaimingSpawn {
         let status = posix_spawn(&processIdentifier, executablePath, &fileActions, &attributes, argumentVector, environ)
         guard status == 0 else { return nil }
         return Spawned(processIdentifier: processIdentifier, disclaimed: disclaimed)
+    }
+}
+
+enum PrivacyProtectedFolder {
+    private static let foldersInHome = [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Library/Mobile Documents",
+        "Library/CloudStorage"
+    ]
+    private static let volumesFolder = "/Volumes"
+
+    static func contains(_ path: String, accountHome: String) -> Bool {
+        let resolvedPath = resolved(path)
+        let resolvedHome = resolved(accountHome)
+        let folders = foldersInHome.map { name in resolvedHome + "/" + name } + [volumesFolder]
+        return folders.contains { folder in resolvedPath == folder || resolvedPath.hasPrefix(folder + "/") }
+    }
+
+    static func accountHome() -> String? {
+        guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
+        return String(cString: directory)
+    }
+
+    private static func resolved(_ path: String) -> String {
+        var existing = URL(fileURLWithPath: path).standardizedFileURL
+        var missingComponents: [String] = []
+        while existing.path != "/" {
+            if let real = realpath(existing.path, nil) {
+                defer { free(real) }
+                return missingComponents.reversed().reduce(String(cString: real)) { resolvedSoFar, component in
+                    resolvedSoFar + "/" + component
+                }
+            }
+            missingComponents.append(existing.lastPathComponent)
+            existing.deleteLastPathComponent()
+        }
+        return existing.path + missingComponents.reversed().joined(separator: "/")
+    }
+}
+
+enum OwnExecutable {
+    static func isFoundThroughMainBundle() -> Bool {
+        guard let bundle = CFBundleGetMainBundle() as CFBundle? else { return false }
+        return CFBundleCopyExecutableURL(bundle) != nil
     }
 }
 
