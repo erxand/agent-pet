@@ -39,8 +39,9 @@ package struct GroundBody: Equatable {
         let seconds = CGFloat(elapsedSeconds)
         let groundVelocity = lastGround.map { previousGround in (newGround - previousGround) / seconds } ?? 0
         lastGround = newGround
+        let launchVelocity = velocity
         velocity -= GroundBody.gravity * seconds
-        height += velocity * seconds
+        height += (launchVelocity + velocity) / 2 * seconds
         guard height <= newGround else { return }
         land(on: newGround, groundVelocity: groundVelocity)
     }

@@ -173,6 +173,39 @@ struct GroundBodyTests {
         #expect(walker.body.height == top)
     }
 
+    @Test func aHopPeaksAtTheEdgePlusItsClearanceWhateverTheStep() {
+        let edge = shownBar.maxY + inset
+        for step in [1.0 / 30.0, 1.0 / 60.0, 1.0 / 20.0, 1.0 / 144.0] {
+            var body = GroundBody(height: inset)
+            let stepped = body.allowsStep(toGround: edge)
+            #expect(!stepped)
+            var apex = body.height
+            for _ in 0..<Int(2 / step) {
+                body.advance(elapsedSeconds: step, ground: inset)
+                apex = max(apex, body.height)
+            }
+            #expect(abs(apex - (edge + GroundBody.jumpClearance)) <= 1, "step \(step): apex \(apex)")
+            #expect(body.height == inset)
+        }
+    }
+
+    @Test func aSpringOvershootsByItsLaunchSpeedWhateverTheStep() {
+        for step in [1.0 / 30.0, 1.0 / 60.0] {
+            var body = GroundBody(height: inset)
+            body.advance(elapsedSeconds: step, ground: inset)
+            body.advance(elapsedSeconds: step, ground: inset + 100)
+            #expect(body.velocity == GroundBody.maximumSpringSpeed)
+            let launchHeight = body.height
+            var apex = launchHeight
+            for _ in 0..<Int(1 / step) {
+                body.advance(elapsedSeconds: step, ground: inset + 100)
+                apex = max(apex, body.height)
+            }
+            let expected = GroundBody.maximumSpringSpeed * GroundBody.maximumSpringSpeed / (2 * GroundBody.gravity)
+            #expect(abs(apex - launchHeight - expected) <= 1, "step \(step): overshoot \(apex - launchHeight)")
+        }
+    }
+
     @Test func aLedgeTooHighToJumpStopsThePetInsteadOfJumping() {
         let tallBar = CGRect(x: 50, y: 7, width: 400, height: GroundBody.maximumJumpHeight + 40)
         let profile = dockProfile(tallBar)
