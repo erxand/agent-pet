@@ -19,11 +19,11 @@ struct LeadGroupTests {
 
     private var all: [String] { [LeadGroupTests.dev, LeadGroupTests.review, LeadGroupTests.test] }
 
-    private func enroll(_ sandbox: Sandbox, _ sessionId: String, owner: Bool) throws {
+    private func enroll(_ sandbox: Sandbox, _ sessionId: String, owner: Bool, mode: String = "lead") throws {
         var arguments = [
             "on", "--session", sessionId,
             "--group", LeadGroupTests.group,
-            "--group-mode", "lead",
+            "--group-mode", mode,
             "--label", LeadGroupTests.label(sessionId),
             "--focus-target", LeadGroupTests.pane(sessionId),
             "--pid", String(getpid()),
@@ -182,6 +182,70 @@ struct LeadGroupTests {
         #expect(item.label == "ABC-1140 (TEST)")
         #expect(item.focusRequest.sessionId == LeadGroupTests.test)
         #expect(item.session.sessionId == LeadGroupTests.review)
+    }
+
+    private func everyoneReady(_ sandbox: Sandbox) throws {
+        for sessionId in all { try hook(sandbox, "UserPromptSubmit", sessionId) }
+        for sessionId in all { try hook(sandbox, "Stop", sessionId) }
+    }
+
+    @Test func helpersAskingForTheModeDoNotMakeALeadGroupWhenTheOwnerDoesNot() throws {
+        let sandbox = try Sandbox()
+        try enroll(sandbox, LeadGroupTests.dev, owner: true, mode: "shared")
+        try enroll(sandbox, LeadGroupTests.review, owner: false)
+        try enroll(sandbox, LeadGroupTests.test, owner: false)
+        try everyoneReady(sandbox)
+        let items = try plan(sandbox, all)
+        let item = try #require(items.first)
+        #expect(items.count == 1)
+        #expect(item.label == "ABC-1140 (DEV)")
+        #expect(item.bubbleCaption == "ABC-1140 (TEST)")
+        #expect(item.focusRequest.sessionId == LeadGroupTests.test)
+        try sandbox.run(["hide", "--focus-target", "pane:dev"])
+        #expect(try records(sandbox, all).map { record in record.visible } == [false, true, true])
+        #expect(try plan(sandbox, all).count == 1)
+    }
+
+    @Test func helpersAskingForTheModeGetNoPetOfTheirOwnWhenTheOwnerDoesNot() throws {
+        let sandbox = try Sandbox()
+        try enroll(sandbox, LeadGroupTests.dev, owner: true, mode: "shared")
+        try enroll(sandbox, LeadGroupTests.review, owner: false)
+        try enroll(sandbox, LeadGroupTests.test, owner: false)
+        for sessionId in all { try hook(sandbox, "UserPromptSubmit", sessionId) }
+        try hook(sandbox, "Notification", LeadGroupTests.review, extra: ["notification_type": "permission_prompt"])
+        let items = try plan(sandbox, all)
+        #expect(items.map { item in item.petKey } == [LeadGroupTests.group])
+        #expect(items.first?.label == "ABC-1140 (DEV)")
+    }
+
+    @Test func anOwnerAskingForTheModeLeadsHelpersThatDoNot() throws {
+        let sandbox = try Sandbox()
+        try enroll(sandbox, LeadGroupTests.dev, owner: true)
+        try enroll(sandbox, LeadGroupTests.review, owner: false, mode: "shared")
+        try enroll(sandbox, LeadGroupTests.test, owner: false, mode: "shared")
+        try everyoneReady(sandbox)
+        let item = try #require(try plan(sandbox, all).first)
+        #expect(item.label == "ABC-1140 (DEV)")
+        #expect(item.bubbleCaption == nil)
+        #expect(item.focusRequest.sessionId == LeadGroupTests.dev)
+        try sandbox.run(["hide", "--focus-target", "pane:dev"])
+        #expect(try records(sandbox, all).map { record in record.visible } == [false, false, false])
+        #expect(try plan(sandbox, all).isEmpty)
+    }
+
+    @Test func sharedOnTheOwnerEndsTheLeadGroupWhileHelpersKeepTheMode() throws {
+        let sandbox = try worktreeWindow()
+        try sandbox.run(["on", "--session", LeadGroupTests.dev, "--group-mode", "shared", "--no-color-sync"])
+        try everyoneReady(sandbox)
+        #expect(try plan(sandbox, all).first?.bubbleCaption == "ABC-1140 (TEST)")
+        try sandbox.run(["hide", "--focus-target", "pane:dev"])
+        #expect(try records(sandbox, all).map { record in record.visible } == [false, true, true])
+
+        try sandbox.run(["on", "--session", LeadGroupTests.dev, "--group-mode", "lead", "--no-color-sync"])
+        try everyoneReady(sandbox)
+        #expect(try plan(sandbox, all).first?.bubbleCaption == nil)
+        try sandbox.run(["hide", "--focus-target", "pane:dev"])
+        #expect(try records(sandbox, all).map { record in record.visible } == [false, false, false])
     }
 
     @Test func aGroupWithoutTheModeKeepsTodaysRules() throws {
@@ -417,6 +481,17 @@ struct LeadGroupFollowUpTests {
         #expect(record["disambiguator"] == nil)
         #expect(record["disambiguationScope"] == nil)
         #expect(record["label"] as? String == "kept")
+    }
+
+    @Test func anUnknownModeReadsAsAbsentAndKeepsTheRecord() throws {
+        let sandbox = try Sandbox()
+        try sandbox.run(["on", "--session", LeadGroupFollowUpTests.dev, "--label", "kept", "--no-color-sync"])
+        var record = try #require(sandbox.record(LeadGroupFollowUpTests.dev))
+        record["groupMode"] = "conductor"
+        try sandbox.writeRecord(record)
+        let decoded = try JSONDecoder().decode(PetSession.self, from: Data(contentsOf: sandbox.recordURL(LeadGroupFollowUpTests.dev)))
+        #expect(decoded.groupMode == nil)
+        #expect(decoded.label == "kept")
     }
 
     @Test func statusJsonReportsTheModeTheHintAndTheFlaggedOwner() throws {

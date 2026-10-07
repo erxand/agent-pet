@@ -107,7 +107,8 @@ file on every write (temp file in the same dir, then rename).
   when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
 - `groupMode` is optional and absent unless `--group-mode lead` was passed; `--group-mode shared` or an empty
   `--group-mode ""` removes it.
-  A group with any member whose `groupMode` is `lead` follows the lead rules, see "Lead groups".
+  A group follows the lead rules when its flagged owner's own `groupMode` is `lead`, see "Lead groups".
+  An unknown `groupMode` value reads as absent, so a record a newer build wrote stays readable.
 - `disambiguator` and `disambiguationScope` are optional and absent unless `--disambiguator TEXT` and
   `--disambiguation-scope KEY` were passed, and an empty value removes each. They change a label only on a
   clash, see "Session differentiation".
@@ -309,7 +310,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `on [identity flags] [--no-color-sync]` | upsert record: enabled true, and visible false for a new or disabled record (an enabled record keeps `visible` and `held`, so a relabel never takes a pet down), `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
-| `hide [--session ID \| --focus-target T \| --pid N]` | visible false, `held` dropped. When a selected record is the flagged owner of a lead group, every other member of that group that is visible and `ready`, or `held`, is hidden too and its hold dropped, see "Lead groups" |
+| `hide [--session ID \| --focus-target T \| --pid N]` | visible false, `held` dropped. When a selected record is the lead of a lead group (its live flagged owner, whose own `groupMode` is `lead`), every other live member of that group that is visible and `ready`, or `held`, is hidden too and its hold dropped, see "Lead groups" |
 | `release [--session ID \| --focus-target T \| --pid N] [--grace S]` | for a `held` record: drop the hold, and when the record is enabled, not working, not visible and (with `--grace`) was held less than S seconds ago, show it with the mood and message it was held with; ensure-daemon when it came up. Anything else is untouched |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
 | `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...], "states": {...}}` (`states` is described under "Pet states") with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session), `flaggedOwner` (the record's own `owner` flag), `groupMode` (`shared` or `lead`), `disambiguator` and `disambiguationScope` (null when absent) |
@@ -550,7 +551,9 @@ crash left every later hook updating records that nothing drew.
   the folders the last scan found) marks a change, and `RescanGate` lets the next poll rescan when a
   change was marked, when the config changed, or when 5 s passed since the last rescan. The 5 s fallback
   catches what the stream cannot see, such as a new folder that starts matching a `~/.claude-*/sessions`
-  pattern. A monitor that could not start counts as a change on every poll, which is the old behavior. A
+  pattern. A monitor that could not start counts as a change on every poll, which is the old behavior. Stopping
+  a stream invalidates it and then drains the monitor's callback queue before releasing it, so no callback runs
+  on a monitor that is gone. A
   new or edited pack or Claude session file is therefore seen within 50 ms plus one poll, about 0.35 s,
   as before; the worst case, for a change the stream cannot see, is 5.3 s.
 - On a rescan the poll signs every SessionSource directory the same way. On change the daemon reconciles every
@@ -634,9 +637,12 @@ session id, and the planner applies these rules to the live members of each key:
 
 ### Lead groups
 
-A group in which any member has `groupMode` `lead` is a lead group, for a window where one session leads and
-the others support it. The lead is the live member flagged `owner`, the earliest enrolled when two are
-flagged. With a lead:
+A lead group is for a window where one session leads and the others support it. The lead is the live member
+flagged `owner`, the earliest enrolled when two are flagged, and the group is a lead group only when that
+member's own `groupMode` is `lead`. The members' modes do not decide it, so `on --group-mode shared` on the lead
+turns the group back into a plain group even while other members still have `lead`, and `--group-mode lead` on
+a member that is not the lead changes nothing while the lead lives. The planner and `hide` read this one rule
+(`PetGroup.lead`). With a lead:
 
 - The lead's pet keeps the group key. It is waiting while the lead is waiting, in any mood, or while any
   member is visible and `ready` and no member is working (the rule above). Its label, sprite, accent and
@@ -650,8 +656,10 @@ flagged. With a lead:
 - A member's own pet counts as up for settling, like the group's pet, so a new question on a pet that is
   already up never takes it down to settle again.
 
-With no live flagged owner, the group follows the plain rules, except that the label is the waiting
-member's own and there is no bubble caption. A group without the mode is unchanged.
+With no live flagged owner and a member whose `groupMode` is `lead` (the lead has exited), the group follows
+the plain rules, except that the label is the waiting member's own and there is no bubble caption. A group
+whose live flagged owner has no `lead` mode, and a group where no member has it, follow the plain rules
+unchanged.
 
 ### Settling
 
@@ -864,12 +872,13 @@ that is floating or falling draws no label and no bubble. They come back when it
 its lane. `PetChrome.shownOpacity` is the rule; a dive or an emerge fades the chrome as before.
 
 **Delivery.** `agent-pet physics float` and the other three commands read
-`~/.agent-pet/control/states.json`, change one key, and write the whole file back through a temp file
-and a rename (the file is removed when every state is `auto`). The daemon watches `control/` with a
+`~/.agent-pet/control/states.json`, change one key, and write the whole file back with sorted keys through a
+temp file and a rename (the file is removed when every state is `auto`). The read, change and write happen
+under an exclusive `flock` on `~/.agent-pet/states.lock` (`PetRecordLock`, outside `control/` so taking it never
+wakes the daemon), so two commands at the same instant both land. The daemon watches `control/` with a
 `DirectoryChangeMonitor` (FSEvents, the same as the sprite and session folders), so a command lands within
 about 50 ms plus one 300 ms poll, with the 5 s rescan as the fallback. A file with its own folder keeps the
-stream quiet: hook writes to `sessions/` and `hooks.log` never wake it. Two commands at the same instant
-can lose one write; that is the cost of having no lock, and scripts run one command at a time.
+stream quiet: hook writes to `sessions/` and `hooks.log` never wake it.
 
 **Transient.** The daemon deletes `control/states.json` when it starts, so a command does not survive a
 daemon restart (a crash, a launchd restart, a reboot). A state a script set is a reaction to something
@@ -910,8 +919,10 @@ screen frame, minus half the window, and never below its ground), and spins at 0
 way. While it floats, `PetView` uses a square window as wide as the diagonal of its content and rotates
 its content view about the center, and the sprite plays `idle`. Back to `ground`, each floating pet
 falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half second, and it turns
-toward upright by the short way at 3 rad/s. It lands exactly upright, the lanes are assigned again from where
-the pets are (see "Lane position"), it walks at 40 pt/s with `walk` frames to its lane home, never through
+toward upright by the short way at 3 rad/s. While it falls the sprite plays `fall` on the 8 fps clock (`idle`, its
+stand-in, for a pack without `fall.txt`). It lands exactly upright and the motion ends there (`SpacePhase.landed`);
+the lanes are assigned again from where the pets are (see "Lane position"), and `PetAnimator` walks it at 40 pt/s
+with `walk` frames into its lane, never through
 another pet, and then the normal mood behavior takes over. Two floating pets that touch (closer than 60% of
 their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 0.97,
 each speed capped at 72 pt/s (`SpaceMotion.collide`); a floating pet's speed eases back toward its launch

@@ -1,7 +1,7 @@
 import AgentPetCore
 import AppKit
 
-struct PetAppearance {
+struct PetAppearance: Equatable {
     let label: String
     let accent: AccentColor
     let mood: PetMood
@@ -157,6 +157,7 @@ final class PetView: NSView {
     private var groundOffsetFraction: CGFloat = 1
     private(set) var chromeOpacity: CGFloat = 0
     private(set) var spaceRotationInRadians: CGFloat?
+    private(set) var chromeRedrawCount = 0
 
     var isInert = false {
         didSet {
@@ -226,6 +227,7 @@ final class PetView: NSView {
     }
 
     func update(petAppearance: PetAppearance) {
+        guard petAppearance != self.petAppearance else { return }
         self.petAppearance = petAppearance
         toolTip = isInert ? nil : petAppearance.message
         redrawChrome()
@@ -271,6 +273,7 @@ final class PetView: NSView {
     }
 
     private func redrawChrome() {
+        chromeRedrawCount += 1
         labelView.needsDisplay = true
         bubbleView.needsDisplay = true
     }

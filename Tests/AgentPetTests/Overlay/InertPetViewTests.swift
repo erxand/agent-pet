@@ -82,4 +82,21 @@ struct InertPetViewTests {
         #expect(!window.isMovable)
         #expect(!window.isVisible)
     }
+
+    @Test func theChromeRedrawsOnlyWhenTheAppearanceChanges() {
+        let view = makeView()
+        let drawn = view.chromeRedrawCount
+        view.update(petAppearance: view.petAppearance)
+        #expect(view.chromeRedrawCount == drawn)
+        view.update(petAppearance: PetAppearance(
+            label: "inert",
+            accent: .cyan,
+            mood: .ready,
+            message: nil,
+            bubbleCaption: nil,
+            labelPlacement: .pill,
+            spriteSideLength: 64
+        ))
+        #expect(view.chromeRedrawCount == drawn + 1)
+    }
 }

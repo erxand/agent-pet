@@ -54,7 +54,7 @@ package struct PetDisplayPlanner {
             .sorted { leftGroup, rightGroup in
                 (leftGroup.waitingMembers.first?.updatedAt ?? 0) < (rightGroup.waitingMembers.first?.updatedAt ?? 0)
             }
-        let items = waitingGroups.flatMap { group in items(for: group, claudeSessions: claudeSessions) }
+        let items = waitingGroups.flatMap { group in self.items(for: group, claudeSessions: claudeSessions) }
         return disambiguatesLabels ? PetDisplayPlanner.disambiguated(items) : items
     }
 
@@ -94,11 +94,11 @@ package struct PetDisplayPlanner {
     }
 
     private func items(for group: PetGroup, claudeSessions: [String: ClaudeSessionRecord]) -> [PetDisplayItem] {
-        guard group.isLead else {
-            return item(for: group, claudeSessions: claudeSessions).map { item in [item] } ?? []
-        }
-        guard let lead = group.flaggedOwner else {
-            return leaderlessItem(for: group, claudeSessions: claudeSessions).map { item in [item] } ?? []
+        guard let lead = group.lead else {
+            let plainItem = group.hasLostItsLead
+                ? leaderlessItem(for: group, claudeSessions: claudeSessions)
+                : item(for: group, claudeSessions: claudeSessions)
+            return plainItem.map { item in [item] } ?? []
         }
         let askingMembers = group.askingMembersBesideTheLead
         let askingSessionIds = Set(askingMembers.map { member in member.sessionId })

@@ -5,24 +5,25 @@ enum StateCommand {
 
     static func run(kind: PetStateKind, arguments: [String]) -> Int32 {
         guard let first = arguments.first else { return reportInvalid(kind: kind, given: nil) }
-        var commands = PetStateFile.loadCommands()
-        let shown: String
-        if first == automaticWord {
-            guard arguments.count == 1 else { return reportInvalid(kind: kind, given: arguments.joined(separator: " ")) }
-            clear(kind, in: &commands)
-            shown = automaticWord
-        } else {
-            guard let value = apply(kind, words: arguments, to: &commands) else {
-                return reportInvalid(kind: kind, given: arguments.joined(separator: " "))
+        return PetStateFile.withLockedCommands { commands in
+            let shown: String
+            if first == automaticWord {
+                guard arguments.count == 1 else { return reportInvalid(kind: kind, given: arguments.joined(separator: " ")) }
+                clear(kind, in: &commands)
+                shown = automaticWord
+            } else {
+                guard let value = apply(kind, words: arguments, to: &commands) else {
+                    return reportInvalid(kind: kind, given: arguments.joined(separator: " "))
+                }
+                shown = value
             }
-            shown = value
+            guard PetStateFile.saveCommands(commands) else {
+                CommandFeedback.writeToStandardError("cannot write \(PetStateFile.commandsFile.path).")
+                return ExitCode.failure
+            }
+            print("\(kind.rawValue): \(shown)")
+            return ExitCode.success
         }
-        guard PetStateFile.saveCommands(commands) else {
-            CommandFeedback.writeToStandardError("cannot write \(PetStateFile.commandsFile.path).")
-            return ExitCode.failure
-        }
-        print("\(kind.rawValue): \(shown)")
-        return ExitCode.success
     }
 
     static func validValues(of kind: PetStateKind) -> String {

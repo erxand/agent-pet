@@ -4,8 +4,7 @@ import Foundation
 package enum SpacePhase: Equatable {
     case floating
     case falling
-    case walkingHome
-    case home
+    case landed
 }
 
 package struct SpaceArea: Equatable {
@@ -42,18 +41,19 @@ package struct SpaceMotion: Equatable {
     package static let fallAcceleration: CGFloat = 1400
     package static let fallDriftDampingPerSecond: CGFloat = 2
     package static let uprightRadiansPerSecond: Double = 3
-    package static let walkSpeedInPointsPerSecond: CGFloat = 40
     package static let bounceRestitution: CGFloat = 0.97
     package static let cruiseRecoveryPerSecond: Double = 0.5
     package static let maximumBounceSpeed: CGFloat = 72
     private static let fullTurn = Double.pi * 2
+    private static let fnv1aOffsetBasis: UInt64 = 0xcbf29ce484222325
+    private static let fnv1aPrime: UInt64 = 0x100000001b3
 
     package private(set) var center: CGPoint
     package private(set) var velocity: CGVector
     package private(set) var rotationInRadians: Double = 0
     package private(set) var spinRadiansPerSecond: Double
     package private(set) var phase: SpacePhase = .floating
-    package private(set) var facingLeft: Bool
+    package let facingLeft: Bool
     package private(set) var cruiseSpeed: CGFloat
 
     package init(launchingFrom center: CGPoint, seed: UInt64, facingLeft: Bool = false) {
@@ -73,43 +73,38 @@ package struct SpaceMotion: Equatable {
     }
 
     package static func seed(forPetKey petKey: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf29ce484222325
+        var hash = fnv1aOffsetBasis
         for byte in petKey.utf8 {
             hash ^= UInt64(byte)
-            hash = hash &* 0x100000001b3
+            hash = hash &* fnv1aPrime
         }
         return hash
     }
 
     package var animationName: SpriteAnimationName {
         switch phase {
-        case .floating, .home: return .idle
+        case .floating, .landed: return .idle
         case .falling: return .fall
-        case .walkingHome: return .walk
         }
     }
 
     package var isOnGround: Bool {
-        switch phase {
-        case .walkingHome, .home: return true
-        case .floating, .falling: return false
-        }
+        phase == .landed
     }
 
     package mutating func returnToGround() {
         switch phase {
         case .floating: phase = .falling
-        case .falling, .walkingHome, .home: return
+        case .falling, .landed: return
         }
     }
 
-    package mutating func advance(elapsedSeconds: Double, area: SpaceArea, homeCenterX: CGFloat) {
+    package mutating func advance(elapsedSeconds: Double, area: SpaceArea) {
         guard elapsedSeconds > 0 else { return }
         switch phase {
         case .floating: drift(elapsedSeconds: elapsedSeconds, area: area)
         case .falling: fall(elapsedSeconds: elapsedSeconds, area: area)
-        case .walkingHome: walkHome(elapsedSeconds: elapsedSeconds, homeCenterX: homeCenterX)
-        case .home: return
+        case .landed: return
         }
     }
 
@@ -145,19 +140,7 @@ package struct SpaceMotion: Equatable {
         center.y = area.groundCenterY
         velocity = CGVector(dx: 0, dy: 0)
         rotationInRadians = 0
-        phase = .walkingHome
-    }
-
-    private mutating func walkHome(elapsedSeconds: Double, homeCenterX: CGFloat) {
-        let remaining = homeCenterX - center.x
-        let step = SpaceMotion.walkSpeedInPointsPerSecond * CGFloat(elapsedSeconds)
-        guard abs(remaining) > step else {
-            center.x = homeCenterX
-            phase = .home
-            return
-        }
-        facingLeft = remaining < 0
-        center.x += remaining < 0 ? -step : step
+        phase = .landed
     }
 
     package static func collide(_ motions: inout [SpaceMotion], minimumDistance: (Int, Int) -> CGFloat) {
@@ -211,6 +194,10 @@ package struct SpaceMotion: Equatable {
 }
 
 package struct SeededGenerator: RandomNumberGenerator {
+    private static let splitMix64Increment: UInt64 = 0x9E3779B97F4A7C15
+    private static let splitMix64FirstMultiplier: UInt64 = 0xBF58476D1CE4E5B9
+    private static let splitMix64SecondMultiplier: UInt64 = 0x94D049BB133111EB
+
     private var state: UInt64
 
     package init(seed: UInt64) {
@@ -218,10 +205,10 @@ package struct SeededGenerator: RandomNumberGenerator {
     }
 
     package mutating func next() -> UInt64 {
-        state = state &+ 0x9E3779B97F4A7C15
+        state = state &+ SeededGenerator.splitMix64Increment
         var mixed = state
-        mixed = (mixed ^ (mixed >> 30)) &* 0xBF58476D1CE4E5B9
-        mixed = (mixed ^ (mixed >> 27)) &* 0x94D049BB133111EB
+        mixed = (mixed ^ (mixed >> 30)) &* SeededGenerator.splitMix64FirstMultiplier
+        mixed = (mixed ^ (mixed >> 27)) &* SeededGenerator.splitMix64SecondMultiplier
         return mixed ^ (mixed >> 31)
     }
 }
