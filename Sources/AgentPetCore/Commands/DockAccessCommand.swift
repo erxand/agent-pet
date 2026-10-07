@@ -217,7 +217,7 @@ enum DockAccessCommand {
         let start = environment.startDaemon()
         switch start {
         case .refusedForeignHome:
-            environment.writeError(AccountHome.foreignHomeMessage)
+            environment.writeError(AccountHome.refusalMessage())
             return ExitCode.failure
         case .launchAgent, .spawnedOnItsOwn:
             break

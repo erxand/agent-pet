@@ -142,6 +142,11 @@ final class Sandbox {
         return entries.compactMap { entry in entry["id"] as? String }
     }
 
+    var startedNoDaemon: Bool {
+        guard let contents = try? String(contentsOf: daemonLog, encoding: .utf8) else { return true }
+        return !contents.contains("daemon started")
+    }
+
     func hookLogLines() -> [String] {
         guard let contents = try? String(contentsOf: hookLog, encoding: .utf8) else { return [] }
         return contents.split(separator: "\n").map { line in String(line) }

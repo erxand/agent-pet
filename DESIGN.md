@@ -454,14 +454,16 @@ from a Claude Code Bash tool call is reparented to launchd anyway and dies with 
 crash left every later hook updating records that nothing drew.
 
 - `install.sh` writes `~/Library/LaunchAgents/com.agent-pet.daemon.plist` with label
-  `com.agent-pet.daemon`, `ProgramArguments` of the absolute binary path plus `daemon`, `RunAtLoad`
-  and `KeepAlive` true, `ProcessType` `Interactive`, `LimitLoadToSessionType` `Aqua`,
+  `com.agent-pet.daemon`, `ProgramArguments` of the absolute binary path plus `daemon`,
+  `RunAtLoad` true and `KeepAlive` `{SuccessfulExit: false}`, `ProcessType` `Interactive`, `LimitLoadToSessionType` `Aqua`,
   `EnvironmentVariables` with `PATH` of
   `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, and both
   `StandardOutPath` and `StandardErrorPath` set to `~/.agent-pet/daemon.log`. It then runs
   `launchctl bootout gui/<uid>/com.agent-pet.daemon`, ignoring failure, and
   `launchctl bootstrap gui/<uid> <plist>`. `uninstall.sh` does the bootout and removes the plist.
-- `KeepAlive` means a crashed daemon is back within seconds, with no CLI call needed.
+- `KeepAlive` means a crashed daemon is back within seconds, with no CLI call needed. Only a failed exit is
+  relaunched: a daemon that leaves on purpose (another daemon already runs, a refused home, a signal) exits 0
+  and stays down until something ensures it again, instead of coming back every 10 s.
 - `ensure-daemon` and `DaemonCommand.ensureRunning()`: when the plist exists, run
   `launchctl kickstart gui/<uid>/com.agent-pet.daemon` and return. There is no `-k`, so a running
   daemon is left alone. A kickstart of a service that was booted out fails with "could not find
@@ -1363,9 +1365,15 @@ temporary home (`HOME` and `CFFIXED_USER_HOME`, since `NSHomeDirectory` ignores 
 `TMUX_EXECUTABLE` pointing at a stub that records its arguments and a `daemon.pid` naming the test process,
 so no test reads or writes `~/.agent-pet` or `~/.claude`, calls `launchctl` or starts a daemon. The pid file alone
 was not enough: a command still running when its test process was killed found that pid dead and spawned a real
-daemon in the temporary home. So no daemon is started for a home that is not the account's own (`NSHomeDirectory`
-against `getpwuid`, links and `/System/Volumes/Data` resolved): the starter, `LaunchAgent.start`, the spawn and the
-`daemon` command each refuse it, and `ensure-daemon` and `dock-access --ask` say so on stderr and exit 1. The tests
+daemon in the temporary home. So no daemon is started for a home that is not the account's own. The account's home is the
+first that exists of the password entry's (`getpwuid`, then `getpwuid_r`) and `/Users/<NSUserName>`; the home in
+use (`NSHomeDirectory`) is the same folder when `stat` gives both one device and inode, and only when either cannot
+be read are the paths compared, with links and `/System/Volumes/Data` resolved. When no account home exists the
+refusal says that instead. The starter refuses before it creates any state directory, `LaunchAgent.start`, the spawn
+and the `daemon` command each refuse too (the daemon exits 0, so the launch agent does not bring it back), and
+`ensure-daemon` and `dock-access --ask` say so on stderr and exit 1. The silent callers (hooks, `preview`, `on`,
+`show`) write the refusal to `daemon.log` in the home in use, at most once an hour and only where its state
+directory already exists, so someone with a deliberate custom `HOME` can find out why no pet appears. The tests
 of that refusal keep the live `daemon.pid`, so a broken guard still finds a running daemon and cannot spawn one. No
 test opens a window, observes `NSWorkspace` or otherwise connects to the window server: a pet's window is reached
 through `PetWindowing`, the window watcher through `AppWindowWatching`, both faked in tests, and the Dock sensing

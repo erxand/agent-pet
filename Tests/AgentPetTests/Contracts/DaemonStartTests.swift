@@ -8,11 +8,13 @@ struct DaemonStartTests {
         var launchAgentStarts = 0
         var spawns = 0
         var probes = 0
+        var prepares = 0
     }
 
     private func recordingStarter(homeIsForeign: Bool, running: Int32?, agent: Bool, log: StartLog) -> DaemonCommand.Starter {
         DaemonCommand.Starter(
             homeIsForeign: { homeIsForeign },
+            prepare: { log.prepares += 1 },
             launchAgentIsInstalled: { agent },
             startLaunchAgent: { log.launchAgentStarts += 1 },
             runningDaemon: {
@@ -37,11 +39,13 @@ struct DaemonStartTests {
             #expect(log.launchAgentStarts == 0)
             #expect(log.spawns == 0)
             #expect(log.probes == 0)
+            #expect(log.prepares == 0)
         }
         let log = StartLog()
         let start = DaemonCommand.ensureRunningOnItsOwn(using: recordingStarter(homeIsForeign: false, running: nil, agent: false, log: log))
         #expect(start == .spawnedOnItsOwn)
         #expect(log.spawns == 1)
+        #expect(log.prepares == 1)
     }
 
     @Test func theLaunchAgentIsNeverTouchedForAForeignHome() {
@@ -74,7 +78,9 @@ struct DaemonStartTests {
 
     @Test func aSandboxHomeIsRefusedAndSaidSo() throws {
         let sandbox = try Sandbox()
-        #expect(AccountHome.isForeign(homeInUse: sandbox.home.path, accountHome: PrivacyProtectedFolder.accountHome()))
+        var probes = AccountHome.Probes.live
+        probes.homeInUse = { sandbox.home.path }
+        #expect(AccountHome.verdict(probes) == .foreign)
         for arguments in [["ensure-daemon"], ["dock-access", "--ask"]] {
             let run = try sandbox.run(arguments)
             #expect(run.exitStatus == 1, "\(arguments)")
@@ -84,7 +90,43 @@ struct DaemonStartTests {
         #expect(!sandbox.exists(sandbox.daemonLog))
     }
 
-    @Test func theHomeInUseIsComparedWithTheAccountsAfterResolvingLinks() throws {
+    private func probes(
+        homeInUse: String = "/Users/pet",
+        entry: String? = "/Users/pet",
+        reentrantEntry: String? = "/Users/pet",
+        userName: String = "pet",
+        identities: [String: FileIdentity]
+    ) -> AccountHome.Probes {
+        AccountHome.Probes(
+            homeInUse: { homeInUse },
+            passwordEntryHome: { entry },
+            reentrantPasswordEntryHome: { reentrantEntry },
+            userName: { userName },
+            identity: { path in identities[path] }
+        )
+    }
+
+    @Test func theSameFolderIsKnownByItsDeviceAndInodeNotItsSpelling() {
+        let home = FileIdentity(device: 1, inode: 500)
+        let elsewhere = FileIdentity(device: 1, inode: 501)
+        #expect(AccountHome.verdict(probes(homeInUse: "/users/PET", identities: ["/Users/pet": home, "/users/PET": home])) == .own)
+        #expect(AccountHome.verdict(probes(identities: ["/Users/pet": home])) == .own)
+        #expect(AccountHome.verdict(probes(homeInUse: "/tmp/sandbox", identities: ["/Users/pet": home, "/tmp/sandbox": elsewhere])) == .foreign)
+        #expect(AccountHome.isSameFolder("/a", "/a", identity: { path in path == "/a" ? home : nil }))
+        var asked = 0
+        #expect(!AccountHome.isSameFolder("/mounted/over", "/mounted/over", identity: { _ in
+            asked += 1
+            return asked == 1 ? home : elsewhere
+        }))
+        var calls = 0
+        #expect(!AccountHome.isSameFolder("/one", "/two", identity: { path in
+            calls += 1
+            return path == "/one" ? home : FileIdentity(device: 2, inode: 500)
+        }))
+        #expect(calls == 2)
+    }
+
+    @Test func withoutAnIdentityThePathsAreComparedAfterResolvingLinks() throws {
         let base = URL(fileURLWithPath: FileManager.default.temporaryDirectory.path)
             .appendingPathComponent("homes-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: base) }
@@ -92,13 +134,76 @@ struct DaemonStartTests {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let link = base.appendingPathComponent("home-link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: home)
-        #expect(!AccountHome.isForeign(homeInUse: home.path, accountHome: home.path))
-        #expect(!AccountHome.isForeign(homeInUse: link.path, accountHome: home.path))
-        #expect(!AccountHome.isForeign(homeInUse: home.path + "/", accountHome: home.path))
-        #expect(AccountHome.isForeign(homeInUse: base.appendingPathComponent("other").path, accountHome: home.path))
-        #expect(AccountHome.isForeign(homeInUse: home.path, accountHome: nil))
-        let accountHome = try #require(PrivacyProtectedFolder.accountHome())
-        #expect(!AccountHome.isForeign(homeInUse: "/System/Volumes/Data" + accountHome, accountHome: accountHome))
+        let noIdentity: (String) -> FileIdentity? = { _ in nil }
+        #expect(AccountHome.isSameFolder(link.path, home.path, identity: noIdentity))
+        #expect(AccountHome.isSameFolder(home.path + "/", home.path, identity: noIdentity))
+        #expect(!AccountHome.isSameFolder(base.appendingPathComponent("other").path, home.path, identity: noIdentity))
+        #expect(AccountHome.isSameFolder(link.path, home.path, identity: FileIdentity.of))
+        #expect(!AccountHome.isSameFolder(base.path, home.path, identity: FileIdentity.of))
+        let accountHome = try #require(AccountHome.home())
+        #expect(AccountHome.isSameFolder("/System/Volumes/Data" + accountHome, accountHome, identity: noIdentity))
+        #expect(AccountHome.isSameFolder("/System/Volumes/Data" + accountHome, accountHome, identity: FileIdentity.of))
+    }
+
+    @Test func theAccountHomeFallsBackUntilOneExists() {
+        let home = FileIdentity(device: 1, inode: 500)
+        let mounted = ["/Users/pet": home]
+        #expect(AccountHome.home(probes(entry: nil, identities: mounted)) == "/Users/pet")
+        #expect(AccountHome.home(probes(entry: "/Volumes/Homes/pet", identities: mounted)) == "/Users/pet")
+        #expect(AccountHome.home(probes(entry: "/Volumes/Homes/pet", reentrantEntry: "/Network/pet", identities: mounted)) == "/Users/pet")
+        #expect(AccountHome.home(probes(
+            entry: "/Volumes/Homes/pet",
+            reentrantEntry: "/Network/pet",
+            identities: ["/Network/pet": home, "/Users/pet": home]
+        )) == "/Network/pet")
+        #expect(AccountHome.home(probes(
+            entry: "/Volumes/Homes/pet",
+            identities: ["/Volumes/Homes/pet": home, "/Users/pet": home]
+        )) == "/Volumes/Homes/pet")
+        #expect(AccountHome.home(probes(entry: nil, reentrantEntry: nil, userName: "", identities: ["/Users/": home])) == nil)
+
+        let lost = probes(entry: "/Volumes/Homes/pet", reentrantEntry: nil, identities: [:])
+        #expect(AccountHome.verdict(lost) == .accountHomeNotFound)
+        #expect(AccountHome.refusalMessage(lost) == AccountHome.accountHomeNotFoundMessage)
+        let foreign = probes(homeInUse: "/tmp/sandbox", identities: mounted)
+        #expect(AccountHome.refusalMessage(foreign) == AccountHome.foreignHomeMessage)
+        #expect(AccountHome.verdict(.live) == .own)
+        #expect(AccountHome.home() == String(cString: getpwuid(getuid()).pointee.pw_dir))
+    }
+
+    @Test func aSilentCallerNotesTheRefusalOnceAnHourWhereStateAlreadyExists() throws {
+        let base = URL(fileURLWithPath: FileManager.default.temporaryDirectory.path)
+            .appendingPathComponent("notice-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let state = base.appendingPathComponent(".agent-pet", isDirectory: true)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(!ForeignHomeNotice.note("refused", stateDirectory: state, now: start))
+        #expect(!FileManager.default.fileExists(atPath: base.path))
+
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let log = state.appendingPathComponent("daemon.log")
+        func lines() throws -> [String] {
+            try String(contentsOf: log, encoding: .utf8).split(separator: "\n").map(String.init)
+        }
+        #expect(ForeignHomeNotice.note("refused", stateDirectory: state, now: start))
+        #expect(try lines().count == 1)
+        #expect(try lines().first?.hasSuffix(" agent-pet: refused") == true)
+        #expect(!ForeignHomeNotice.note("refused", stateDirectory: state, now: start.addingTimeInterval(3599)))
+        #expect(try lines().count == 1)
+        #expect(ForeignHomeNotice.note("refused", stateDirectory: state, now: start.addingTimeInterval(3600)))
+        #expect(try lines().count == 2)
+        #expect(ForeignHomeNotice.note("refused", stateDirectory: state, now: start.addingTimeInterval(1000)))
+        #expect(try lines().count == 3)
+    }
+
+    @Test func aSandboxSessionCommandLeavesTheNoticeInItsOwnDaemonLog() throws {
+        let sandbox = try Sandbox()
+        for _ in 0..<2 {
+            let run = try sandbox.run(["on", "--session", "noticed", "--pid", String(getpid())])
+            #expect(run.exitStatus == 0)
+        }
+        let log = try String(contentsOf: sandbox.daemonLog, encoding: .utf8)
+        #expect(log.components(separatedBy: AccountHome.foreignHomeMessage).count == 2)
     }
 
     @Test func aBinaryInAFolderMacOSGuardsIsNotDisclaimed() throws {
@@ -112,7 +217,7 @@ struct DaemonStartTests {
         try "".write(to: binary, atomically: true, encoding: .utf8)
         let link = base.appendingPathComponent("agent-pet-link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: binary)
-        let accountHome = try #require(PrivacyProtectedFolder.accountHome())
+        let accountHome = try #require(AccountHome.home())
 
         let protected = [
             (binary.path, home.path),
@@ -143,7 +248,6 @@ struct DaemonStartTests {
             #expect(ResponsibilityDisclaimingSpawn.shouldDisclaim(executablePath: path, accountHome: home.path), "\(path)")
         }
         #expect(!ResponsibilityDisclaimingSpawn.shouldDisclaim(executablePath: "/usr/local/bin/agent-pet", accountHome: nil))
-        #expect(accountHome == String(cString: getpwuid(getuid()).pointee.pw_dir))
     }
 
     @Test func aSpawnThatMustNotDisclaimDoesNot() throws {
@@ -192,7 +296,7 @@ struct DaemonStartTests {
         let refusedHome = DaemonCommand.runInForeground(
             using: foreground(foreignHome: true, otherDaemon: nil, executableFound: true, log: foreign)
         ) { foreign.events.append("overlay") }
-        #expect(refusedHome == 1)
+        #expect(refusedHome == 0)
         #expect(foreign.events == ["error: \(AccountHome.foreignHomeMessage)"])
 
         let missing = ForegroundLog()
