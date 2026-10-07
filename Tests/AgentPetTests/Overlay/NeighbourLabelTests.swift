@@ -136,4 +136,27 @@ struct NeighbourLabelTests {
         let closest = LaneLayout.laneSpacing(laneCount: laneCount, screenFrame: small) - 2 * wander
         #expect((widths[0] + widths[1]) / 2 <= closest + 0.001)
     }
+
+    @Test func numbersAtTheEndOfTheHeadSurviveTheCut() {
+        let pairs = [
+            ("NIST-1140 (DEV)", "NIST-1141 (DEV)"),
+            ("NIST-1140 (RVW)", "NIST-1149 (RVW)"),
+            ("PARAMIFY-REVIEW-1140 T1", "PARAMIFY-REVIEW-1141 T1")
+        ]
+        for laneCount in [9, 12] {
+            let room = LaneLayout.maximumPetWidth(laneCount: laneCount, screenFrame: screens[0])
+            for placement in [LabelPlacement.pill, .nametag] {
+                for (first, second) in pairs {
+                    let left = appearance(first, placement: placement).fitted(toWidth: room).label
+                    let right = appearance(second, placement: placement).fitted(toWidth: room).label
+                    #expect(left != right, "\(laneCount) lanes \(placement): \(left) vs \(right)")
+                    #expect(PetView.labelWidth(for: left, placement: placement) <= room)
+                    #expect(PetView.labelWidth(for: right, placement: placement) <= room)
+                }
+            }
+        }
+        let cut = appearance("NIST-1140 (DEV)", placement: .nametag).fitted(toWidth: 105).label
+        #expect(cut.contains(LabelShortening.ellipsis))
+        #expect(cut.hasSuffix("140 (DEV)"))
+    }
 }
