@@ -22,6 +22,7 @@ final class PetAnimator {
     private static let maximumWalkInSeconds: Double = 5
     private static let waveDurationInSeconds: Double = 1.5
     private static let waveProbability: Double = 0.35
+    static let meanderProbability: Double = 0.35
     private static let fullyUnderground: Double = 1
     private static let fullyAboveGround: Double = 0
     private static let opaqueChrome: Double = 1
@@ -48,8 +49,15 @@ final class PetAnimator {
     private var diveStartGroundOffsetFraction: Double = PetAnimator.fullyAboveGround
     private var diveStartChromeOpacity: Double = PetAnimator.opaqueChrome
 
-    init() {
+    private let random: () -> Double
+
+    init(random: @escaping () -> Double = { Double.random(in: 0..<1) }) {
+        self.random = random
         startEmerging(fromGroundOffsetFraction: PetAnimator.fullyUnderground)
+    }
+
+    private func randomValue(in range: ClosedRange<Double>) -> Double {
+        range.lowerBound + (range.upperBound - range.lowerBound) * random()
     }
 
     var isSubmerged: Bool {
@@ -267,10 +275,14 @@ final class PetAnimator {
             frameTick = 0
         }
         let step = PetAnimator.walkSpeedInPointsPerSecond * CGFloat(elapsedSeconds)
-        walkDirection = horizontalOffsetFromHome > 0 ? -1 : 1
-        facingLeft = walkDirection < 0
-        let arrives = abs(horizontalOffsetFromHome) <= step
-        let next = arrives ? 0 : horizontalOffsetFromHome + walkDirection * step
+        let target = min(max(horizontalOffsetFromHome, -wanderHalfWidth), wanderHalfWidth)
+        let remaining = target - horizontalOffsetFromHome
+        if remaining != 0 {
+            walkDirection = remaining < 0 ? -1 : 1
+            facingLeft = walkDirection < 0
+        }
+        let arrives = abs(remaining) <= step
+        let next = arrives ? target : horizontalOffsetFromHome + walkDirection * step
         guard canMoveTo(next) else { return }
         horizontalOffsetFromHome = next
         guard arrives else { return }
@@ -306,23 +318,25 @@ final class PetAnimator {
         if walkWasBlocked {
             walkWasBlocked = false
             turnAround()
+        } else if random() < PetAnimator.meanderProbability {
+            turnAround()
         }
         animationName = .walk
         frameTick = 0
-        remainingActivityInSeconds = Double.random(
+        remainingActivityInSeconds = randomValue(
             in: PetAnimator.minimumWalkInSeconds...PetAnimator.maximumWalkInSeconds
         )
     }
 
     private func beginResting() {
         frameTick = 0
-        if Double.random(in: 0...1) < PetAnimator.waveProbability {
+        if random() < PetAnimator.waveProbability {
             animationName = .wave
             remainingActivityInSeconds = PetAnimator.waveDurationInSeconds
             return
         }
         animationName = .idle
-        remainingActivityInSeconds = Double.random(
+        remainingActivityInSeconds = randomValue(
             in: PetAnimator.minimumPauseInSeconds...PetAnimator.maximumPauseInSeconds
         )
     }
