@@ -689,9 +689,10 @@ air and goes straight back to its ground animation on the tick it lands.
   the floor keeps pushing; the moment the floor slows below that speed, the pet simply keeps going, decelerates
   under gravity, peaks 16 pt above where the Dock comes to rest and falls back onto it. There is no pause and no
   second impulse: the velocity is continuous except where the floor itself changes speed abruptly. The Dock's
-  resting top comes from the geometry source (`DockTracker.restingTop`). It is the last top seen with the Dock
-  standing still, kept as a height above that display's bottom and dropped when the tile size or the Dock's display
-  changes; else it is predicted with `DockListFrame.restingTop`: the display's bottom, a 10 pt gap under the list,
+  resting top comes from the geometry source (`DockTracker.restingTop`). It is the last top seen with the Dock at
+  rest (two equal readings, the bar wholly above the display's bottom and within 2 pt of the predicted rest, so a
+  stuttered slide is never taken for a rest), kept as a height above the display's bottom so it follows the Dock to
+  another display, and dropped when the tile size changes; else it is predicted with `DockListFrame.restingTop`: the display's bottom, a 10 pt gap under the list,
   and the bar's height. The estimate uses the same formula. The 10 pt gap was measured at tile size 54 only and is
   assumed not to scale with the tile size (the probe measured no other size, and changing the tile size of a live
   Dock to measure it is not read only). So the apex is the same for any slide curve, slide length and poll rate,

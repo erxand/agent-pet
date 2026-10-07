@@ -93,7 +93,7 @@ struct WalkingLaneTests {
         #expect(!LaneLayout.allowsStep(from: 580, to: 640, neighbour: 600, minimumGap: 80))
     }
 
-    @Test func aFloatingPetTakesALeftoverLaneUntilItLands() {
+    @Test func aNewcomerTakesALeftoverLane() {
         let lanes = LaneLayout.laneCenters(count: 3, screenFrame: screen)
         #expect(LaneLayout.assignedLanes(currentCenters: [nil, 300, 1100], laneCenters: lanes) == [1, 0, 2])
     }
