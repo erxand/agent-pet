@@ -81,6 +81,10 @@ final class PetAnimator {
         }
     }
 
+    func hideChrome() {
+        chromeOpacity = PetAnimator.transparentChrome
+    }
+
     func requestDive() {
         switch groundPhase {
         case .diving, .submerged:

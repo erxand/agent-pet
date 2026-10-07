@@ -13,6 +13,7 @@ struct CapabilitiesCommandTests {
         let words = run.standardOutput.split(separator: "\n").map { line in String(line) }
         #expect(words == AgentPetCapability.allCases.map { capability in capability.rawValue })
         #expect(words.contains("focus-target-select"))
+        #expect(words.contains("hide-labels-floating"))
         #expect(words.allSatisfy { word in !word.contains(" ") })
     }
 
