@@ -689,11 +689,14 @@ widths are unchanged; the profile moves pets only vertically.
 
 **Vertical state.** Each grounded pet on a `dock` profile has a `GroundBody` (AgentPetCore, pure): a height and a
 vertical velocity under gravity (`SpaceMotion.fallAcceleration`, 1400 pt/s squared) with the ground under its body
-as a floor. On contact with a rising floor the pet takes the floor's speed (at most 260 pt/s), so when the Dock slows
-down at the end of its slide the pet leaves it, rises a little higher and falls back onto it: the spring. A floor that
-drops away faster than gravity leaves the pet in the air, and it falls. Walking is still `PetAnimator`'s; every step
+as a floor, moved by the exact step for constant gravity so the apex does not depend on the tick. A floor rising
+faster than 60 pt/s carries the pet with it; when it stops rising, a pet it lifted by 8 pt or more is launched at
+`springSpeed`, which is derived so it peaks `springOvershoot` (16 pt) above the floor's final top, and falls back
+onto it: the spring. A launch at the end rather than a speed taken from the floor makes the overshoot the same for
+any slide curve, any slide length and any poll rate. A floor that drops away faster than gravity leaves the pet in
+the air, and it falls. Walking is still `PetAnimator`'s; every step
 also asks the body: a step onto ground more than 2 pt higher is refused, and a standing pet then jumps with the
-speed that clears the edge by 10 pt, taking the step once it is above the top. A step up of more than 160 pt is
+speed that clears the edge by `jumpClearance` (16 pt), taking the step once it is above the top. A step up of more than 160 pt is
 refused with no jump, so the pet turns as it does at a neighbour. With a `flat` profile there is no body and the
 window is placed exactly as before. A body is dropped when the pet floats or its display changes, and a new one
 starts standing on the ground under the pet. `GroundPlacement.windowBottom` is the one rule the overlay calls, through

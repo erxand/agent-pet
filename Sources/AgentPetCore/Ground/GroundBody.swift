@@ -3,10 +3,13 @@ import Foundation
 
 package struct GroundBody: Equatable {
     package static let gravity: CGFloat = SpaceMotion.fallAcceleration
-    package static let maximumSpringSpeed: CGFloat = 260
     package static let restingTolerance: CGFloat = 1
     package static let stepUpTolerance: CGFloat = 2
-    package static let jumpClearance: CGFloat = 10
+    package static let jumpClearance: CGFloat = 16
+    package static let springOvershoot: CGFloat = 16
+    package static let springSpeed: CGFloat = (2 * gravity * springOvershoot).squareRoot()
+    package static let rideSpeed: CGFloat = 60
+    package static let springMinimumRise: CGFloat = 8
     package static let maximumJumpHeight: CGFloat = 160
 
     package private(set) var height: CGFloat
@@ -14,6 +17,7 @@ package struct GroundBody: Equatable {
     package private(set) var isJumping = false
     private var ground: CGFloat
     private var lastGround: CGFloat?
+    private var rideStart: CGFloat?
 
     package init(height: CGFloat) {
         self.height = height
@@ -39,6 +43,15 @@ package struct GroundBody: Equatable {
         let seconds = CGFloat(elapsedSeconds)
         let groundVelocity = lastGround.map { previousGround in (newGround - previousGround) / seconds } ?? 0
         lastGround = newGround
+        if let start = rideStart {
+            if groundVelocity > 0 && height <= newGround {
+                height = newGround
+                velocity = 0
+                return
+            }
+            rideStart = nil
+            velocity = height - start >= GroundBody.springMinimumRise ? GroundBody.springSpeed : 0
+        }
         let launchVelocity = velocity
         velocity -= GroundBody.gravity * seconds
         height += (launchVelocity + velocity) / 2 * seconds
@@ -57,9 +70,15 @@ package struct GroundBody: Equatable {
     }
 
     private mutating func land(on newGround: CGFloat, groundVelocity: CGFloat) {
+        let landedAt = height
         height = newGround
-        velocity = min(groundVelocity, GroundBody.maximumSpringSpeed)
         isJumping = false
+        guard groundVelocity > GroundBody.rideSpeed else {
+            velocity = min(groundVelocity, 0)
+            return
+        }
+        velocity = 0
+        rideStart = rideStart ?? landedAt
     }
 }
 

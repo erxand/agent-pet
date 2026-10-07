@@ -122,8 +122,7 @@ struct GroundBodyTests {
             peak = max(peak, walker.body.height)
             if let animationName = walker.body.animationName, shown.last != animationName { shown.append(animationName) }
         }
-        #expect(peak > top + 4)
-        #expect(peak < top + GroundBody.maximumSpringSpeed * GroundBody.maximumSpringSpeed / (2 * GroundBody.gravity) + 1)
+        #expect(abs(peak - (top + GroundBody.springOvershoot)) <= 1, "peak \(peak - top) above the top")
         #expect(shown == [.jump, .fall])
         #expect(walker.body.height == top)
         #expect(!walker.body.isAirborne)
@@ -190,21 +189,37 @@ struct GroundBodyTests {
         }
     }
 
-    @Test func aSpringOvershootsByItsLaunchSpeedWhateverTheStep() {
+    @Test func aSpringPeaksAtItsOvershootAboveTheFinalTopWhateverTheSlideAndStep() {
+        let slides: [(Double) -> CGFloat] = [
+            { progress in easeOut(progress) },
+            { progress in CGFloat(min(max(progress, 0), 1)) },
+            { progress in progress <= 0 ? 0 : 1 }
+        ]
         for step in [1.0 / 30.0, 1.0 / 60.0] {
-            var body = GroundBody(height: inset)
-            body.advance(elapsedSeconds: step, ground: inset)
-            body.advance(elapsedSeconds: step, ground: inset + 100)
-            #expect(body.velocity == GroundBody.maximumSpringSpeed)
-            let launchHeight = body.height
-            var apex = launchHeight
-            for _ in 0..<Int(1 / step) {
-                body.advance(elapsedSeconds: step, ground: inset + 100)
-                apex = max(apex, body.height)
+            for slide in slides {
+                var body = GroundBody(height: inset)
+                var apex = body.height
+                for index in 0..<Int(1.5 / step) {
+                    let shown = slide(Double(index) * step / DockSlide.showSeconds)
+                    body.advance(elapsedSeconds: step, ground: max(inset, bar(shownFraction: shown).maxY + inset))
+                    apex = max(apex, body.height)
+                }
+                #expect(abs(apex - (top + GroundBody.springOvershoot)) <= 1, "step \(step): apex \(apex - top) above the top")
+                #expect(body.height == top)
             }
-            let expected = GroundBody.maximumSpringSpeed * GroundBody.maximumSpringSpeed / (2 * GroundBody.gravity)
-            #expect(abs(apex - launchHeight - expected) <= 1, "step \(step): overshoot \(apex - launchHeight)")
         }
+    }
+
+    @Test func aSmallRiseCarriesThePetWithoutASpring() {
+        var body = GroundBody(height: inset)
+        body.advance(elapsedSeconds: tick, ground: inset)
+        body.advance(elapsedSeconds: tick, ground: inset + GroundBody.springMinimumRise - 2)
+        var apex = body.height
+        for _ in 0..<30 {
+            body.advance(elapsedSeconds: tick, ground: inset + GroundBody.springMinimumRise - 2)
+            apex = max(apex, body.height)
+        }
+        #expect(apex == inset + GroundBody.springMinimumRise - 2)
     }
 
     @Test func aLedgeTooHighToJumpStopsThePetInsteadOfJumping() {
