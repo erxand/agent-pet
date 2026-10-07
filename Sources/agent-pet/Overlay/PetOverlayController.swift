@@ -498,7 +498,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func beginDive(sessionId: String) {
-        presencesBySessionId[sessionId]?.animator.requestDive()
+        guard let presence = presencesBySessionId[sessionId] else { return }
+        if PetChrome.shownOpacity(1, spaceMotion: presence.spaceMotion, hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating) == 0 {
+            presence.animator.hideChrome()
+        }
+        presence.animator.requestDive()
     }
 
     private func removePresence(sessionId: String) {
@@ -570,7 +574,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             spriteImage: spriteImage,
             bubbleVerticalOffset: presence.animator.bubbleVerticalOffset,
             groundOffsetFraction: CGFloat(presence.animator.groundOffsetFraction),
-            chromeOpacity: CGFloat(presence.animator.chromeOpacity)
+            chromeOpacity: CGFloat(PetChrome.shownOpacity(
+                presence.animator.chromeOpacity,
+                spaceMotion: presence.spaceMotion,
+                hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating
+            ))
         )
     }
 
