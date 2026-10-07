@@ -170,11 +170,6 @@ final class PetAnimator {
         isWalkingHome = false
     }
 
-    func face(left facesLeft: Bool) {
-        facingLeft = facesLeft
-        walkDirection = facesLeft ? -1 : 1
-    }
-
     func showHighFive(frame: Int) {
         highFiveFrame = frame
         facingLeft = meetingFacesLeft
@@ -184,6 +179,10 @@ final class PetAnimator {
     func endMeeting(stepBackTo offset: CGFloat) {
         meetingTarget = nil
         highFiveFrame = nil
+        guard isGrounded, !isAirborne else {
+            strollDestination = nil
+            return
+        }
         strollDestination = min(max(offset, -wanderHalfWidth), wanderHalfWidth)
         animationName = .walk
         frameTick = 0

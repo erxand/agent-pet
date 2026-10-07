@@ -26,6 +26,7 @@ final class HighFiveDirector {
     static let raiseFrame = 0
     static let reachFrame = 1
     static let contactFrame = 2
+    static let labelFadeInSeconds: Double = 0.15
 
     enum Phase: Equatable {
         case approaching
@@ -40,6 +41,8 @@ final class HighFiveDirector {
         let second: HighFiveParticipant
         let secondTarget: CGFloat
         let secondFacesLeft: Bool
+        let homes: [CGFloat]
+        let wanderHalfWidths: [CGFloat]
         var secondSetsOutIn: Double
         var firstRaisedFor: Double?
         var secondRaisedFor: Double?
@@ -88,6 +91,38 @@ final class HighFiveDirector {
         return min(gap, HighFiveDirector.meetSpacing(left: session.left, right: session.right) - HighFiveDirector.spacingSlack)
     }
 
+    func hidesLabels(of petKey: String, normalGap: CGFloat) -> Bool {
+        guard let session, session.left.petKey == petKey || session.right.petKey == petKey else { return false }
+        let leftX = session.left.homeHorizontalCenter + session.left.animator.horizontalOffsetFromHome
+        let rightX = session.right.homeHorizontalCenter + session.right.animator.horizontalOffsetFromHome
+        return rightX - leftX < normalGap
+    }
+
+    static func chromeFade(_ current: Double, hidden: Bool, elapsedSeconds: Double) -> Double {
+        let step = elapsedSeconds / labelFadeInSeconds
+        return hidden ? max(0, current - step) : min(1, current + step)
+    }
+
+    func allowsStep(of mover: String, from current: CGFloat, to next: CGFloat, beside neighbour: String, at neighbourX: CGFloat, normalGap: CGFloat) -> Bool {
+        LaneLayout.allowsStep(
+            from: current,
+            to: next,
+            neighbour: neighbourX,
+            minimumGap: minimumGap(between: mover, and: neighbour, normally: normalGap)
+        )
+    }
+
+    func crowdedPairs(_ standing: [(key: String, x: CGFloat)], normalGap: CGFloat) -> [(Int, Int)] {
+        zip(standing.indices, standing.indices.dropFirst()).filter { left, right in
+            standing[right].x - standing[left].x < normalGap && !isMeetingPair(standing[left].key, standing[right].key)
+        }
+    }
+
+    static func levelPath(_ profile: GroundProfile, for participant: HighFiveParticipant, from: CGFloat, to: CGFloat) -> Bool {
+        let halfBody = participant.spriteSideLength * LaneLayout.bodyWidthFraction / 2
+        return profile.isLevel(over: (min(from, to) - halfBody)...(max(from, to) + halfBody))
+    }
+
     func cancel() {
         guard let current = session else { return }
         finish(current)
@@ -99,7 +134,14 @@ final class HighFiveDirector {
         now: TimeInterval,
         isLevel: (HighFiveParticipant, CGFloat, CGFloat) -> Bool = { _, _, _ in true }
     ) {
+        lastGreetedAt = lastGreetedAt.filter { _, greetedAt in now - greetedAt < HighFiveDirector.pairCooldownInSeconds }
         if var current = session {
+            guard [current.left, current.right].map({ participant in participant.homeHorizontalCenter }) == current.homes,
+                  [current.left, current.right].map({ participant in participant.animator.wanderHalfWidth }) == current.wanderHalfWidths
+            else {
+                finish(current)
+                return
+            }
             let free = Dictionary(neighbours.map { candidate in (candidate.participant.petKey, candidate.isFree) }, uniquingKeysWith: { first, _ in first })
             let keys = neighbours.map { candidate in candidate.participant.petKey }
             let stillNeighbours = zip(keys, keys.dropFirst()).contains { left, right in
@@ -162,6 +204,8 @@ final class HighFiveDirector {
             second: second,
             secondTarget: secondTarget,
             secondFacesLeft: leftFirst,
+            homes: [left.homeHorizontalCenter, right.homeHorizontalCenter],
+            wanderHalfWidths: [left.animator.wanderHalfWidth, right.animator.wanderHalfWidth],
             secondSetsOutIn: secondSetsOutIn,
             firstRaisedFor: nil,
             secondRaisedFor: nil,
@@ -202,13 +246,13 @@ final class HighFiveDirector {
                 current.secondRaisedFor = 0
             }
             if let raised = current.secondRaisedFor {
-                if raised >= HighFiveDirector.raiseFrameInSeconds {
+                if raised >= 2 * HighFiveDirector.raiseFrameInSeconds {
                     current.phase = .contact
                     current.phaseSeconds = 0
                     current.left.animator.showHighFive(frame: HighFiveDirector.contactFrame)
                     current.right.animator.showHighFive(frame: HighFiveDirector.contactFrame)
                 } else {
-                    current.second.animator.showHighFive(frame: HighFiveDirector.raiseFrame)
+                    current.second.animator.showHighFive(frame: raisedFrame(after: raised))
                 }
             }
         case .contact:
