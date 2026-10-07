@@ -1,27 +1,34 @@
 import AgentPetCore
 import AppKit
 
+struct PetWindowSettings: Equatable {
+    let styleMask: NSWindow.StyleMask
+    let canBecomeKey: Bool
+    let canBecomeMain: Bool
+    let isMovable: Bool
+
+    static let pet = PetWindowSettings(styleMask: [.borderless], canBecomeKey: false, canBecomeMain: false, isMovable: false)
+}
+
 final class PetWindow: NSWindow {
-    static let style: NSWindow.StyleMask = [.borderless]
-    static let takesKeyOrMain = false
-    static let movable = false
+    static let settings = PetWindowSettings.pet
 
     init(contentRect: CGRect, petContentView: NSView) {
-        super.init(contentRect: contentRect, styleMask: PetWindow.style, backing: .buffered, defer: false)
+        super.init(contentRect: contentRect, styleMask: PetWindow.settings.styleMask, backing: .buffered, defer: false)
         level = .screenSaver
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
         ignoresMouseEvents = false
-        isMovable = PetWindow.movable
+        isMovable = PetWindow.settings.isMovable
         isReleasedWhenClosed = false
         contentView = petContentView
     }
 
-    override var canBecomeKey: Bool { PetWindow.takesKeyOrMain }
+    override var canBecomeKey: Bool { PetWindow.settings.canBecomeKey }
 
-    override var canBecomeMain: Bool { PetWindow.takesKeyOrMain }
+    override var canBecomeMain: Bool { PetWindow.settings.canBecomeMain }
 }
 
 protocol PetWindowing: AnyObject {

@@ -509,7 +509,7 @@ struct DemoCommandTests {
         let process = Process()
         process.executableURL = try Sandbox.binaryURL()
         process.arguments = ["demo", "--dry-run"]
-        process.environment = ["HOME": sandbox.home.path, "CFFIXED_USER_HOME": sandbox.home.path, "PATH": "/usr/bin:/bin"]
+        process.environment = sandbox.environment()
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = FileHandle.nullDevice

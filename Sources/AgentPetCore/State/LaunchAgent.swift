@@ -42,12 +42,18 @@ enum LaunchAgent {
         domainTarget + serviceTargetSeparator + label
     }
 
-    static func start() {
-        switch runLaunchctl(subcommand: .kickstart, arguments: [serviceTarget]) {
+    static func start(
+        homeIsForeign: () -> Bool = AccountHome.isForeign,
+        launchctl: (LaunchctlSubcommand, [String]) -> LaunchctlOutcome = { subcommand, arguments in
+            runLaunchctl(subcommand: subcommand, arguments: arguments)
+        }
+    ) {
+        guard !homeIsForeign() else { return }
+        switch launchctl(.kickstart, [serviceTarget]) {
         case .succeeded, .timedOut:
             return
         case .failed:
-            runLaunchctl(subcommand: .bootstrap, arguments: [domainTarget, propertyListFile.path])
+            _ = launchctl(.bootstrap, [domainTarget, propertyListFile.path])
         }
     }
 

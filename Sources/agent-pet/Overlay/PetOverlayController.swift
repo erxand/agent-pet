@@ -26,7 +26,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private let spritePackChanges = DirectoryChangeMonitor()
     private let claudeSessionChanges = DirectoryChangeMonitor()
     private var spritePackRescanGate = RescanGate()
-    private let appWindowWatcher = AppWindowWatcher()
+    private let appWindowWatcher: AppWindowWatching
     private let stateCommandChanges = DirectoryChangeMonitor()
     private var stateCommandRescanGate = RescanGate()
     private var stateCommands = PetStateSettings.none
@@ -55,9 +55,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             files: .standard,
             access: AccessibilityDockAccess(),
             processIdentifier: ProcessInfo.processInfo.processIdentifier
-        )
+        ),
+        appWindowWatcher: AppWindowWatching = AppWindowWatcher()
     ) {
         self.dockAccess = dockAccess
+        self.appWindowWatcher = appWindowWatcher
         self.configurationFile = configurationFile
         self.store = store
         self.spritePackRegistry = spritePackRegistry
