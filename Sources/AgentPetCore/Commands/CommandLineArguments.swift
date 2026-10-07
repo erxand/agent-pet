@@ -17,6 +17,7 @@ enum CommandName: String, CaseIterable {
     case scanTranscript = "scan-transcript"
     case render
     case packs
+    case capabilities
     case demo
     case physics
     case input
@@ -47,6 +48,9 @@ enum CommandFlag: String, CaseIterable {
     case scene = "--scene"
     case speed = "--speed"
     case snapshot = "--snapshot"
+    case groupMode = "--group-mode"
+    case disambiguator = "--disambiguator"
+    case disambiguationScope = "--disambiguation-scope"
 }
 
 struct ParsedFlags {

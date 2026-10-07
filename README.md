@@ -47,7 +47,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Seven commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
+Eight commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
   enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
@@ -69,6 +69,9 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+- `agent-pet capabilities` prints one word per line, one for each feature this build has, such as
+  `focus-target-select`. A script that drives agent-pet can check for a word instead of comparing
+  versions, and a build that predates the command exits 2.
 
 ## Demo
 
@@ -147,7 +150,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `sessionDirectories` | `["~/.claude/sessions"]` | where Claude Code session files are read for labels and liveness. `~` and `*` expand, so `~/.claude-*/sessions` covers every extra Claude config root |
 | `colorSync` | `"tmux-color"` | `none` stops agent-pet from typing `/color` into the session's pane |
 | `labelPlacement` | `"pill"` | `nametag` puts the label over the pet's head on a dark tag in a pixel font, readable on any desktop |
-| `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id |
+| `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id. Sessions enrolled with `--disambiguator TEXT --disambiguation-scope KEY` that clash inside one scope get TEXT instead |
 | `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
 | `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
 | `settleSeconds` | `0` | how long a session must stay waiting before its pet comes up, so a queued message that starts right after Claude finishes never flashes a pet. About `1` covers it. `0` shows at once |
@@ -182,6 +185,12 @@ subagents running, the others' ready waits. A member you dismissed counts as don
 waiting, a click jumps to it (or to the owner when none is), and the pet hides for all of them. A new
 member takes the owner's sprite, and `status --json` reports each session's `group` and whether it is
 the `owner`.
+
+`--group-mode lead` changes that for a window with one lead session and helpers. The pet then wears the
+owner's label and a click always goes to the owner. Ready still waits for every member. A helper's
+question gets a pet of its own at once, with the helper's label and click. Hiding the owner (for example
+`agent-pet hide --focus-target PANE` when you switch to its pane) hides every member's ready too. With
+no live owner the group acts as a plain group, labelled by the member that is waiting.
 
 The hooks are also safe to install for every session in Claude Code's `settings.json`, instead of or
 beside the `/pet` skill. For a session that never enrolled, `agent-pet hook` exits in a few

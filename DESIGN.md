@@ -102,6 +102,10 @@ file on every write (temp file in the same dir, then rename).
   is the key of the pet the session belongs to; absent means the session id, which is the one pet per
   session model. `owner` is `true` on the member flagged with `--owner`. `enrolledAt` is stamped once,
   when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
+- `groupMode` is optional and absent unless `--group-mode lead` was passed; `--group-mode shared` removes it.
+  A group with any member whose `groupMode` is `lead` follows the lead rules, see "Lead groups".
+- `disambiguator` and `disambiguationScope` are optional and absent unless `--disambiguator TEXT` and
+  `--disambiguation-scope KEY` were passed. They change a label only on a clash, see "Session differentiation".
 - `focusTarget` is optional and opaque: `--focus-target` stores it and the command focuser hands it on as
   `AGENT_PET_FOCUS_TARGET`. agent-pet never interprets it.
 - `handoverPendingSince` is optional and present only on a record a `SessionEnd` with `reason` `clear` or
@@ -164,7 +168,11 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    with a character the font lacks is drawn in unantialiased 9 pt Menlo Bold on the same tag. With
    `disambiguateLabels` on, two visible pets whose labels read the same (after the 28 character cut)
    both get a space and the last 4 characters of their owner's session id, recomputed on every
-   redraw, so the suffix goes away when one of them hides.
+   redraw, so the suffix goes away when one of them hides. A pet whose record has a `disambiguator`
+   and a `disambiguationScope` gets a space and its `disambiguator` instead, when at least one other
+   clashing pet has the same scope and no other clashing pet in that scope has the same
+   `disambiguator`. Every other clashing pet keeps the session id suffix, so a clash across scopes
+   reads as before.
 4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
    gets home x at `(i + 1) / (n + 1)` of the screen width and wanders within +/-120 px of home.
 
@@ -250,8 +258,9 @@ eye `#1A1A1A`, highlight `#F5D0BF`, scarf `#2EE6D6`, scarfShade `#20A196`.
 All session-taking commands default `--session` to `$CLAUDE_CODE_SESSION_ID` and fail with exit 2
 and a one-line stderr message if neither is set. `--session` works from any shell; the tmux target is
 still resolved from the caller's `$TMUX_PANE` unless `--tmux` is passed. The identity flags
-`--nickname`, `--label`, `--accent`, `--agent`, `--tmux`, `--pid`, `--sprite`, `--focus-target`, `--group KEY`
-and the `--owner` switch work on `on`, `show` and `preview` alike. `--group` puts the session in the pet named
+`--nickname`, `--label`, `--accent`, `--agent`, `--tmux`, `--pid`, `--sprite`, `--focus-target`, `--group KEY`,
+`--group-mode shared|lead`, `--disambiguator TEXT`, `--disambiguation-scope KEY`
+and the `--owner` switch work on `on`, `show` and `preview` alike. An unknown `--group-mode` exits 2. `--group` puts the session in the pet named
 KEY, and `--owner` makes it that pet's owner and clears `owner` on every other record of the group, see
 "Groups".
 
@@ -262,7 +271,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `on [identity flags] [--no-color-sync]` | upsert record: enabled true, and visible false for a new or disabled record (an enabled record keeps `visible` and `held`, so a relabel never takes a pet down), `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
-| `hide [--session ID \| --focus-target T \| --pid N]` | visible false, `held` dropped |
+| `hide [--session ID \| --focus-target T \| --pid N]` | visible false, `held` dropped. When a selected record is the flagged owner of a lead group, every other member of that group that is visible and `ready`, or `held`, is hidden too and its hold dropped, see "Lead groups" |
 | `release [--session ID \| --focus-target T \| --pid N] [--grace S]` | for a `held` record: drop the hold, and when the record is enabled, not working, not visible and (with `--grace`) was held less than S seconds ago, show it with the mood and message it was held with; ensure-daemon when it came up. Anything else is untouched |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
 | `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...], "states": {...}}` (`states` is described under "Pet states") with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session) |
@@ -275,6 +284,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "downloaded"}]}` with `accent` null for a pack that yields none. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") and `disambiguator` (`on --disambiguator` and `--disambiguation-scope`). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -531,6 +541,23 @@ session id, and the planner applies these rules to the live members of each key:
   the owner, so when the owner exits the next member takes over on the next poll.
 - Subagent tracking stays per session: a member's running subagents hide that member, and they hold
   back the `ready` of the others through the working rule above, never their `needsInput`.
+
+### Lead groups
+
+A group in which any member has `groupMode` `lead` is a lead group, for a window where one session leads and
+the others support it. With a live member flagged `owner` (the lead):
+
+- The lead's pet keeps the group key. It is waiting while the lead is waiting, in any mood, or while any
+  member is visible and `ready` and no member is working (the rule above). Its label, sprite, accent and
+  click are the lead's, its message is the lead's, and it has no bubble caption.
+- A visible `needsInput` or `blocked` member other than the lead gets its own pet at once, keyed
+  `<group>#<session id>`, with that member's own label, sprite, message and click. Its click hides only
+  that member, and the lead's pet leaves it out of the members it hides.
+- `hide` naming the lead (by `--session`, `--focus-target` or `--pid`) also hides every other member that
+  is visible and `ready`, so seeing the lead counts as seeing the window. A member's question stays up.
+
+With no live flagged owner, the group follows the plain rules, except that the label is the waiting
+member's own and there is no bubble caption. A group without the mode is unchanged.
 
 ### Settling
 

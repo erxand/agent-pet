@@ -71,6 +71,7 @@ enum SessionCommands {
         }
         for sessionId in sessionIds {
             PetTurnState.hide(sessionId: sessionId)
+            LeadGroupQuieting.hideReadyMembers(ofLead: sessionId)
         }
         return ExitCode.success
     }
