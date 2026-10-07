@@ -1,7 +1,7 @@
 import AgentPetCore
 import AppKit
 
-final class PetPresence: LaneWalker {
+final class PetPresence: LaneWalker, HighFiveParticipant {
     let sessionId: String
     let window: PetWindow
     let view: PetView
@@ -22,6 +22,8 @@ final class PetPresence: LaneWalker {
     var laneWidth: CGFloat { view.contentSize.width }
     var windowWidth: CGFloat { view.preferredSize.width }
     var isInFlight: Bool { spaceMotion != nil }
+    var petKey: String { sessionId }
+    var spriteSideLength: CGFloat { view.petAppearance.spriteSideLength }
 
     var shownAnimationName: SpriteAnimationName {
         spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName

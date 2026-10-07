@@ -7,6 +7,7 @@ package enum SpriteAnimationName: String, CaseIterable, Hashable {
     case dive
     case jump
     case fall
+    case highfive
 
     private static let textFileExtension = "txt"
 
@@ -17,7 +18,7 @@ package enum SpriteAnimationName: String, CaseIterable, Hashable {
     package var isOptionalInPack: Bool {
         switch self {
         case .idle, .walk, .wave, .sit: return false
-        case .emerge, .dive, .jump, .fall: return true
+        case .emerge, .dive, .jump, .fall, .highfive: return true
         }
     }
 
@@ -25,6 +26,7 @@ package enum SpriteAnimationName: String, CaseIterable, Hashable {
         switch self {
         case .jump: return .walk
         case .fall: return .idle
+        case .highfive: return .wave
         case .idle, .walk, .wave, .sit, .emerge, .dive: return nil
         }
     }
@@ -45,6 +47,7 @@ package enum SpriteAnimationName: String, CaseIterable, Hashable {
         case .dive: return sheet.dive
         case .jump: return sheet.jump
         case .fall: return sheet.fall
+        case .highfive: return sheet.highfive
         }
     }
 }

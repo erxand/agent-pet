@@ -42,6 +42,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private lazy var ground = PetGround { [weak self] in
         DockGround(sensing: SystemDockSensing { self?.dockAccess.isGranted ?? false })
     }
+    private let highFives = HighFiveDirector()
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
@@ -386,6 +387,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func assignLanes(newcomers: Set<String> = [], screenFrame: CGRect) {
+        highFives.cancel()
         let presences = lanePetKeys.compactMap { petKey in presencesBySessionId[petKey] }
         minimumGroundGap = LaneRedivision.apply(
             to: presences,
@@ -403,7 +405,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private func sendCrowdedNeighboursHome() {
         sortGroundPets()
         for (left, right) in zip(groundPets, groundPets.dropFirst())
-            where groundCenter(of: right) - groundCenter(of: left) < minimumGroundGap {
+            where groundCenter(of: right) - groundCenter(of: left) < minimumGroundGap
+                && !highFives.isMeetingPair(left.sessionId, right.sessionId) {
             left.animator.walkHomeNow()
             right.animator.walkHomeNow()
         }
@@ -442,6 +445,15 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
     }
 
+    private func canHighFive(_ presence: PetPresence) -> Bool {
+        HighFiveDirector.isFree(
+            animator: presence.animator,
+            mood: presence.view.petAppearance.mood,
+            inFlight: presence.spaceMotion != nil,
+            body: presence.groundBody
+        )
+    }
+
     private func groundCenter(of presence: PetPresence) -> CGFloat {
         presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
     }
@@ -472,7 +484,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private func allowsStep(_ presence: PetPresence, from current: CGFloat, to next: CGFloat, besideGroundPetAt index: Int) -> Bool {
         guard groundPets.indices.contains(index) else { return true }
         let neighbour = groundPets[index]
-        guard !LaneLayout.allowsStep(from: current, to: next, neighbour: groundCenter(of: neighbour), minimumGap: minimumGroundGap) else {
+        let gap = highFives.minimumGap(between: presence.sessionId, and: neighbour.sessionId, normally: minimumGroundGap)
+        guard !LaneLayout.allowsStep(from: current, to: next, neighbour: groundCenter(of: neighbour), minimumGap: gap) else {
             return true
         }
         if presence.animator.isWalkingHome { neighbour.animator.walkHomeNow() }
@@ -548,6 +561,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         var submergedSessionIds: [String] = []
         collideFloatingPets()
         sortGroundPets()
+        highFives.tick(
+            neighbours: groundPets.map { presence in HighFiveCandidate(participant: presence, isFree: canHighFive(presence)) },
+            elapsedSeconds: elapsedSeconds,
+            now: now.timeIntervalSince1970
+        ) { participant, from, to in
+            let halfBody = participant.spriteSideLength * LaneLayout.bodyWidthFraction / 2
+            return self.ground.profile.isLevel(over: (min(from, to) - halfBody)...(max(from, to) + halfBody))
+        }
         for presence in presencesBySessionId.values {
             defer { applyInputPolicy(to: presence) }
             if PetSpaceFlight.advance(
