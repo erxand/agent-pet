@@ -179,7 +179,7 @@ final class PetAnimator {
     func endMeeting(stepBackTo offset: CGFloat) {
         meetingTarget = nil
         highFiveFrame = nil
-        isWalkingHome = false
+        isWalkingHome = abs(horizontalOffsetFromHome) > wanderHalfWidth
         guard isGrounded, !isAirborne else {
             strollDestination = nil
             return

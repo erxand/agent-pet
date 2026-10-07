@@ -93,7 +93,7 @@ final class HighFiveDirector {
 
     static func hiddenLabels(_ standing: [(key: String, x: CGFloat)], normalGap: CGFloat) -> Set<String> {
         var hidden: Set<String> = []
-        for (left, right) in zip(standing, standing.dropFirst()) where right.x - left.x < normalGap {
+        for (left, right) in zip(standing, standing.dropFirst()) where right.x - left.x < normalGap - spacingSlack {
             hidden.insert(left.key)
             hidden.insert(right.key)
         }
