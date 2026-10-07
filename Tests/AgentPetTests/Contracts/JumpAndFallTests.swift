@@ -39,11 +39,12 @@ struct JumpAndFallTests {
         #expect(SpriteAnimationName.fall.shown(in: SpriteSheet.claude8Bit) == .idle)
     }
 
-    @Test func onlyJumpAndFallHaveStandIns() {
+    @Test func onlyJumpFallAndHighFiveHaveStandIns() {
         for animationName in SpriteAnimationName.allCases {
             switch animationName {
             case .jump: #expect(animationName.standIn == .walk)
             case .fall: #expect(animationName.standIn == .idle)
+            case .highfive: #expect(animationName.standIn == .wave)
             default: #expect(animationName.standIn == nil)
             }
         }

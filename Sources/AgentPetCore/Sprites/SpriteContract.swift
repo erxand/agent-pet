@@ -45,6 +45,7 @@ package struct SpriteSheet {
     package let dive: [PixelFrame]
     package let jump: [PixelFrame]
     package let fall: [PixelFrame]
+    package let highfive: [PixelFrame]
     package let frameSize: Int
     package let colorsByCharacter: [Character: NSColor]
 
@@ -57,6 +58,7 @@ package struct SpriteSheet {
         dive: [PixelFrame] = [],
         jump: [PixelFrame] = [],
         fall: [PixelFrame] = [],
+        highfive: [PixelFrame] = [],
         colorsByCharacter: [Character: NSColor] = SpritePalette.defaultColorsByCharacter
     ) {
         self.idle = idle
@@ -67,6 +69,7 @@ package struct SpriteSheet {
         self.dive = dive
         self.jump = jump
         self.fall = fall
+        self.highfive = highfive
         self.colorsByCharacter = colorsByCharacter
         self.frameSize = SpriteSheet.deriveFrameSize(
             idle: idle,
@@ -76,7 +79,8 @@ package struct SpriteSheet {
             emerge: emerge,
             dive: dive,
             jump: jump,
-            fall: fall
+            fall: fall,
+            highfive: highfive
         )
     }
 
@@ -92,9 +96,10 @@ package struct SpriteSheet {
         emerge: [PixelFrame],
         dive: [PixelFrame],
         jump: [PixelFrame],
-        fall: [PixelFrame]
+        fall: [PixelFrame],
+        highfive: [PixelFrame]
     ) -> Int {
-        let everyFrame = idle + walk + wave + sit + emerge + dive + jump + fall
+        let everyFrame = idle + walk + wave + sit + emerge + dive + jump + fall + highfive
         return everyFrame.first?.sideLength ?? PixelFrame.fallbackSideLength
     }
 }

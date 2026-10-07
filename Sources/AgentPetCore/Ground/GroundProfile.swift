@@ -67,6 +67,11 @@ package struct GroundProfile: Equatable {
         return max(base, segment.top)
     }
 
+    package func isLevel(over range: ClosedRange<CGFloat>) -> Bool {
+        guard let segment, segment.top > base else { return true }
+        return !range.contains(segment.minX) && !range.contains(segment.maxX)
+    }
+
     package func restingHeight(over span: ClosedRange<CGFloat>) -> CGFloat {
         guard let segment, segment.overlaps(span) else { return base }
         return max(base, segment.restingTop)

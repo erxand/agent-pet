@@ -161,6 +161,7 @@ package struct SpritePackLoader {
             dive: framesByAnimation[.dive] ?? [],
             jump: framesByAnimation[.jump] ?? [],
             fall: framesByAnimation[.fall] ?? [],
+            highfive: framesByAnimation[.highfive] ?? [],
             colorsByCharacter: colorsByCharacter
         )
         let declaredAccent = manifest.accent.flatMap { accentName in AccentColor(rawValue: accentName) }

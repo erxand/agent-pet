@@ -45,6 +45,9 @@ final class PetAnimator {
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
     private(set) var strollDestination: CGFloat?
+    private(set) var meetingTarget: CGFloat?
+    private(set) var meetingFacesLeft = false
+    private(set) var highFiveFrame: Int?
     private var isAirborne = false
     private var blockedSeconds: Double = 0
     private var looksAroundAt: Double?
@@ -119,7 +122,9 @@ final class PetAnimator {
         case .emerging:
             advanceEmerging(elapsedSeconds: elapsedSeconds)
         case .grounded:
-            if isWalkingHome {
+            if meetingTarget != nil {
+                advanceMeeting(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
+            } else if isWalkingHome {
                 walkHome(elapsedSeconds: elapsedSeconds, mood: mood, canMoveTo: canMoveTo)
             } else {
                 advanceMoodBehavior(elapsedSeconds: elapsedSeconds, mood: mood, canMoveTo: canMoveTo)
@@ -152,6 +157,72 @@ final class PetAnimator {
         blockedSeconds = 0
     }
 
+    var hasReachedMeeting: Bool {
+        guard let meetingTarget else { return false }
+        return horizontalOffsetFromHome == meetingTarget
+    }
+
+    func beginMeeting(atOffset target: CGFloat, facingLeft facesLeft: Bool) {
+        meetingTarget = target
+        meetingFacesLeft = facesLeft
+        highFiveFrame = nil
+        strollDestination = nil
+        isWalkingHome = false
+    }
+
+    func face(left facesLeft: Bool) {
+        facingLeft = facesLeft
+        walkDirection = facesLeft ? -1 : 1
+    }
+
+    func showHighFive(frame: Int) {
+        highFiveFrame = frame
+        facingLeft = meetingFacesLeft
+        animationName = .highfive
+    }
+
+    func endMeeting(stepBackTo offset: CGFloat) {
+        meetingTarget = nil
+        highFiveFrame = nil
+        strollDestination = min(max(offset, -wanderHalfWidth), wanderHalfWidth)
+        animationName = .walk
+        frameTick = 0
+    }
+
+    private func advanceMeeting(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
+        guard let meetingTarget else { return }
+        let remaining = meetingTarget - horizontalOffsetFromHome
+        guard remaining != 0 else {
+            facingLeft = meetingFacesLeft
+            if highFiveFrame == nil && animationName != .idle {
+                animationName = .idle
+                frameTick = 0
+            }
+            return
+        }
+        walkDirection = remaining < 0 ? -1 : 1
+        facingLeft = walkDirection < 0
+        let step = PetAnimator.walkSpeedInPointsPerSecond * CGFloat(elapsedSeconds)
+        let next = abs(remaining) <= step ? meetingTarget : horizontalOffsetFromHome + walkDirection * step
+        guard canMoveTo(next) else {
+            if animationName != .idle {
+                animationName = .idle
+                frameTick = 0
+            }
+            return
+        }
+        if animationName != .walk {
+            animationName = .walk
+            frameTick = 0
+        }
+        horizontalOffsetFromHome = next
+        if next == meetingTarget {
+            facingLeft = meetingFacesLeft
+            animationName = .idle
+            frameTick = 0
+        }
+    }
+
     func walkHomeNow() {
         guard horizontalOffsetFromHome != 0 else { return }
         isWalkingHome = true
@@ -167,6 +238,7 @@ final class PetAnimator {
         guard shift != 0 else { return }
         horizontalOffsetFromHome -= shift
         strollDestination = strollDestination.map { destination in destination - shift }
+        meetingTarget = meetingTarget.map { target in target - shift }
         if abs(horizontalOffsetFromHome) > wanderHalfWidth {
             isWalkingHome = true
         }
@@ -312,7 +384,7 @@ final class PetAnimator {
                 facingLeft.toggle()
             }
             if remainingActivityInSeconds <= 0 && !isAirborne { beginWalking() }
-        case .sit, .emerge, .dive, .jump, .fall:
+        case .sit, .emerge, .dive, .jump, .fall, .highfive:
             if !isAirborne { beginWalking() }
         }
     }
