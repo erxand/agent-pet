@@ -779,7 +779,7 @@ struct PetGroundTests {
         let presence = PetPresence(
             sessionId: "pet-dock", window: window, view: view,
             spritePackName: "claude", spriteSheet: SpriteSheet.claude8Bit,
-            animator: PetAnimator(random: { 0.99 })
+            animator: PetAnimator(random: { 0 })
         )
         presence.homeHorizontalCenter = home
         return presence
