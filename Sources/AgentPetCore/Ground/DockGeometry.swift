@@ -81,6 +81,10 @@ package enum DockListFrame {
     package static let endPadding: CGFloat = 8
     package static let verticalPadding: CGFloat = 20
     package static let shownBottomGap: CGFloat = 10
+
+    package static func restingTop(screenBottom: CGFloat, drawnHeight: CGFloat, inset: DockBarInset) -> CGFloat {
+        screenBottom + shownBottomGap + inset.bottom + drawnHeight
+    }
     package static let separatorWidthPerTileSize: CGFloat = 0.48
 
     package static func appKitFrame(fromTopLeftFrame topLeftFrame: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
@@ -236,7 +240,13 @@ package struct DockTracker {
 
     package private(set) var bar: CGRect?
     package private(set) var restingTop: CGFloat?
-    private var observedRestingTop: CGFloat?
+    private var observedResting: ObservedResting?
+
+    private struct ObservedResting: Equatable {
+        let heightAboveScreenBottom: CGFloat
+        let tileSize: CGFloat
+        let screen: CGRect
+    }
     package private(set) var source: DockBarSource?
     private var preferences: DockPreferences?
     private var preferencesReadAt: TimeInterval?
@@ -330,13 +340,19 @@ package struct DockTracker {
             let readBar = capped(drawn, preferences: preferences, inset: inset, screens: screens, pointerSettledAway: pointerSettledAway)
             bar = readBar
             dockScreen = screens.screen(underDockList: listFrame) ?? dockScreen
-            let screenBottom = (dockScreen ?? screens.primaryFrame).minY
-            if previous == readBar && readBar.maxY > screenBottom { observedRestingTop = readBar.maxY }
-            let predicted = screenBottom
-                + DockListFrame.shownBottomGap * preferences.tileSize / DockBarInset.measuredTileSize
-                + inset.bottom
-                + readBar.height
-            restingTop = max(readBar.maxY, observedRestingTop ?? predicted)
+            let screen = dockScreen ?? screens.primaryFrame
+            if let observed = observedResting, observed.tileSize != preferences.tileSize || observed.screen != screen {
+                observedResting = nil
+            }
+            if previous == readBar && readBar.maxY > screen.minY {
+                observedResting = ObservedResting(
+                    heightAboveScreenBottom: readBar.maxY - screen.minY,
+                    tileSize: preferences.tileSize,
+                    screen: screen
+                )
+            }
+            let predicted = DockListFrame.restingTop(screenBottom: screen.minY, drawnHeight: readBar.height, inset: inset)
+            restingTop = max(readBar.maxY, observedResting.map { observed in screen.minY + observed.heightAboveScreenBottom } ?? predicted)
             source = .accessibility
             slide = nil
             lastAccessibilityReadAt = now
@@ -367,12 +383,9 @@ package struct DockTracker {
             screenFrame: dockScreen ?? screens.primaryFrame,
             shownFraction: moving.shownFraction
         )
-        bar = inset.drawnBar(fromListFrame: listFrame)
-        restingTop = inset.drawnBar(fromListFrame: DockListFrame.estimated(
-            preferences: preferences,
-            screenFrame: dockScreen ?? screens.primaryFrame,
-            shownFraction: 1
-        )).maxY
+        let drawn = inset.drawnBar(fromListFrame: listFrame)
+        bar = drawn
+        restingTop = DockListFrame.restingTop(screenBottom: (dockScreen ?? screens.primaryFrame).minY, drawnHeight: drawn.height, inset: inset)
     }
 
     private mutating func capped(
