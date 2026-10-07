@@ -211,6 +211,7 @@ package enum PetStateFile {
     private static let controlDirectoryName = "control"
     private static let commandsFileName = "states.json"
     private static let effectiveFileName = "states-effective.json"
+    private static let commandsLockFileName = "states.lock"
 
     package static var controlDirectory: URL {
         PetPaths.stateDirectory.appendingPathComponent(controlDirectoryName, isDirectory: true)
@@ -222,6 +223,18 @@ package enum PetStateFile {
 
     package static var effectiveFile: URL {
         PetPaths.stateDirectory.appendingPathComponent(effectiveFileName, isDirectory: false)
+    }
+
+    package static var commandsLockFile: URL {
+        PetPaths.stateDirectory.appendingPathComponent(commandsLockFileName, isDirectory: false)
+    }
+
+    package static func withLockedCommands<Outcome>(_ transform: (inout PetStateSettings) -> Outcome) -> Outcome {
+        let lock = PetRecordLock(lockFileURL: commandsLockFile)
+        lock?.acquireExclusively()
+        defer { lock?.release() }
+        var commands = loadCommands()
+        return transform(&commands)
     }
 
     package static func loadCommands() -> PetStateSettings {
@@ -236,7 +249,9 @@ package enum PetStateFile {
             clearCommands()
             return true
         }
-        guard let payload = try? JSONEncoder().encode(settings) else { return false }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let payload = try? encoder.encode(settings) else { return false }
         return writeAtomically(payload, to: commandsFile)
     }
 

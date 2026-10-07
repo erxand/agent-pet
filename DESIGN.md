@@ -864,12 +864,13 @@ that is floating or falling draws no label and no bubble. They come back when it
 its lane. `PetChrome.shownOpacity` is the rule; a dive or an emerge fades the chrome as before.
 
 **Delivery.** `agent-pet physics float` and the other three commands read
-`~/.agent-pet/control/states.json`, change one key, and write the whole file back through a temp file
-and a rename (the file is removed when every state is `auto`). The daemon watches `control/` with a
+`~/.agent-pet/control/states.json`, change one key, and write the whole file back with sorted keys through a
+temp file and a rename (the file is removed when every state is `auto`). The read, change and write happen
+under an exclusive `flock` on `~/.agent-pet/states.lock` (`PetRecordLock`, outside `control/` so taking it never
+wakes the daemon), so two commands at the same instant both land. The daemon watches `control/` with a
 `DirectoryChangeMonitor` (FSEvents, the same as the sprite and session folders), so a command lands within
 about 50 ms plus one 300 ms poll, with the 5 s rescan as the fallback. A file with its own folder keeps the
-stream quiet: hook writes to `sessions/` and `hooks.log` never wake it. Two commands at the same instant
-can lose one write; that is the cost of having no lock, and scripts run one command at a time.
+stream quiet: hook writes to `sessions/` and `hooks.log` never wake it.
 
 **Transient.** The daemon deletes `control/states.json` when it starts, so a command does not survive a
 daemon restart (a crash, a launchd restart, a reboot). A state a script set is a reaction to something
