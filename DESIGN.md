@@ -496,7 +496,9 @@ crash left every later hook updating records that nothing drew.
   the folders the last scan found) marks a change, and `RescanGate` lets the next poll rescan when a
   change was marked, when the config changed, or when 5 s passed since the last rescan. The 5 s fallback
   catches what the stream cannot see, such as a new folder that starts matching a `~/.claude-*/sessions`
-  pattern. A monitor that could not start counts as a change on every poll, which is the old behavior. A
+  pattern. A monitor that could not start counts as a change on every poll, which is the old behavior. Stopping
+  a stream invalidates it and then drains the monitor's callback queue before releasing it, so no callback runs
+  on a monitor that is gone. A
   new or edited pack or Claude session file is therefore seen within 50 ms plus one poll, about 0.35 s,
   as before; the worst case, for a change the stream cannot see, is 5.3 s.
 - On a rescan the poll signs every SessionSource directory the same way. On change the daemon reconciles every

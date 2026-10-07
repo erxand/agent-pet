@@ -77,6 +77,7 @@ package final class DirectoryChangeMonitor {
         guard let running = stream else { return }
         FSEventStreamStop(running)
         FSEventStreamInvalidate(running)
+        queue.sync {}
         FSEventStreamRelease(running)
         stream = nil
     }
