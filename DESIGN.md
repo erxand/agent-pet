@@ -284,7 +284,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "downloaded"}]}` with `accent` null for a pack that yields none. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") and `disambiguator` (`on --disambiguator` and `--disambiguation-scope`). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`) and `hide-labels-floating` (the `hideLabelsWhileFloating` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -637,6 +637,10 @@ config rule can set them while an app shows a full screen window. Nothing is spe
 a matching config rule (`trigger`), else the default (`default`). A CLI command always beats a trigger.
 `agent-pet <state> auto` drops the command, so the trigger or the default applies again.
 `PetEffectiveStates.resolve(commands:trigger:)` is that rule, pure and tested.
+
+**Labels in a float.** With `hideLabelsWhileFloating` set to `true` in the config (off by default), a pet
+that is floating or falling draws no label and no bubble. They come back when it lands, before it walks to
+its lane. `PetChrome.shownOpacity` is the rule; a dive or an emerge fades the chrome as before.
 
 **Delivery.** `agent-pet physics float` and the other three commands read
 `~/.agent-pet/control/states.json`, change one key, and write the whole file back through a temp file
@@ -1002,6 +1006,7 @@ the defaults.
 | Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
 | Full screen rules | none | set pet states while a listed app covers a display, see "Pet states" | `whenFullScreen` |
+| Labels while floating | shown: the label and bubble float with the pet | while a pet floats or falls its label and bubble are hidden; they come back the moment it lands | `hideLabelsWhileFloating` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;

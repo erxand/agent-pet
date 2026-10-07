@@ -6,6 +6,7 @@ package enum AgentPetCapability: String, CaseIterable {
     case focusTargetSelect = "focus-target-select"
     case groupModeLead = "group-mode-lead"
     case disambiguator = "disambiguator"
+    case hideLabelsFloating = "hide-labels-floating"
 }
 
 enum CapabilitiesCommand {

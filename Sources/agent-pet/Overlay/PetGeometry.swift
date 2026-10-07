@@ -119,3 +119,10 @@ struct OverlayScreenFrames {
         return OverlayScreenFrames(visibleFrame: screen.visibleFrame, screenFrame: screen.frame)
     }
 }
+
+enum PetChrome {
+    static func shownOpacity(_ opacity: Double, spaceMotion: SpaceMotion?, hidesLabelsWhileFloating: Bool) -> Double {
+        guard hidesLabelsWhileFloating, let spaceMotion, !spaceMotion.isOnGround else { return opacity }
+        return 0
+    }
+}
