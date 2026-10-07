@@ -16,6 +16,7 @@ enum CommandName: String, CaseIterable {
     case scanTranscript = "scan-transcript"
     case render
     case packs
+    case capabilities
     case demo
     case physics
     case input

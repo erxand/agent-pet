@@ -122,6 +122,7 @@ package enum CommandFeedback {
       scan-transcript  diagnostic: print every subagent completion found in a transcript file
       render           print a sprite pack frame to the terminal in truecolor half blocks
       packs            list installed sprite packs with accent, reserved, and live pet count
+      capabilities     print one word per line naming each feature this build has
       demo             play a short tour on the desktop. It changes no session.
       physics          ground | float | auto: float makes every pet drift and spin, ground lands them
       input            on | off | auto: off makes every pet click-through and never take focus
