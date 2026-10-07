@@ -15,17 +15,14 @@ package final class DirectoryChangeMonitor {
     package static let defaultLatencyInSeconds: TimeInterval = 0.05
 
     private let latencyInSeconds: TimeInterval
-    private let recordsPaths: Bool
-    private var changes: [DirectoryChange] = []
+    private let sink: DirectoryChangeSink
     private let queue = DispatchQueue(label: "agent-pet.directory-changes")
-    private let lock = NSLock()
-    private var changeReported = false
     private var stream: FSEventStreamRef?
     private(set) package var watchedPaths: [String] = []
 
     package init(latencyInSeconds: TimeInterval = DirectoryChangeMonitor.defaultLatencyInSeconds, recordsPaths: Bool = false) {
         self.latencyInSeconds = latencyInSeconds
-        self.recordsPaths = recordsPaths
+        sink = DirectoryChangeSink(recordsPaths: recordsPaths)
     }
 
     deinit {
@@ -44,36 +41,27 @@ package final class DirectoryChangeMonitor {
     }
 
     package func consumeChange() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        let reported = changeReported
-        changeReported = false
-        return reported
+        sink.consumeChange()
     }
 
     package func consumeChanges() -> [DirectoryChange] {
-        lock.lock()
-        defer { lock.unlock() }
-        let consumed = changes
-        changes = []
-        return consumed
+        sink.consumeChanges()
     }
 
     package func noteChange(_ noted: [DirectoryChange]) {
-        lock.lock()
-        changeReported = true
-        if recordsPaths { changes += noted }
-        lock.unlock()
+        sink.noteChange(noted)
     }
 
-    fileprivate var wantsPaths: Bool { recordsPaths }
+    package func runOnCallbackQueue(_ work: @escaping () -> Void) {
+        queue.async(execute: work)
+    }
 
     private func startStream(paths: [String]) {
         var context = FSEventStreamContext(
             version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
+            info: Unmanaged.passUnretained(sink).toOpaque(),
+            retain: retainChangeSink,
+            release: releaseChangeSink,
             copyDescription: nil
         )
         let flags = FSEventStreamCreateFlags(
@@ -101,10 +89,54 @@ package final class DirectoryChangeMonitor {
         guard let running = stream else { return }
         FSEventStreamStop(running)
         FSEventStreamInvalidate(running)
-        queue.sync {}
         FSEventStreamRelease(running)
         stream = nil
     }
+}
+
+private final class DirectoryChangeSink {
+    let recordsPaths: Bool
+    private let lock = NSLock()
+    private var changeReported = false
+    private var changes: [DirectoryChange] = []
+
+    init(recordsPaths: Bool) {
+        self.recordsPaths = recordsPaths
+    }
+
+    func consumeChange() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let reported = changeReported
+        changeReported = false
+        return reported
+    }
+
+    func consumeChanges() -> [DirectoryChange] {
+        lock.lock()
+        defer { lock.unlock() }
+        let consumed = changes
+        changes = []
+        return consumed
+    }
+
+    func noteChange(_ noted: [DirectoryChange]) {
+        lock.lock()
+        changeReported = true
+        if recordsPaths { changes += noted }
+        lock.unlock()
+    }
+}
+
+private func retainChangeSink(_ info: UnsafeRawPointer?) -> UnsafeRawPointer? {
+    guard let info else { return nil }
+    _ = Unmanaged<DirectoryChangeSink>.fromOpaque(info).retain()
+    return info
+}
+
+private func releaseChangeSink(_ info: UnsafeRawPointer?) {
+    guard let info else { return }
+    Unmanaged<DirectoryChangeSink>.fromOpaque(info).release()
 }
 
 private func directoryChangeCallback(
@@ -116,16 +148,16 @@ private func directoryChangeCallback(
     eventIdentifiers: UnsafePointer<FSEventStreamEventId>
 ) {
     guard let clientInfo, eventCount > 0 else { return }
-    let monitor = Unmanaged<DirectoryChangeMonitor>.fromOpaque(clientInfo).takeUnretainedValue()
-    guard monitor.wantsPaths else {
-        monitor.noteChange([])
+    let sink = Unmanaged<DirectoryChangeSink>.fromOpaque(clientInfo).takeUnretainedValue()
+    guard sink.recordsPaths else {
+        sink.noteChange([])
         return
     }
     let pathPointers = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
     let rescanFlags = FSEventStreamEventFlags(
         kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped
     )
-    monitor.noteChange((0..<eventCount).map { index in
+    sink.noteChange((0..<eventCount).map { index in
         DirectoryChange(path: String(cString: pathPointers[index]), requiresRescan: eventFlags[index] & rescanFlags != 0)
     })
 }
