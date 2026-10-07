@@ -125,28 +125,129 @@ struct StrollTests {
         }
     }
 
-    @Test func betweenStrollsThePetPausesAndSometimesLooksAround() {
-        let animator = wanderingAnimator(halfWidth: 600, seed: 21)
-        var pauses = 0
+    static func lookAroundShare(seed: UInt64, minutes: Int) -> (idlePauses: Int, lookArounds: Int) {
+        let random = StrollRandom(seed: seed)
+        let animator = PetAnimator(random: { random.next() })
+        animator.limitWander(to: 600)
+        var idlePauses = 0
         var lookArounds = 0
-        var wasWalking = false
+        var previousAnimation = animator.animationName
         var facingAtPauseStart = animator.facingLeft
         var lookedThisPause = false
-        for _ in 0..<(30 * 60 * 10) {
+        for _ in 0..<(30 * 60 * minutes) {
             animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
-            let walking = animator.animationName == .walk
-            if wasWalking && !walking {
-                pauses += 1
+            let animation = animator.animationName
+            let resting = animator.strollDestination == nil
+            if resting && animation == .idle && previousAnimation != .idle {
+                idlePauses += 1
                 facingAtPauseStart = animator.facingLeft
                 lookedThisPause = false
-            } else if !walking && !lookedThisPause && animator.facingLeft != facingAtPauseStart {
+            } else if resting && animation == .idle && !lookedThisPause && animator.facingLeft != facingAtPauseStart {
                 lookArounds += 1
                 lookedThisPause = true
             }
-            wasWalking = walking
+            previousAnimation = resting ? animation : .walk
         }
-        #expect(pauses > 50)
-        #expect(lookArounds > pauses / 10)
-        #expect(lookArounds < pauses / 2)
+        return (idlePauses, lookArounds)
+    }
+
+    @Test func aboutOneIdlePauseInFiveLooksAround() {
+        let share = StrollTests.lookAroundShare(seed: 21, minutes: 20)
+        #expect(share.idlePauses > 60)
+        let fraction = Double(share.lookArounds) / Double(share.idlePauses)
+        #expect(fraction > 0.08 && fraction < 0.34, "\(share)")
+    }
+
+    private func strollingAnimator(seed: UInt64) -> PetAnimator {
+        let animator = wanderingAnimator(halfWidth: 600, seed: seed)
+        for _ in 0..<(30 * 30) where animator.strollDestination == nil {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+        }
+        #expect(animator.strollDestination != nil)
+        return animator
+    }
+
+    @Test func aBlockedStrollStandsIdleGivesUpWithinASecondAndHeadsTheOtherWayNext() {
+        for seed in UInt64(1)...30 {
+            checkBlockedStroll(seed: seed)
+        }
+    }
+
+    private func checkBlockedStroll(seed: UInt64) {
+        let animator = strollingAnimator(seed: seed)
+        let heading: CGFloat = (animator.strollDestination ?? 0) < animator.horizontalOffsetFromHome ? -1 : 1
+        var blockedTicks = 0
+        while animator.strollDestination != nil && blockedTicks < 120 {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready) { _ in false }
+            blockedTicks += 1
+            if animator.strollDestination != nil { #expect(animator.animationName == .idle) }
+        }
+        #expect(blockedTicks <= Int((PetAnimator.strollGiveUpInSeconds / StrollTests.tick).rounded(.up)) + 1)
+        for _ in 0..<(30 * 30) where animator.strollDestination == nil {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+        }
+        let next = (animator.strollDestination ?? 0) - animator.horizontalOffsetFromHome
+        #expect(next * heading < 0, "seed \(seed)")
+    }
+
+    @Test func aBriefBlockResumesTheSameStroll() {
+        let animator = strollingAnimator(seed: 9)
+        let destination = animator.strollDestination
+        for _ in 0..<10 { animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready) { _ in false } }
+        #expect(animator.animationName == .idle)
+        #expect(animator.strollDestination == destination)
+        animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+        #expect(animator.animationName == .walk)
+        #expect(animator.strollDestination == destination)
+    }
+
+    @Test func aRangeNarrowerThanTheShortestStrollIsNeverWalked() {
+        let animator = wanderingAnimator(halfWidth: 3, seed: 2)
+        for _ in 0..<(30 * 60) {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+            #expect(animator.animationName != .walk)
+        }
+    }
+
+    @Test func aPetNeverWalksBackwardsAfterItsLaneMovesMidStroll() {
+        for seed in UInt64(1)...40 {
+            let animator = strollingAnimator(seed: seed)
+            for _ in 0..<5 { animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready) }
+            animator.limitWander(to: 1800)
+            let destination = animator.strollDestination ?? 0
+            animator.moveHome(by: 2 * (animator.horizontalOffsetFromHome - destination))
+            var previous = animator.horizontalOffsetFromHome
+            for _ in 0..<(30 * 20) {
+                animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+                let moved = animator.horizontalOffsetFromHome - previous
+                if moved != 0 { #expect((moved < 0) == animator.facingLeft, "seed \(seed)") }
+                previous = animator.horizontalOffsetFromHome
+            }
+        }
+    }
+
+    @Test func standingSomewhereNewDropsTheStroll() {
+        let animator = strollingAnimator(seed: 4)
+        animator.stand(atHorizontalOffsetFromHome: -100)
+        #expect(animator.strollDestination == nil)
+        animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+        #expect(animator.horizontalOffsetFromHome == -100)
+    }
+
+    @Test func noLookAroundOrNewStrollWhileAirborne() {
+        let animator = wanderingAnimator(halfWidth: 600, seed: 8)
+        for _ in 0..<(30 * 30) where animator.strollDestination != nil || animator.animationName == .walk {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+        }
+        let facing = animator.facingLeft
+        for _ in 0..<(30 * 10) {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready, airborne: true)
+            #expect(animator.facingLeft == facing)
+            #expect(animator.strollDestination == nil)
+        }
+        for _ in 0..<(30 * 10) where animator.strollDestination == nil {
+            animator.advance(elapsedSeconds: StrollTests.tick, mood: .ready)
+        }
+        #expect(animator.strollDestination != nil)
     }
 }

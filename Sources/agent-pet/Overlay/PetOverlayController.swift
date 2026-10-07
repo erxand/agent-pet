@@ -563,7 +563,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 presence.groundBody = nil
                 continue
             }
-            presence.animator.advance(elapsedSeconds: elapsedSeconds, mood: presence.view.petAppearance.mood) { offset in
+            presence.animator.advance(
+                elapsedSeconds: elapsedSeconds,
+                mood: presence.view.petAppearance.mood,
+                airborne: presence.groundBody?.isAirborne ?? false
+            ) { offset in
                 self.allowsStep(presence, toOffset: offset)
             }
             ground.finishStep(presence)
