@@ -9,7 +9,8 @@ enum PetSpaceFlight {
         screenFrame: CGRect,
         groundBottom: CGFloat,
         homeCenterX: CGFloat,
-        render: (PetPresence) -> Void
+        render: (PetPresence) -> Void,
+        landed: (PetPresence) -> Void = { _ in }
     ) -> Bool {
         guard !presence.animator.isDiving, !presence.animator.isSubmerged else {
             leave(presence)
@@ -32,10 +33,11 @@ enum PetSpaceFlight {
             area: area(for: presence, screenFrame: screenFrame, groundBottom: groundBottom),
             homeCenterX: homeCenterX
         )
-        guard motion.phase != .home else {
+        guard !motion.isOnGround else {
             presence.spaceMotion = nil
             presence.view.update(spaceRotationInRadians: nil)
             presence.animator.resumeGrounded(horizontalOffsetFromHome: motion.center.x - homeCenterX)
+            landed(presence)
             return false
         }
         presence.spaceMotion = motion

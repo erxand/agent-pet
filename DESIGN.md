@@ -173,8 +173,17 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    clashing pet has the same scope and no other clashing pet in that scope has the same
    `disambiguator`. Every other clashing pet keeps the session id suffix, so a clash across scopes
    reads as before.
-4. **Lane position**: pets never overlap. Visible pets are sorted by `updatedAt`; pet `i` of `n`
-   gets home x at `(i + 1) / (n + 1)` of the screen width and wanders within +/-120 px of home.
+4. **Lane position**: pets never overlap. Lane `i` of `n` is home x at `(i + 1) / (n + 1)` of the
+   screen width. Lanes go to pets in the order they stand: `LaneLayout.assignedLanes` keeps the
+   left to right order of the pets already up and picks, among the order keeping choices, the one
+   that moves them least, and a new pet takes a lane left free, where it emerges. The same runs when
+   a pet lands from a float, from where the pets are then, so nobody crosses the screen. A pet whose
+   home moves keeps where it stands and walks to the new home at 40 px/s with `walk` frames,
+   whatever its mood, when that is more than 120 px away; only at home does it wander within +/-120 px
+   again. On the ground a step that would cross a neighbour, or bring it closer than
+   `LaneLayout.minimumGroundGap` (60% of the two sprite widths, capped at 90% of the lane spacing so
+   every lane stays reachable), is not taken: the pet runs in place, and a wandering pet turns round
+   when its next walk starts. Moving apart is always allowed. Floating and diving pets are not in the way.
 
 ### Accent on the sprite
 
@@ -451,7 +460,7 @@ crash left every later hook updating records that nothing drew.
   (`LaneLayout.carriedHorizontalCenter`). Only the window frame moves, so no animation restarts, and
   no pet stays on a display that went away. The `focused` default ignores the notification, as
   upstream does.
-- Animation: sprite frames at 8 fps, walk speed 40 px/s, turn around at lane bounds (renderer flips horizontally for
+- Animation: sprite frames at 8 fps, walk speed 40 px/s, a lane change walked, never jumped, turn around at lane bounds (renderer flips horizontally for
   leftward travel), random idle pauses of 1 to 3 s.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
@@ -689,8 +698,11 @@ screen frame, minus half the window, and never below its ground), and spins at 0
 way. While it floats, `PetView` uses a square window as wide as the diagonal of its content and rotates
 its content view about the center, and the sprite plays `idle`. Back to `ground`, each floating pet
 falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half second, and it turns
-toward upright by the short way at 3 rad/s. It lands exactly upright, walks at 40 pt/s with `walk` frames
-to its lane home, and then the normal mood behavior takes over. A pet hidden while it floats dives where
+toward upright by the short way at 3 rad/s. It lands exactly upright, the lanes are assigned again from where
+the pets are (see "Lane position"), it walks at 40 pt/s with `walk` frames to its lane home, never through
+another pet, and then the normal mood behavior takes over. Two floating pets that touch (closer than 60% of
+their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 1.15, a
+little livelier than elastic, each speed capped at 72 pt/s (`SpaceMotion.collide`). A pet hidden while it floats dives where
 it is, upright. The frame clock and the bubble bob run while a pet floats, so nothing jumps when it lands.
 
 **Input.** With `input off`, and for a pet still falling or walking home from a float, a pet is inert

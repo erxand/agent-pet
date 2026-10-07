@@ -43,6 +43,8 @@ package struct SpaceMotion: Equatable {
     package static let fallDriftDampingPerSecond: CGFloat = 2
     package static let uprightRadiansPerSecond: Double = 3
     package static let walkSpeedInPointsPerSecond: CGFloat = 40
+    package static let bounceRestitution: CGFloat = 1.15
+    package static let maximumBounceSpeed: CGFloat = 72
     private static let fullTurn = Double.pi * 2
 
     package private(set) var center: CGPoint
@@ -151,6 +153,41 @@ package struct SpaceMotion: Equatable {
         }
         facingLeft = remaining < 0
         center.x += remaining < 0 ? -step : step
+    }
+
+    package static func collide(_ motions: inout [SpaceMotion], minimumDistance: (Int, Int) -> CGFloat) {
+        for first in motions.indices {
+            for second in motions.indices where second > first {
+                var other = motions[second]
+                motions[first].bounce(off: &other, minimumDistance: minimumDistance(first, second))
+                motions[second] = other
+            }
+        }
+    }
+
+    package mutating func bounce(off other: inout SpaceMotion, minimumDistance: CGFloat) {
+        guard phase == .floating, other.phase == .floating else { return }
+        let offset = CGVector(dx: other.center.x - center.x, dy: other.center.y - center.y)
+        let distance = hypot(offset.dx, offset.dy)
+        guard distance > 0, distance < minimumDistance else { return }
+        let normal = CGVector(dx: offset.dx / distance, dy: offset.dy / distance)
+        let push = (minimumDistance - distance) / 2
+        center = CGPoint(x: center.x - normal.dx * push, y: center.y - normal.dy * push)
+        other.center = CGPoint(x: other.center.x + normal.dx * push, y: other.center.y + normal.dy * push)
+        let approachSpeed = (velocity.dx - other.velocity.dx) * normal.dx + (velocity.dy - other.velocity.dy) * normal.dy
+        guard approachSpeed > 0 else { return }
+        let impulse = approachSpeed * (1 + SpaceMotion.bounceRestitution) / 2
+        velocity = SpaceMotion.capped(CGVector(dx: velocity.dx - impulse * normal.dx, dy: velocity.dy - impulse * normal.dy))
+        other.velocity = SpaceMotion.capped(
+            CGVector(dx: other.velocity.dx + impulse * normal.dx, dy: other.velocity.dy + impulse * normal.dy)
+        )
+    }
+
+    private static func capped(_ velocity: CGVector) -> CGVector {
+        let speed = hypot(velocity.dx, velocity.dy)
+        guard speed > maximumBounceSpeed else { return velocity }
+        let scale = maximumBounceSpeed / speed
+        return CGVector(dx: velocity.dx * scale, dy: velocity.dy * scale)
     }
 
     package static func turnedTowardUpright(_ rotation: Double, byAtMost maximumTurn: Double) -> Double {
