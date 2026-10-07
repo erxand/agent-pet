@@ -35,6 +35,13 @@ private struct Tick {
     let phase: HighFiveDirector.Phase?
 }
 
+private func turn(_ greeter: Greeter, left facesLeft: Bool) {
+    let offset = greeter.animator.horizontalOffsetFromHome
+    greeter.animator.endMeeting(stepBackTo: offset + (facesLeft ? -20 : 20))
+    greeter.animator.advance(elapsedSeconds: 1.0 / 30.0, mood: .ready)
+    greeter.animator.stand(atHorizontalOffsetFromHome: offset)
+}
+
 @Suite("neighbouring pets meet at their lane border and high five")
 struct HighFiveTests {
     private static let tick = 1.0 / 30.0
@@ -49,9 +56,9 @@ struct HighFiveTests {
             for _ in 0..<20 { greeter.animator.advance(elapsedSeconds: HighFiveTests.tick, mood: .ready) { _ in false } }
         }
         left.animator.stand(atHorizontalOffsetFromHome: leftOffset)
-        left.animator.face(left: false)
+        turn(left, left: false)
         right.animator.stand(atHorizontalOffsetFromHome: rightOffset)
-        right.animator.face(left: true)
+        turn(right, left: true)
         if receiverStrolls { right.animator.endMeeting(stepBackTo: -right.animator.wanderHalfWidth) }
         return (left, right, gap)
     }
@@ -80,12 +87,13 @@ struct HighFiveTests {
             ) { _, _, _ in isLevel }
             for (greeter, neighbour) in [(left, right), (right, left)] {
                 greeter.animator.advance(elapsedSeconds: HighFiveTests.tick, mood: greeter.mood) { offset in
-                    let pairGap = director.minimumGap(between: greeter.petKey, and: neighbour.petKey, normally: gap)
-                    return LaneLayout.allowsStep(
+                    director.allowsStep(
+                        of: greeter.petKey,
                         from: greeter.x,
                         to: greeter.homeHorizontalCenter + offset,
-                        neighbour: neighbour.x,
-                        minimumGap: pairGap
+                        beside: neighbour.petKey,
+                        at: neighbour.x,
+                        normalGap: gap
                     )
                 }
             }
@@ -157,6 +165,8 @@ struct HighFiveTests {
                 let frame = greeting.firstIsLeft ? greeting.ticks[index].rightFrame : greeting.ticks[index].leftFrame
                 #expect(frame == nil, "\(label) tick \(index)")
             }
+            let secondFrames = greeting.ticks[second..<contact].map { tick in greeting.firstIsLeft ? tick.rightFrame : tick.leftFrame }
+            #expect(secondFrames.contains(HighFiveDirector.raiseFrame) && secondFrames.contains(HighFiveDirector.reachFrame), "\(label)")
             for tick in greeting.ticks where tick.leftFrame == HighFiveDirector.contactFrame || tick.rightFrame == HighFiveDirector.contactFrame {
                 #expect(tick.leftFrame == HighFiveDirector.contactFrame && tick.rightFrame == HighFiveDirector.contactFrame, "\(label)")
                 #expect(tick.leftAnimation == .highfive && tick.rightAnimation == .highfive)
@@ -179,8 +189,8 @@ struct HighFiveTests {
             greeter.animator.limitWander(to: 0)
             greeter.animator.stand(atHorizontalOffsetFromHome: 0)
         }
-        left.animator.face(left: false)
-        right.animator.face(left: true)
+        turn(left, left: false)
+        turn(right, left: true)
         var draws = 0
         let director = HighFiveDirector(random: {
             draws += 1
@@ -191,6 +201,108 @@ struct HighFiveTests {
         #expect(!started)
         #expect(draws == 1)
         #expect(!left.animator.facingLeft && right.animator.facingLeft)
+    }
+
+    @Test func aPetThatDivesMidGreetingSinksWithoutWalking() {
+        let (left, right, gap) = pair()
+        let director = HighFiveDirector(random: { 0 })
+        run(left, right, director: director, gap: gap, seconds: 0.5)
+        #expect(director.phase != nil)
+        left.animator.requestDive()
+        director.cancel()
+        #expect(left.animator.meetingTarget == nil && left.animator.highFiveFrame == nil)
+        #expect(left.animator.strollDestination == nil)
+        #expect(left.animator.animationName == .dive)
+        #expect(right.animator.strollDestination != nil)
+    }
+
+    @Test func bothLabelsFadeWhileThePairIsCloserThanTheGapAndComeBack() {
+        let (left, right, gap) = pair()
+        let director = HighFiveDirector(random: { 0 })
+        var leftFade = 1.0
+        var rightFade = 1.0
+        var sawContactHidden = false
+        run(left, right, director: director, gap: gap, seconds: 8) { tick in
+            leftFade = HighFiveDirector.chromeFade(leftFade, hidden: director.hidesLabels(of: "left", normalGap: gap), elapsedSeconds: HighFiveTests.tick)
+            rightFade = HighFiveDirector.chromeFade(rightFade, hidden: director.hidesLabels(of: "right", normalGap: gap), elapsedSeconds: HighFiveTests.tick)
+            if tick.phase == .contact {
+                #expect(leftFade == 0 && rightFade == 0)
+                sawContactHidden = true
+            }
+        }
+        #expect(sawContactHidden)
+        #expect(leftFade == 1 && rightFade == 1)
+    }
+
+    @Test func aGreetingSurvivesALaneReplanThatMovesNobodyButEndsWhenAThirdPetArrives() {
+        let (left, right, gap) = pair()
+        let director = HighFiveDirector(random: { 0 })
+        run(left, right, director: director, gap: gap, seconds: 0.3)
+        #expect(director.phase != nil)
+        _ = LaneRedivision.apply(to: [left, right], keepingStanding: [true, true], screenFrame: screen)
+        run(left, right, director: director, gap: gap, seconds: HighFiveTests.tick)
+        #expect(director.phase != nil)
+        let standing = [(key: "left", x: left.x), (key: "right", x: left.x + 10)]
+        #expect(director.crowdedPairs(standing, normalGap: gap).isEmpty)
+        #expect(HighFiveDirector(random: { 1 }).crowdedPairs(standing, normalGap: gap).count == 1)
+
+        let wider = CGRect(x: 0, y: 0, width: 1460, height: 900)
+        _ = LaneRedivision.apply(to: [left, right], keepingStanding: [true, true], screenFrame: wider)
+        #expect(!left.animator.isWalkingHome && !right.animator.isWalkingHome)
+        run(left, right, director: director, gap: gap, seconds: HighFiveTests.tick)
+        #expect(director.phase == nil)
+
+        run(left, right, director: director, gap: gap, seconds: 0.3)
+        let third = Greeter(petKey: "third", home: 0)
+        _ = LaneRedivision.apply(to: [left, right, third], keepingStanding: [true, true, false], screenFrame: screen)
+        run(left, right, director: director, gap: gap, seconds: HighFiveTests.tick)
+        #expect(director.phase == nil)
+        #expect(left.animator.meetingTarget == nil && right.animator.meetingTarget == nil)
+    }
+
+    @Test func aDockEdgeBetweenAPetAndTheBorderMeansNoGreeting() {
+        let edge: CGFloat = 700
+        let dock = GroundProfile.dock(base: 4, segment: GroundSegment(minX: edge, maxX: 1400, top: 83))
+        let flat = GroundProfile.flat(base: 4)
+        let (left, right, gap) = pair()
+        #expect(HighFiveDirector.levelPath(flat, for: left, from: left.x, to: 720))
+        #expect(!HighFiveDirector.levelPath(dock, for: left, from: left.x, to: 720))
+        #expect(HighFiveDirector.levelPath(dock, for: right, from: right.x, to: 760))
+        #expect(dock.isLevel(over: 10...600))
+        #expect(!dock.isLevel(over: 600...710))
+        #expect(!dock.isLevel(over: 1390...1420))
+        #expect(GroundProfile.dock(base: 4, segment: GroundSegment(minX: edge, maxX: 1400, top: -5)).isLevel(over: 600...710))
+        let director = HighFiveDirector(random: { 0 })
+        var started = false
+        var now = 0.0
+        for _ in 0..<10 {
+            director.tick(
+                neighbours: [left, right].map { greeter in HighFiveCandidate(participant: greeter, isFree: true) },
+                elapsedSeconds: HighFiveTests.tick,
+                now: now
+            ) { participant, from, to in HighFiveDirector.levelPath(dock, for: participant, from: from, to: to) }
+            started = started || director.phase != nil
+            now += HighFiveTests.tick
+        }
+        #expect(!started)
+        _ = gap
+    }
+
+    @Test func aboutOneEncounterInTenStartsAHighFive() {
+        var generator = SeededGenerator(seed: 1090)
+        var starts = 0
+        let encounters = 400
+        for index in 0..<encounters {
+            let (left, right, _) = pair(receiverStrolls: false)
+            let director = HighFiveDirector(random: { Double.random(in: 0..<1, using: &generator) })
+            director.tick(
+                neighbours: [left, right].map { greeter in HighFiveCandidate(participant: greeter, isFree: true) },
+                elapsedSeconds: HighFiveTests.tick,
+                now: Double(index)
+            )
+            if director.phase != nil { starts += 1 }
+        }
+        #expect(starts >= 25 && starts <= 55, "\(starts) of \(encounters)")
     }
 
     @Test func overAnHourOfWanderingAPairHighFivesOnlyNowAndThen() {
@@ -213,7 +325,7 @@ struct HighFiveTests {
         }
         let mean = Double(counts.reduce(0, +)) / Double(counts.count)
         #expect(counts.allSatisfy { count in count <= Int(3600 / HighFiveDirector.pairCooldownInSeconds) + 1 })
-        #expect(mean >= 0.5 && mean <= 6)
+        #expect(mean >= 1 && mean <= 4, "\(counts)")
     }
 
     @Test func theReceiversPlanIsInterrupted() {
@@ -238,27 +350,27 @@ struct HighFiveTests {
         run(left, right, director: director, gap: gap, seconds: 10, each: check)
         #expect(starts == 1)
         left.animator.stand(atHorizontalOffsetFromHome: 290)
-        left.animator.face(left: false)
+        turn(left, left: false)
         right.animator.stand(atHorizontalOffsetFromHome: -290)
-        right.animator.face(left: true)
+        turn(right, left: true)
         run(left, right, director: director, gap: gap, seconds: 1, startingAt: 30, each: check)
         #expect(starts == 1)
         left.animator.stand(atHorizontalOffsetFromHome: 290)
-        left.animator.face(left: false)
+        turn(left, left: false)
         right.animator.stand(atHorizontalOffsetFromHome: -290)
-        right.animator.face(left: false)
+        turn(right, left: false)
         run(left, right, director: director, gap: gap, seconds: HighFiveTests.tick, startingAt: HighFiveDirector.pairCooldownInSeconds, each: check)
         left.animator.stand(atHorizontalOffsetFromHome: 290)
-        left.animator.face(left: false)
+        turn(left, left: false)
         right.animator.stand(atHorizontalOffsetFromHome: -290)
-        right.animator.face(left: true)
+        turn(right, left: true)
         run(left, right, director: director, gap: gap, seconds: 1, startingAt: HighFiveDirector.pairCooldownInSeconds + 1, each: check)
         #expect(starts == 2)
     }
 
     @Test func petsFacingAwayOrFarApartNeverStart() {
         let (left, right, gap) = pair()
-        left.animator.face(left: true)
+        turn(left, left: true)
         let director = HighFiveDirector(random: { 0 })
         var started = false
         run(left, right, director: director, gap: gap, seconds: HighFiveTests.tick) { tick in started = started || tick.phase != nil }
@@ -280,7 +392,7 @@ struct HighFiveTests {
                 right.body = body
             }, true),
             ("diving", { left, _ in left.animator.requestDive() }, true),
-            ("walking home", { left, _ in left.animator.moveHome(by: 900) }, true),
+            ("walking home", { left, _ in left.animator.limitWander(to: 200) }, true),
             ("on a Dock step", { _, _ in }, false)
         ]
         for (name, setUp, level) in cases {

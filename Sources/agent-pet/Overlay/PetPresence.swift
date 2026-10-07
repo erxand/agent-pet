@@ -18,6 +18,7 @@ final class PetPresence: LaneWalker, HighFiveParticipant {
     var groundIndex = -1
     var groundBody: GroundBody?
     var waitsOnJump = false
+    var greetingChromeFade: Double = 1
 
     var laneWidth: CGFloat { view.contentSize.width }
     var windowWidth: CGFloat { view.preferredSize.width }
