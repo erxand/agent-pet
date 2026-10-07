@@ -33,6 +33,41 @@ The sheet shows every shipped pack; `python3 scripts/sprite-sheet/sheet.py` redr
 
 `~/.local/bin` must be on your `PATH`, because that is where `install.sh` links the binary.
 
+## Letting pets stand on the Dock exactly
+
+Pets treat a Dock at the bottom of the screen as ground. To know exactly where the Dock is, the
+daemon needs Accessibility access. Without it, pets still work, but they follow an estimate of
+the Dock's size and position.
+
+macOS ties that access to the binary's code signature. A plain `./install.sh` build is signed
+ad hoc, so every rebuild gets a new signature and macOS forgets the access. Sign the binary with
+a certificate and a fixed identifier, and the access survives every rebuild.
+
+1. Get a signing certificate. A free Apple Development certificate is enough: in Xcode, open
+   Settings > Accounts, add your Apple ID, then Manage Certificates > + > Apple Development.
+   Check that you have one:
+
+   ```
+   security find-identity -v -p codesigning
+   ```
+
+   Copy the name in quotes, for example `Apple Development: Your Name (TEAMID1234)`.
+2. Install with that identity. `install.sh` signs the binary with the fixed identifier
+   `com.agent-pet` when `AGENT_PET_SIGN_IDENTITY` is set, and restarts the daemon:
+
+   ```
+   AGENT_PET_SIGN_IDENTITY="Apple Development: Your Name (TEAMID1234)" ./install.sh
+   ```
+
+   To sign a binary you built another way, run
+   `codesign --force --sign "Apple Development: Your Name (TEAMID1234)" --identifier com.agent-pet <path to agent-pet>`
+   and restart the daemon.
+3. Grant access once. Run `agent-pet dock-access --ask`, then turn on agent-pet in
+   System Settings > Privacy & Security > Accessibility. `agent-pet dock-access` prints
+   `granted` once the daemon has it.
+4. Sign every rebuild the same way (keep `AGENT_PET_SIGN_IDENTITY` set when you run
+   `install.sh`). The identity and the identifier stay the same, so macOS keeps the access.
+
 ## Usage
 
 | form | effect |
@@ -80,6 +115,7 @@ Eight commands are useful from any shell, plus `agent-pet demo`, described under
   the terminal's, and never prompts; `unknown` means the daemon is not running.
   `agent-pet dock-access --ask` has the daemon ask macOS once; turn agent-pet on in
   System Settings > Privacy & Security > Accessibility and the daemon notices within 5 seconds.
+  Sign the binary first so the access survives rebuilds, see "Letting pets stand on the Dock exactly".
 
 ## Demo
 
@@ -168,7 +204,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
 | `whenFullScreen` | `[]` | rules that set pet states while an app shows a window covering a display, see "Scripting the pets" |
 | `hideLabelsWhileFloating` | `false` | `true` hides each pet's label and bubble while it floats or falls, and shows them again when it lands |
-| `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give the agent-pet daemon Accessibility access (`agent-pet dock-access --ask`); without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
+| `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give the agent-pet daemon Accessibility access (`agent-pet dock-access --ask`) and sign the binary so the access sticks, see "Letting pets stand on the Dock exactly"; without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
 | `groundGap` | absent | points between a pet's feet and the ground, on the screen bottom and on the Dock alike. Absent keeps today's look (a small lift, with the label pill under the feet). `0` stands pets right on the edge; the pill then sits over the head |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
