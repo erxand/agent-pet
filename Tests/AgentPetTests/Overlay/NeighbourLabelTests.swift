@@ -14,7 +14,7 @@ struct NeighbourLabelTests {
     ]
     private let labels = [
         "ZZTEST-1 (RVW)", "ZZTEST-2 (QA)", "DEV SYSTEM T1", "DEV SYSTEM T2",
-        "NIST-1140 (DEV)", "a very long session title that runs on", "x"
+        "TICK-1140 (DEV)", "a very long session title that runs on", "x"
     ]
 
     private func appearance(_ label: String, placement: LabelPlacement, caption: String? = nil) -> PetAppearance {
@@ -139,9 +139,9 @@ struct NeighbourLabelTests {
 
     @Test func numbersAtTheEndOfTheHeadSurviveTheCut() {
         let pairs = [
-            ("NIST-1140 (DEV)", "NIST-1141 (DEV)"),
-            ("NIST-1140 (RVW)", "NIST-1149 (RVW)"),
-            ("PARAMIFY-REVIEW-1140 T1", "PARAMIFY-REVIEW-1141 T1")
+            ("TICK-1140 (DEV)", "TICK-1141 (DEV)"),
+            ("TICK-1140 (RVW)", "TICK-1149 (RVW)"),
+            ("PROJECT-REVIEW-1140 T1", "PROJECT-REVIEW-1141 T1")
         ]
         for laneCount in [9, 12] {
             let room = LaneLayout.maximumPetWidth(laneCount: laneCount, screenFrame: screens[0])
@@ -155,7 +155,7 @@ struct NeighbourLabelTests {
                 }
             }
         }
-        let cut = appearance("NIST-1140 (DEV)", placement: .nametag).fitted(toWidth: 105).label
+        let cut = appearance("TICK-1140 (DEV)", placement: .nametag).fitted(toWidth: 105).label
         #expect(cut.contains(LabelShortening.ellipsis))
         #expect(cut.hasSuffix("140 (DEV)"))
     }
