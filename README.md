@@ -230,7 +230,8 @@ waiting, a click jumps to it (or to the owner when none is), and the pet hides f
 member takes the owner's sprite, and `status --json` reports each session's `group` and whether it is
 the `owner`.
 
-`--group-mode lead` changes that for a window with one lead session and helpers. The pet then wears the
+`--group-mode lead` on the owner changes that for a window with one lead session and helpers (the owner's
+own mode decides it, so `--group-mode shared` on the owner turns it off again). The pet then wears the
 owner's label and a click always goes to the owner. Ready still waits for every member. A helper's
 question gets a pet of its own at once, with the helper's label and click. Hiding the owner (for example
 `agent-pet hide --focus-target PANE` when you switch to its pane) hides every member's ready too. With

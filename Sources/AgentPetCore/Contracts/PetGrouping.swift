@@ -26,8 +26,17 @@ package struct PetGroup: Equatable {
         }
     }
 
+    package var lead: PetSession? {
+        guard let flaggedOwner, flaggedOwner.leadsItsGroup else { return nil }
+        return flaggedOwner
+    }
+
     package var isLead: Bool {
-        members.contains { member in member.leadsItsGroup }
+        lead != nil
+    }
+
+    package var hasLostItsLead: Bool {
+        flaggedOwner == nil && members.contains { member in member.leadsItsGroup }
     }
 
     package var flaggedOwner: PetSession? {
@@ -35,7 +44,7 @@ package struct PetGroup: Equatable {
     }
 
     package var askingMembersBesideTheLead: [PetSession] {
-        guard isLead, let lead = flaggedOwner else { return [] }
+        guard let lead else { return [] }
         return waitingMembers.filter { member in
             member.sessionId != lead.sessionId && PetGroup.asksAtOnce.contains(member.mood)
         }

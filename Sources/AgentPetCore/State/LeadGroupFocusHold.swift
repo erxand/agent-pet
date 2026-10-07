@@ -35,7 +35,7 @@ enum LeadGroupFocusHold {
         let groupmates = store.list().filter { member in
             member.petKey == session.petKey && LeadGroupQuieting.isLiveMember(member)
         }
-        guard groupmates.contains(where: { member in member.leadsItsGroup }) else { return [] }
+        guard PetGroup(key: session.petKey, members: groupmates).lead != nil else { return [] }
         return groupmates
     }
 }

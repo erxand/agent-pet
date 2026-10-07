@@ -52,6 +52,19 @@ struct LeadGroupFocusHoldTests {
         return sandbox
     }
 
+    @Test func helpersWithTheModeButAnOwnerWithoutItAreNoLeadGroupForTheHold() throws {
+        let sandbox = try Sandbox()
+        try enroll(sandbox, LeadGroupFocusHoldTests.dev, owner: true, lead: false)
+        try enroll(sandbox, LeadGroupFocusHoldTests.review, owner: false, lead: true)
+        try enroll(sandbox, LeadGroupFocusHoldTests.test, owner: false, lead: true)
+        try writeFocus(sandbox, "termie:dev")
+        try hook(sandbox, "UserPromptSubmit", LeadGroupFocusHoldTests.review)
+        try hook(sandbox, "Stop", LeadGroupFocusHoldTests.review)
+        let review = try record(sandbox, LeadGroupFocusHoldTests.review)
+        #expect(review.visible)
+        #expect(review.held == nil)
+    }
+
     @Test func aMembersFinishIsHeldWhileTheLeadsPaneIsInFront() throws {
         let sandbox = try worktreeWindow()
         try writeFocus(sandbox, "termie:dev")
