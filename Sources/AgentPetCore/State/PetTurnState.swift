@@ -181,7 +181,8 @@ package enum PetTurnState {
         focusedTarget: String?
     ) {
         guard var session = record, session.enabled else { return }
-        guard FocusedTarget.isInFront(session, focusedTarget: focusedTarget) else {
+        guard FocusedTarget.isInFront(session, focusedTarget: focusedTarget)
+            || (mood == .ready && LeadGroupFocusHold.isInFront(session, focusedTarget: focusedTarget)) else {
             markVisible(&record, mood: mood, message: message)
             return
         }
