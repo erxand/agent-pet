@@ -376,7 +376,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func beginDive(sessionId: String) {
-        presencesBySessionId[sessionId]?.animator.requestDive()
+        guard let presence = presencesBySessionId[sessionId] else { return }
+        if PetChrome.shownOpacity(1, spaceMotion: presence.spaceMotion, hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating) == 0 {
+            presence.animator.hideChrome()
+        }
+        presence.animator.requestDive()
     }
 
     private func removePresence(sessionId: String) {

@@ -30,6 +30,21 @@ struct FloatingLabelTests {
         #expect(PetChrome.shownOpacity(1, spaceMotion: motion, hidesLabelsWhileFloating: true) == 1)
     }
 
+    @Test func aPetThatDivesMidFloatWithHiddenLabelsNeverFlashesThem() {
+        let animator = PetAnimator()
+        for _ in 0..<30 { animator.advance(elapsedSeconds: 1.0 / 30.0, mood: .ready) }
+        #expect(animator.chromeOpacity == 1)
+        animator.hideChrome()
+        animator.requestDive()
+        var ticks = 0
+        while !animator.isSubmerged && ticks < 100 {
+            #expect(animator.chromeOpacity == 0)
+            animator.advance(elapsedSeconds: 1.0 / 30.0, mood: .ready)
+            ticks += 1
+        }
+        #expect(animator.isSubmerged)
+    }
+
     @Test func theConfigKeyDefaultsOff() {
         #expect(!ConfigurationFile.parse(Data("{}".utf8)).hidesLabelsWhileFloating)
         #expect(ConfigurationFile.parse(Data(#"{"hideLabelsWhileFloating": true}"#.utf8)).hidesLabelsWhileFloating)
