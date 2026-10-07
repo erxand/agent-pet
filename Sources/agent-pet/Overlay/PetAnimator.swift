@@ -149,7 +149,7 @@ final class PetAnimator {
 
     func limitWander(to halfWidth: CGFloat) {
         wanderHalfWidth = max(0, halfWidth)
-        if abs(horizontalOffsetFromHome) > wanderHalfWidth { isWalkingHome = true }
+        if abs(horizontalOffsetFromHome) > wanderHalfWidth && meetingTarget == nil { isWalkingHome = true }
     }
 
     func forgetBlockedWalk() {
@@ -179,6 +179,7 @@ final class PetAnimator {
     func endMeeting(stepBackTo offset: CGFloat) {
         meetingTarget = nil
         highFiveFrame = nil
+        isWalkingHome = false
         guard isGrounded, !isAirborne else {
             strollDestination = nil
             return
@@ -238,7 +239,7 @@ final class PetAnimator {
         horizontalOffsetFromHome -= shift
         strollDestination = strollDestination.map { destination in destination - shift }
         meetingTarget = meetingTarget.map { target in target - shift }
-        if abs(horizontalOffsetFromHome) > wanderHalfWidth {
+        if abs(horizontalOffsetFromHome) > wanderHalfWidth && meetingTarget == nil {
             isWalkingHome = true
         }
     }

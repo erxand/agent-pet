@@ -91,11 +91,13 @@ final class HighFiveDirector {
         return min(gap, HighFiveDirector.meetSpacing(left: session.left, right: session.right) - HighFiveDirector.spacingSlack)
     }
 
-    func hidesLabels(of petKey: String, normalGap: CGFloat) -> Bool {
-        guard let session, session.left.petKey == petKey || session.right.petKey == petKey else { return false }
-        let leftX = session.left.homeHorizontalCenter + session.left.animator.horizontalOffsetFromHome
-        let rightX = session.right.homeHorizontalCenter + session.right.animator.horizontalOffsetFromHome
-        return rightX - leftX < normalGap
+    static func hiddenLabels(_ standing: [(key: String, x: CGFloat)], normalGap: CGFloat) -> Set<String> {
+        var hidden: Set<String> = []
+        for (left, right) in zip(standing, standing.dropFirst()) where right.x - left.x < normalGap {
+            hidden.insert(left.key)
+            hidden.insert(right.key)
+        }
+        return hidden
     }
 
     static func chromeFade(_ current: Double, hidden: Bool, elapsedSeconds: Double) -> Double {
