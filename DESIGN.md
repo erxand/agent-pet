@@ -919,8 +919,10 @@ screen frame, minus half the window, and never below its ground), and spins at 0
 way. While it floats, `PetView` uses a square window as wide as the diagonal of its content and rotates
 its content view about the center, and the sprite plays `idle`. Back to `ground`, each floating pet
 falls at 1400 pt/s squared, its sideways drift damped by a factor of e per half second, and it turns
-toward upright by the short way at 3 rad/s. It lands exactly upright, the lanes are assigned again from where
-the pets are (see "Lane position"), it walks at 40 pt/s with `walk` frames to its lane home, never through
+toward upright by the short way at 3 rad/s. While it falls the sprite plays `fall` on the 8 fps clock (`idle`, its
+stand-in, for a pack without `fall.txt`). It lands exactly upright and the motion ends there (`SpacePhase.landed`);
+the lanes are assigned again from where the pets are (see "Lane position"), and `PetAnimator` walks it at 40 pt/s
+with `walk` frames into its lane, never through
 another pet, and then the normal mood behavior takes over. Two floating pets that touch (closer than 60% of
 their two sprite widths) are pushed apart and bounce like two equal balls with a restitution of 0.97,
 each speed capped at 72 pt/s (`SpaceMotion.collide`); a floating pet's speed eases back toward its launch

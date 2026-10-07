@@ -145,10 +145,10 @@ struct SpaceMotionTests {
     )
     private static let launch = CGPoint(x: 400, y: 50)
 
-    private func run(_ motion: inout SpaceMotion, seconds: Double, home: CGFloat = 700, each: (SpaceMotion) -> Void = { _ in }) {
+    private func run(_ motion: inout SpaceMotion, seconds: Double, each: (SpaceMotion) -> Void = { _ in }) {
         var elapsed = 0.0
         while elapsed < seconds {
-            motion.advance(elapsedSeconds: SpaceMotionTests.tick, area: SpaceMotionTests.area, homeCenterX: home)
+            motion.advance(elapsedSeconds: SpaceMotionTests.tick, area: SpaceMotionTests.area)
             each(motion)
             elapsed += SpaceMotionTests.tick
         }
@@ -184,46 +184,42 @@ struct SpaceMotionTests {
         }
     }
 
-    @Test func whenTheScreensaverGoesThePetFallsLandsUprightAndWalksHome() {
+    @Test func whenTheScreensaverGoesThePetFallsPlayingFallAndLandsUpright() {
         var motion = SpaceMotion(launchingFrom: SpaceMotionTests.launch, seed: SpaceMotion.seed(forPetKey: "pet-fall"))
         run(&motion, seconds: 8)
         motion.returnToGround()
         #expect(motion.phase == .falling)
+        #expect(motion.animationName == .fall)
+        #expect(!motion.isOnGround)
         var lastHeight = motion.center.y
         var fallSeconds = 0.0
         while motion.phase == .falling {
+            #expect(motion.animationName == .fall)
             run(&motion, seconds: SpaceMotionTests.tick)
             #expect(motion.center.y <= lastHeight + 2)
             lastHeight = motion.center.y
             fallSeconds += SpaceMotionTests.tick
             #expect(fallSeconds < 3)
         }
-        #expect(motion.phase == .walkingHome)
+        #expect(motion.phase == .landed)
+        #expect(motion.isOnGround)
         #expect(motion.center.y == SpaceMotionTests.area.groundCenterY)
         #expect(motion.rotationInRadians == 0)
-        #expect(motion.animationName == .walk)
-        #expect(motion.facingLeft == (motion.center.x > 700))
-        let distance = abs(motion.center.x - 700)
-        var walkSeconds = 0.0
-        while motion.phase == .walkingHome {
-            run(&motion, seconds: SpaceMotionTests.tick)
-            #expect(motion.center.y == SpaceMotionTests.area.groundCenterY)
-            walkSeconds += SpaceMotionTests.tick
-        }
-        #expect(motion.phase == .home)
-        #expect(motion.center.x == 700)
-        #expect(walkSeconds <= Double(distance / SpaceMotion.walkSpeedInPointsPerSecond) + 0.1)
+        #expect(motion.animationName == .idle)
+        let landedAt = motion.center
+        run(&motion, seconds: 1)
+        #expect(motion.center == landedAt)
     }
 
-    @Test func returningToGroundIsIdempotentAndHomeIsFinal() {
+    @Test func returningToGroundIsIdempotentAndLandingIsFinal() {
         var motion = SpaceMotion(launchingFrom: SpaceMotionTests.launch, seed: 7)
         motion.returnToGround()
         motion.returnToGround()
         #expect(motion.phase == .falling)
         run(&motion, seconds: 60)
-        #expect(motion.phase == .home)
+        #expect(motion.phase == .landed)
         motion.returnToGround()
-        #expect(motion.phase == .home)
+        #expect(motion.phase == .landed)
     }
 
     @Test func turningUprightTakesTheShortWay() {

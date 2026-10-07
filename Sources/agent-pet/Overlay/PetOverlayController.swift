@@ -157,7 +157,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
         switch motion.phase {
         case .floating: return false
-        case .falling, .walkingHome, .home: return true
+        case .falling, .landed: return true
         }
     }
 
