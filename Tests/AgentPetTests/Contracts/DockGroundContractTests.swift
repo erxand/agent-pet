@@ -317,6 +317,8 @@ struct DockGroundContractTests {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("dock-ground-pack-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.copyItem(at: Sandbox.packageRoot.appendingPathComponent("sprites/claude", isDirectory: true), to: folder)
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("jump.txt"))
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("fall.txt"))
         let walkText = try String(contentsOf: folder.appendingPathComponent("walk.txt"), encoding: .utf8)
         let idleText = try String(contentsOf: folder.appendingPathComponent("idle.txt"), encoding: .utf8)
 
