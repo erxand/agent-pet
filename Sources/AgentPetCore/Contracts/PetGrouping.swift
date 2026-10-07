@@ -23,6 +23,21 @@ package struct PetGroup: Equatable {
         return byEnrollment.first { member in member.isFlaggedOwner } ?? byEnrollment.first
     }
 
+    package var isLead: Bool {
+        members.contains { member in member.leadsItsGroup }
+    }
+
+    package var flaggedOwner: PetSession? {
+        members.first { member in member.isFlaggedOwner }
+    }
+
+    package var askingMembersBesideTheLead: [PetSession] {
+        guard isLead, let lead = flaggedOwner else { return [] }
+        return waitingMembers.filter { member in
+            member.sessionId != lead.sessionId && PetGroup.asksAtOnce.contains(member.mood)
+        }
+    }
+
     package var waitingMembers: [PetSession] {
         let holdsReady = holdsReadyWhileOthersWork
         return members.filter { member in
@@ -43,8 +58,12 @@ package struct PetGroup: Equatable {
     }
 
     package var mood: PetMood? {
-        let waitingMoods = Set(waitingMembers.map { member in member.mood })
-        return PetGroup.moodPrecedence.first { mood in waitingMoods.contains(mood) }
+        PetGroup.strongestMood(of: waitingMembers)
+    }
+
+    package static func strongestMood(of members: [PetSession]) -> PetMood? {
+        let moods = Set(members.map { member in member.mood })
+        return moodPrecedence.first { mood in moods.contains(mood) }
     }
 
     package var mostRecentlyUpdatedWaitingMember: PetSession? {
@@ -56,6 +75,7 @@ package struct PetGroup: Equatable {
     }
 
     private static let moodPrecedence: [PetMood] = [.needsInput, .blocked, .ready]
+    private static let asksAtOnce: Set<PetMood> = [.needsInput, .blocked]
 }
 
 package protocol PetGrouping {

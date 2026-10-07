@@ -6,6 +6,7 @@ enum FlagParseFailure: Error {
     case unknownAgent(String)
     case unknownProcessIdentifier(String)
     case invalidByteOffset(String)
+    case unknownGroupMode(String)
 
     func report() -> Int32 {
         switch self {
@@ -14,6 +15,7 @@ enum FlagParseFailure: Error {
         case .unknownAgent(let rawValue): return CommandFeedback.reportUnknownAgent(rawValue)
         case .unknownProcessIdentifier(let rawValue): return CommandFeedback.reportUnknownProcessIdentifier(rawValue)
         case .invalidByteOffset(let rawValue): return CommandFeedback.reportInvalidByteOffset(rawValue)
+        case .unknownGroupMode(let rawValue): return CommandFeedback.reportUnknownGroupMode(rawValue)
         }
     }
 }
@@ -53,6 +55,14 @@ enum FlagParsing {
         return agent
     }
 
+    static func groupMode(in flags: ParsedFlags) throws -> PetGroupMode? {
+        guard let rawValue = flags.value(for: .groupMode) else { return nil }
+        guard let groupMode = PetGroupMode(rawValue: rawValue) else {
+            throw FlagParseFailure.unknownGroupMode(rawValue)
+        }
+        return groupMode
+    }
+
     static func processIdentifier(in flags: ParsedFlags) throws -> Int32? {
         guard let rawValue = flags.value(for: .pid) else { return nil }
         guard let processIdentifier = Int32(rawValue) else {
@@ -72,7 +82,10 @@ enum FlagParsing {
             sprite: flags.value(for: .sprite),
             focusTarget: flags.value(for: .focusTarget),
             group: flags.value(for: .group),
-            owner: flags.isPresent(.owner)
+            owner: flags.isPresent(.owner),
+            groupMode: try groupMode(in: flags),
+            disambiguator: flags.value(for: .disambiguator),
+            disambiguationScope: flags.value(for: .disambiguationScope)
         )
     }
 }

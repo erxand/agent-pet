@@ -35,6 +35,11 @@ package enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportUnknownGroupMode(_ rawValue: String) -> Int32 {
+        writeToStandardError("unknown group mode \(rawValue). Valid values: \(joined(PetGroupMode.allCases.map { groupMode in groupMode.rawValue })).")
+        return ExitCode.usage
+    }
+
     static func reportMissingTranscriptPath() -> Int32 {
         writeToStandardError("no transcript. Pass \(CommandFlag.path.rawValue) FILE.")
         return ExitCode.usage
