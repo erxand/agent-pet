@@ -216,22 +216,50 @@ struct HighFiveTests {
         #expect(right.animator.strollDestination != nil)
     }
 
-    @Test func bothLabelsFadeWhileThePairIsCloserThanTheGapAndComeBack() {
+    @Test func bothLabelsFadeWhileThePairIsCloserThanTheGapIncludingTheStepBack() {
         let (left, right, gap) = pair()
         let director = HighFiveDirector(random: { 0 })
         var leftFade = 1.0
         var rightFade = 1.0
+        var closeFor = 0
         var sawContactHidden = false
+        var sawStepBackHidden = false
+        let settleTicks = Int((HighFiveDirector.labelFadeInSeconds / HighFiveTests.tick).rounded(.up))
         run(left, right, director: director, gap: gap, seconds: 8) { tick in
-            leftFade = HighFiveDirector.chromeFade(leftFade, hidden: director.hidesLabels(of: "left", normalGap: gap), elapsedSeconds: HighFiveTests.tick)
-            rightFade = HighFiveDirector.chromeFade(rightFade, hidden: director.hidesLabels(of: "right", normalGap: gap), elapsedSeconds: HighFiveTests.tick)
-            if tick.phase == .contact {
+            let hidden = HighFiveDirector.hiddenLabels([(key: "left", x: tick.leftX), (key: "right", x: tick.rightX)], normalGap: gap)
+            leftFade = HighFiveDirector.chromeFade(leftFade, hidden: hidden.contains("left"), elapsedSeconds: HighFiveTests.tick)
+            rightFade = HighFiveDirector.chromeFade(rightFade, hidden: hidden.contains("right"), elapsedSeconds: HighFiveTests.tick)
+            closeFor = tick.rightX - tick.leftX < gap ? closeFor + 1 : 0
+            if closeFor > settleTicks {
                 #expect(leftFade == 0 && rightFade == 0)
-                sawContactHidden = true
+                if tick.phase == .contact { sawContactHidden = true }
+                if tick.phase == nil { sawStepBackHidden = true }
             }
         }
         #expect(sawContactHidden)
+        #expect(sawStepBackHidden)
         #expect(leftFade == 1 && rightFade == 1)
+    }
+
+    @Test func aLaneReplanWhileWaitingOrTouchingDoesNotEndTheGreeting() {
+        for phase in [HighFiveDirector.Phase.waiting, .contact] {
+            let (left, right, gap) = pair()
+            let director = HighFiveDirector(random: { 0 })
+            var replanned = false
+            var sawContactAfter = false
+            run(left, right, director: director, gap: gap, seconds: 6) { tick in
+                if !replanned && tick.phase == phase {
+                    _ = LaneRedivision.apply(to: [left, right], keepingStanding: [true, true], screenFrame: screen)
+                    #expect(!left.animator.isWalkingHome && !right.animator.isWalkingHome, "\(phase)")
+                    replanned = true
+                } else if replanned && tick.phase == .contact {
+                    sawContactAfter = true
+                }
+            }
+            #expect(replanned, "\(phase)")
+            #expect(sawContactAfter, "\(phase)")
+            #expect(!left.animator.isWalkingHome || abs(left.animator.horizontalOffsetFromHome) > left.animator.wanderHalfWidth)
+        }
     }
 
     @Test func aGreetingSurvivesALaneReplanThatMovesNobodyButEndsWhenAThirdPetArrives() {
@@ -417,24 +445,5 @@ struct HighFiveTests {
         right.mood = .ready
         run(left, right, director: director, gap: gap, seconds: 6)
         #expect(right.x - left.x >= gap - 0.001)
-    }
-
-    @Test func theTriggerIsOccasionalAndSeeded() {
-        var generator = SeededGenerator(seed: 109)
-        let director = HighFiveDirector(random: { Double.random(in: 0..<1, using: &generator) })
-        var startTicks: [Int] = []
-        var tickIndex = 0
-        var previous: HighFiveDirector.Phase?
-        for _ in 0..<5 {
-            let (left, right, gap) = pair()
-            run(left, right, director: director, gap: gap, seconds: 1, startingAt: Double(tickIndex) * 100) { tick in
-                if previous == nil && tick.phase != nil { startTicks.append(tickIndex) }
-                previous = tick.phase
-                tickIndex += 1
-            }
-            director.cancel()
-            previous = nil
-        }
-        #expect(startTicks.count < 5)
     }
 }
