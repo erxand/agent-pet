@@ -470,13 +470,13 @@ crash left every later hook updating records that nothing drew.
   old detached spawn, guarded by the liveness check on `daemon.pid`. The spawn disclaims responsibility
   where macOS allows it, so the daemon is not judged by the terminal that ran the command (see "Who is asked"), except
   for a binary inside a folder macOS guards per app (`~/Desktop`, `~/Documents`, `~/Downloads`, iCloud Drive,
-  `~/Library/CloudStorage`, `/Volumes`). A disclaimed daemon there is judged by its own signature for that folder
+  `~/Library/CloudStorage`, `/Volumes`, `/Network`). A disclaimed daemon there is judged by its own signature for that folder
   too, which can mean a question for the user on every new build, and one such daemon, from a build in
   `~/Documents`, stalled for 100 s and then had no main bundle, so AppKit's first window server connection crashed
   in `CFBundleCopyExecutableURL`. Such a binary is spawned without
   the disclaim and is judged by the app that started it, which already reached it. The daemon also checks that its
   main bundle names its executable before it creates `NSApplication`, and exits with a line in `daemon.log` when it
-  does not. The spawn sets `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the daemon inherits only its standard streams and never holds a caller's
+  does not, after cutting the log back if it has grown, since a launch agent restarts it every 10 s. The spawn sets `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the daemon inherits only its standard streams and never holds a caller's
   pipe or lock. `launchctl` calls are cut off after 5 s, and a `kickstart` that timed out is not followed by a
   `bootstrap`.
 - Every path that shows a pet ensures the daemon: `on`, `show`, `preview`, and the `hook` command
@@ -1360,13 +1360,16 @@ missing key, an unknown key and a bad value all mean the default for that key, n
 `scripts/test.sh` runs `swift test` for `AgentPetTests`, adding the framework flags `swift test` needs on a
 machine with only the Command Line Tools, where Swift Testing is not on the default search path. The characterization tests run the built `agent-pet` binary in a
 temporary home (`HOME` and `CFFIXED_USER_HOME`, since `NSHomeDirectory` ignores `HOME`), with
-`TMUX_EXECUTABLE` pointing at a stub that records its arguments, a `daemon.pid` naming the test process and
-`AGENT_PET_NEVER_START_DAEMON=1`, so no test reads or writes `~/.agent-pet` or `~/.claude`, calls `launchctl` or
-starts a daemon. The pid file alone was not enough: a command still running when its test process was killed found
-that pid dead and spawned a real daemon in the temporary home. With the variable set to `1`, `ensure-daemon` and
-every command that ensures the daemon neither kickstart the launch agent nor spawn. No test opens a window, observes
-`NSWorkspace` or otherwise connects to the window server: a pet's window is reached through `PetWindowing`, which
-the tests fake, and the Dock sensing takes its running-applications observer as a parameter. The three
+`TMUX_EXECUTABLE` pointing at a stub that records its arguments and a `daemon.pid` naming the test process,
+so no test reads or writes `~/.agent-pet` or `~/.claude`, calls `launchctl` or starts a daemon. The pid file alone
+was not enough: a command still running when its test process was killed found that pid dead and spawned a real
+daemon in the temporary home. So no daemon is started for a home that is not the account's own (`NSHomeDirectory`
+against `getpwuid`, links and `/System/Volumes/Data` resolved): the starter, `LaunchAgent.start`, the spawn and the
+`daemon` command each refuse it, and `ensure-daemon` and `dock-access --ask` say so on stderr and exit 1. The tests
+of that refusal keep the live `daemon.pid`, so a broken guard still finds a running daemon and cannot spawn one. No
+test opens a window, observes `NSWorkspace` or otherwise connects to the window server: a pet's window is reached
+through `PetWindowing`, the window watcher through `AppWindowWatching`, both faked in tests, and the Dock sensing
+takes its running-applications observer as a parameter. The three
 tests that run a real `focus` with a client switch skip themselves while iTerm2, Terminal or Ghostty is
 running, so they can never move a real terminal. The contract tests drive the protocols in process with
 recording fakes. They were written against the code before the split into `AgentPetCore` and passed there

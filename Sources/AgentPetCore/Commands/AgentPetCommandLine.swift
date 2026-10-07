@@ -20,8 +20,7 @@ public enum AgentPetCommandLine {
         case .daemon:
             return DaemonCommand.runInForeground(runOverlay: runOverlay)
         case .ensureDaemon:
-            DaemonCommand.ensureRunning()
-            return ExitCode.success
+            return DaemonCommand.ensureRunningAndSay() == .refusedForeignHome ? ExitCode.failure : ExitCode.success
         case .on:
             return SessionCommands.turnOn(flags: flags)
         case .off:

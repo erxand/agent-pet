@@ -2,6 +2,7 @@ import Foundation
 
 enum DaemonCommand {
     struct Foreground {
+        var homeIsForeign: () -> Bool
         var prepare: () -> Void
         var otherLiveDaemon: () -> Int32?
         var ownExecutableIsFound: () -> Bool
@@ -10,6 +11,7 @@ enum DaemonCommand {
 
         static var live: Foreground {
             Foreground(
+                homeIsForeign: AccountHome.isForeign,
                 prepare: PetPaths.createStateDirectoriesIfNeeded,
                 otherLiveDaemon: {
                     guard let recorded = DaemonProcessIdentifierFile.read(),
@@ -17,7 +19,7 @@ enum DaemonCommand {
                           ProcessLiveness.isAlive(processIdentifier: recorded) else { return nil }
                     return recorded
                 },
-                ownExecutableIsFound: OwnExecutable.isFoundThroughMainBundle,
+                ownExecutableIsFound: { OwnExecutable.isFoundThroughMainBundle() },
                 claim: {
                     let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
                     DaemonLogFile.truncateIfOversized()
@@ -27,7 +29,10 @@ enum DaemonCommand {
                     )
                     DaemonProcessIdentifierFile.write(processIdentifier: ownProcessIdentifier)
                 },
-                writeError: CommandFeedback.writeToStandardError
+                writeError: { line in
+                    DaemonLogFile.truncateIfOversized()
+                    CommandFeedback.writeToStandardError(line)
+                }
             )
         }
     }
@@ -40,6 +45,10 @@ enum DaemonCommand {
     }
 
     static func runInForeground(using foreground: Foreground, runOverlay: () -> Void) -> Int32 {
+        guard !foreground.homeIsForeign() else {
+            foreground.writeError(AccountHome.foreignHomeMessage)
+            return ExitCode.failure
+        }
         foreground.prepare()
         if foreground.otherLiveDaemon() != nil {
             return ExitCode.success
@@ -54,10 +63,20 @@ enum DaemonCommand {
     }
 
     static func ensureRunning() {
-        _ = ensureRunningOnItsOwn()
+        _ = ensureRunningAndSay()
+    }
+
+    @discardableResult
+    static func ensureRunningAndSay(writeError: (String) -> Void = CommandFeedback.writeToStandardError) -> DaemonStart {
+        let start = ensureRunningOnItsOwn()
+        if start == .refusedForeignHome {
+            writeError(AccountHome.foreignHomeMessage)
+        }
+        return start
     }
 
     struct Starter {
+        var homeIsForeign: () -> Bool
         var launchAgentIsInstalled: () -> Bool
         var startLaunchAgent: () -> Void
         var runningDaemon: () -> Int32?
@@ -66,27 +85,18 @@ enum DaemonCommand {
 
         static var live: Starter {
             Starter(
+                homeIsForeign: AccountHome.isForeign,
                 launchAgentIsInstalled: { LaunchAgent.isInstalled },
-                startLaunchAgent: LaunchAgent.start,
+                startLaunchAgent: { LaunchAgent.start() },
                 runningDaemon: {
                     guard let recorded = DaemonProcessIdentifierFile.read(),
                           ProcessLiveness.isAlive(processIdentifier: recorded) else { return nil }
                     return recorded
                 },
                 parentOf: ProcessParent.of,
-                spawnDetached: DaemonCommand.spawnDetached
-            ).honouringNeverStart(ProcessInfo.processInfo.environment)
+                spawnDetached: { DaemonCommand.spawnDetached() }
+            )
         }
-
-        func honouringNeverStart(_ environment: [String: String]) -> Starter {
-            guard environment[EnvironmentVariableName.neverStartDaemon] == Starter.neverStartValue else { return self }
-            var starter = self
-            starter.startLaunchAgent = {}
-            starter.spawnDetached = { false }
-            return starter
-        }
-
-        static let neverStartValue = "1"
     }
 
     static func ensureRunningOnItsOwn() -> DaemonStart {
@@ -95,6 +105,7 @@ enum DaemonCommand {
     }
 
     static func ensureRunningOnItsOwn(using starter: Starter) -> DaemonStart {
+        guard !starter.homeIsForeign() else { return .refusedForeignHome }
         if let running = starter.runningDaemon() {
             guard starter.parentOf(running) == ProcessParent.launchd, starter.launchAgentIsInstalled() else {
                 return .alreadyRunningWithoutLaunchAgent
@@ -109,7 +120,15 @@ enum DaemonCommand {
         return starter.spawnDetached() ? .spawnedOnItsOwn : .spawnedByThisCommand
     }
 
-    private static func spawnDetached() -> Bool {
+    static func spawnDetached(
+        homeIsForeign: () -> Bool = AccountHome.isForeign,
+        spawn: () -> Bool = DaemonCommand.spawnOwnExecutable
+    ) -> Bool {
+        guard !homeIsForeign() else { return false }
+        return spawn()
+    }
+
+    private static func spawnOwnExecutable() -> Bool {
         guard let executablePath = ownExecutablePath() else { return false }
         if let spawned = ResponsibilityDisclaimingSpawn.spawn(
             executablePath: executablePath,
@@ -161,6 +180,7 @@ enum DaemonCommand {
 }
 
 package enum DaemonStart: Equatable {
+    case refusedForeignHome
     case launchAgent
     case alreadyRunningWithoutLaunchAgent
     case spawnedOnItsOwn
@@ -209,6 +229,20 @@ enum ResponsibilityDisclaimingSpawn {
     }
 }
 
+enum AccountHome {
+    static let foreignHomeMessage = "the home folder in use is not this account's own, so no daemon is started for it:"
+        + " a daemon there would share this account's launch agent and window server."
+
+    static func isForeign() -> Bool {
+        isForeign(homeInUse: PetPaths.homeDirectory.path, accountHome: PrivacyProtectedFolder.accountHome())
+    }
+
+    static func isForeign(homeInUse: String, accountHome: String?) -> Bool {
+        guard let accountHome else { return true }
+        return ResolvedPath.of(homeInUse) != ResolvedPath.of(accountHome)
+    }
+}
+
 enum PrivacyProtectedFolder {
     private static let foldersInHome = [
         "Desktop",
@@ -217,12 +251,12 @@ enum PrivacyProtectedFolder {
         "Library/Mobile Documents",
         "Library/CloudStorage"
     ]
-    private static let volumesFolder = "/Volumes"
+    private static let foldersAtRoot = ["/Volumes", "/Network"]
 
     static func contains(_ path: String, accountHome: String) -> Bool {
-        let resolvedPath = resolved(path)
-        let resolvedHome = resolved(accountHome)
-        let folders = foldersInHome.map { name in resolvedHome + "/" + name } + [volumesFolder]
+        let resolvedPath = ResolvedPath.of(path)
+        let resolvedHome = ResolvedPath.of(accountHome)
+        let folders = foldersInHome.map { name in resolvedHome + "/" + name } + foldersAtRoot
         return folders.contains { folder in resolvedPath == folder || resolvedPath.hasPrefix(folder + "/") }
     }
 
@@ -230,8 +264,21 @@ enum PrivacyProtectedFolder {
         guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
         return String(cString: directory)
     }
+}
 
-    private static func resolved(_ path: String) -> String {
+enum ResolvedPath {
+    private static let dataVolumePrefix = "/System/Volumes/Data/"
+
+    static func of(_ path: String) -> String {
+        withoutDataVolume(resolvingExistingPart(of: path))
+    }
+
+    private static func withoutDataVolume(_ path: String) -> String {
+        guard path.hasPrefix(dataVolumePrefix) else { return path }
+        return "/" + path.dropFirst(dataVolumePrefix.count)
+    }
+
+    private static func resolvingExistingPart(of path: String) -> String {
         var existing = URL(fileURLWithPath: path).standardizedFileURL
         var missingComponents: [String] = []
         while existing.path != "/" {
@@ -249,9 +296,12 @@ enum PrivacyProtectedFolder {
 }
 
 enum OwnExecutable {
-    static func isFoundThroughMainBundle() -> Bool {
-        guard let bundle = CFBundleGetMainBundle() as CFBundle? else { return false }
-        return CFBundleCopyExecutableURL(bundle) != nil
+    static func isFoundThroughMainBundle(
+        mainBundle: () -> CFBundle? = { CFBundleGetMainBundle() },
+        executableURL: (CFBundle) -> CFURL? = { bundle in CFBundleCopyExecutableURL(bundle) }
+    ) -> Bool {
+        guard let bundle = mainBundle() else { return false }
+        return executableURL(bundle) != nil
     }
 }
 
