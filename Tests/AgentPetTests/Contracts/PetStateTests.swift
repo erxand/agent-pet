@@ -336,7 +336,8 @@ struct InertPetTests {
         let registry = RunningFocusCommands()
         let reports = ReportRecorder()
         let focuser = CommandFocuser(
-            arguments: ["/bin/sleep", "5"],
+            arguments: ["/bin/sleep", "1000"],
+            timeoutInSeconds: 120,
             waitsForCompletion: false,
             report: { line in reports.append(line) },
             runningCommands: registry
@@ -344,8 +345,8 @@ struct InertPetTests {
         focuser.focus(FocusRequest(sessionId: "inert", processIdentifier: nil, focusTarget: nil, group: "inert", agent: .claudeCode, tmuxTarget: nil, allowsClientSwitch: true))
         #expect(registry.runningCount == 1)
         #expect(registry.cancelAll() == 1)
-        let deadline = Date().addingTimeInterval(2)
-        while registry.runningCount > 0 && Date() < deadline {
+        let hangBound = Date().addingTimeInterval(30)
+        while registry.runningCount > 0 && Date() < hangBound {
             Thread.sleep(forTimeInterval: 0.02)
         }
         #expect(registry.runningCount == 0)
