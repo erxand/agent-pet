@@ -108,7 +108,7 @@ enum PetBubbleSymbol: String {
 }
 
 enum LaneLayout {
-    static let wanderHalfWidth: CGFloat = 120
+    static let initialWanderHalfWidth: CGFloat = 120
     static let bodyWidthFraction: CGFloat = 0.6
     static let laneSpacingFraction: CGFloat = 0.9
 
@@ -126,7 +126,13 @@ enum LaneLayout {
     static let neighbourPadding: CGFloat = 8
 
     static func laneSpacing(laneCount: Int, screenFrame: CGRect) -> CGFloat {
-        screenFrame.width / CGFloat(max(laneCount, 1) + 1)
+        screenFrame.width / CGFloat(max(laneCount, 1))
+    }
+
+    static func lane(index laneIndex: Int, laneCount: Int, screenFrame: CGRect) -> ClosedRange<CGFloat> {
+        let width = laneSpacing(laneCount: laneCount, screenFrame: screenFrame)
+        let start = screenFrame.minX + width * CGFloat(laneIndex)
+        return start...(start + width)
     }
 
     static func minimumGroundGap(widestPet: CGFloat, laneCount: Int, screenFrame: CGRect) -> CGFloat {
@@ -146,7 +152,7 @@ enum LaneLayout {
 
     static func wanderHalfWidth(laneCount: Int, screenFrame: CGRect, minimumGap: CGFloat) -> CGFloat {
         let spacing = laneSpacing(laneCount: laneCount, screenFrame: screenFrame)
-        return min(wanderHalfWidth, max(0, (spacing - minimumGap) / 2))
+        return max(0, (spacing - minimumGap) / 2)
     }
 
     static func assignedLanes(currentCenters: [CGFloat?], laneCenters: [CGFloat]) -> [Int] {
@@ -198,7 +204,7 @@ enum LaneLayout {
 
     static func homeHorizontalCenter(laneIndex: Int, laneCount: Int, screenFrame: CGRect) -> CGFloat {
         guard laneCount > 0 else { return screenFrame.midX }
-        let fraction = CGFloat(laneIndex + 1) / CGFloat(laneCount + 1)
+        let fraction = (CGFloat(laneIndex) + 0.5) / CGFloat(laneCount)
         return screenFrame.minX + screenFrame.width * fraction
     }
 

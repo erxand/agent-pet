@@ -49,7 +49,7 @@ struct WalkingLaneTests {
         #expect(ticks > 200)
         for _ in 0..<600 {
             animator.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .ready)
-            #expect(abs(animator.horizontalOffsetFromHome) <= LaneLayout.wanderHalfWidth)
+            #expect(abs(animator.horizontalOffsetFromHome) <= animator.wanderHalfWidth)
         }
     }
 
@@ -111,8 +111,7 @@ struct WalkingLaneTests {
         for laneCount in 1...14 {
             let gap = LaneLayout.minimumGroundGap(widestPet: 128, laneCount: laneCount, screenFrame: screen)
             let wander = LaneLayout.wanderHalfWidth(laneCount: laneCount, screenFrame: screen, minimumGap: gap)
-            let spacing = screen.width / CGFloat(laneCount + 1)
-            #expect(wander <= LaneLayout.wanderHalfWidth)
+            let spacing = screen.width / CGFloat(laneCount)
             #expect(spacing - 2 * wander >= gap - 0.001)
         }
     }
@@ -154,9 +153,89 @@ struct WalkingLaneTests {
         #expect(asker.horizontalOffsetFromHome == 0)
     }
 
+    @Test func aLonePetsLaneIsTheWholeWidthAndItsWanderReachesBothEnds() {
+        let widest: CGFloat = 96
+        let gap = LaneLayout.minimumGroundGap(widestPet: widest, laneCount: 1, screenFrame: screen)
+        let wander = LaneLayout.wanderHalfWidth(laneCount: 1, screenFrame: screen, minimumGap: gap)
+        let home = LaneLayout.homeHorizontalCenter(laneIndex: 0, laneCount: 1, screenFrame: screen)
+        #expect(LaneLayout.lane(index: 0, laneCount: 1, screenFrame: screen) == screen.minX...screen.maxX)
+        #expect(home == screen.midX)
+        #expect(home - wander == screen.minX + (widest + LaneLayout.neighbourPadding) / 2)
+        #expect(home + wander == screen.maxX - (widest + LaneLayout.neighbourPadding) / 2)
+
+        let animator = grounded()
+        animator.limitWander(to: wander)
+        var lowest: CGFloat = 0
+        var highest: CGFloat = 0
+        for _ in 0..<(30 * 600) {
+            animator.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .ready)
+            lowest = min(lowest, animator.horizontalOffsetFromHome)
+            highest = max(highest, animator.horizontalOffsetFromHome)
+            #expect(abs(animator.horizontalOffsetFromHome) <= wander)
+        }
+        #expect(highest - lowest > wander)
+    }
+
+    @Test func nLanesTileTheWidthWithNoGapsAndNoOverlapAndKeepTheGroundGap() {
+        for laneCount in 1...12 {
+            let lanes = (0..<laneCount).map { index in LaneLayout.lane(index: index, laneCount: laneCount, screenFrame: screen) }
+            #expect(lanes.first?.lowerBound == screen.minX)
+            #expect(abs((lanes.last?.upperBound ?? 0) - screen.maxX) < 0.001)
+            for (left, right) in zip(lanes, lanes.dropFirst()) {
+                #expect(abs(left.upperBound - right.lowerBound) < 0.001)
+            }
+            let gap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: laneCount, screenFrame: screen)
+            let wander = LaneLayout.wanderHalfWidth(laneCount: laneCount, screenFrame: screen, minimumGap: gap)
+            let centers = LaneLayout.laneCenters(count: laneCount, screenFrame: screen)
+            for (index, center) in centers.enumerated() {
+                #expect(abs(center - (lanes[index].lowerBound + lanes[index].upperBound) / 2) < 0.001)
+                #expect(center - wander >= lanes[index].lowerBound + gap / 2 - 0.001)
+                #expect(center + wander <= lanes[index].upperBound - gap / 2 + 0.001)
+            }
+            for (left, right) in zip(centers, centers.dropFirst()) {
+                #expect((right - wander) - (left + wander) >= gap - 0.001)
+            }
+        }
+    }
+
+    @Test func lanesRedivideAsPetsComeAndGoAndAPetWalksToItsNewLane() {
+        let first = grounded()
+        let alone = LaneLayout.laneCenters(count: 1, screenFrame: screen)[0]
+        let aloneGap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: 1, screenFrame: screen)
+        first.limitWander(to: LaneLayout.wanderHalfWidth(laneCount: 1, screenFrame: screen, minimumGap: aloneGap))
+        first.moveHome(by: 0)
+        first.stand(atHorizontalOffsetFromHome: 500)
+        let standing = alone + first.horizontalOffsetFromHome
+
+        let two = LaneLayout.laneCenters(count: 2, screenFrame: screen)
+        let lanes = LaneLayout.assignedLanes(currentCenters: [standing, nil], laneCenters: two)
+        #expect(lanes == [1, 0])
+        let twoGap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: 2, screenFrame: screen)
+        let twoWander = LaneLayout.wanderHalfWidth(laneCount: 2, screenFrame: screen, minimumGap: twoGap)
+        first.moveHome(by: two[1] - alone)
+        first.limitWander(to: twoWander)
+        #expect(two[1] + first.horizontalOffsetFromHome == standing)
+
+        let crowded = LaneLayout.laneCenters(count: 3, screenFrame: screen)
+        let threeGap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: 3, screenFrame: screen)
+        let threeWander = LaneLayout.wanderHalfWidth(laneCount: 3, screenFrame: screen, minimumGap: threeGap)
+        first.moveHome(by: crowded[1] - two[1])
+        first.limitWander(to: threeWander)
+        #expect(crowded[1] + first.horizontalOffsetFromHome == standing)
+        #expect(first.isWalkingHome)
+        var previous = first.horizontalOffsetFromHome
+        for _ in 0..<(30 * 30) where first.isWalkingHome {
+            first.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .ready)
+            #expect(abs(first.horizontalOffsetFromHome - previous) <= PetAnimator.walkSpeedInPointsPerSecond * CGFloat(WalkingLaneTests.tick) + 0.001)
+            previous = first.horizontalOffsetFromHome
+        }
+        #expect(!first.isWalkingHome)
+        #expect(abs(first.horizontalOffsetFromHome) <= threeWander)
+    }
+
     @Test func theGroundGapNeverKeepsAPetFromItsLane() {
         let crowded = LaneLayout.minimumGroundGap(widestPet: 128, laneCount: 12, screenFrame: screen)
-        let laneSpacing = screen.width / 13
+        let laneSpacing = screen.width / 12
         #expect(crowded < laneSpacing)
         #expect(LaneLayout.minimumGroundGap(widestPet: 128, laneCount: 2, screenFrame: screen) == 128 + LaneLayout.neighbourPadding)
     }

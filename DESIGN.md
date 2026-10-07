@@ -178,8 +178,9 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    clashing pet has the same scope and no other clashing pet in that scope has the same
    `disambiguator`. Every other clashing pet keeps the session id suffix, so a clash across scopes
    reads as before.
-4. **Lane position**: pets never overlap. Lane `i` of `n` is home x at `(i + 1) / (n + 1)` of the
-   screen width. Lanes go to pets in the order they stand: `LaneLayout.assignedLanes` keeps the
+4. **Lane position**: pets never overlap, and the lanes together cover the whole usable width. Lane `i`
+   of `n` is the `i`-th of `n` equal slices of the width (`LaneLayout.lane(index:laneCount:screenFrame:)`),
+   with its home at the slice's middle, so a lone pet's lane is the whole screen. Lanes go to pets in the order they stand: `LaneLayout.assignedLanes` keeps the
    left to right order of the pets already up and picks, among the order keeping choices, the one
    that moves them least, and a new pet takes a lane left free, where it emerges. A pet still in a
    float is left out of that order and takes a free lane too; when a pet lands the lanes are assigned
@@ -187,10 +188,12 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    it stands, and walks to the new home at 40 px/s with `walk` frames, whatever its mood, when it ends up
    outside its wander range; a pet that lands, or that went under in a float and comes back up, walks
    home from wherever it is, however close. Only at home does it wander again, within
-   `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: 120 px, or less when lanes are close,
-   so that two neighbours at the ends of their ranges still keep the gap. The gap is the widest pet on the
-   ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the lane
-   spacing so every lane stays reachable. So the names of two pets side by side never overlap: a label or
+   `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: half the slice less half the gap, so it
+   walks the whole slice except half a gap at each end, and two neighbours at the ends of their ranges
+   still keep the gap. Lanes are divided again as pets come and go, and a pet left outside its new range
+   walks there. The gap is the widest pet on the
+   ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the slice
+   width so every lane stays reachable. So the names of two pets side by side never overlap: a label or
    bubble caption wider than that cap less 8 px, or longer than 28 characters, is shortened with an
    ellipsis (`PetAppearance.fitted(toWidth:)`, `LabelShortening`). The part that tells pets apart stays:
    a final `(...)` group or a short last word (6 characters or fewer, such as `T1` or a disambiguation

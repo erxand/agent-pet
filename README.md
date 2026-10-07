@@ -380,8 +380,9 @@ color.
 **Label**, shown under the sprite on a dark pill (or over its head, with `labelPlacement`
 `nametag`): your nickname, or the session's own name, or the basename of its working directory.
 
-**Lane**: the daemon sorts visible pets by last update time and spreads them evenly across the
-screen width. Each pet wanders near its own spot, so two pets never overlap.
+**Lane**: the visible pets split the screen width into equal lanes, one each, and each pet wanders
+across its whole lane, so a lone pet roams the full width and two pets never overlap. When pets come
+or go the lanes are divided again and each pet walks to its new one.
 
 ## Customizing the pet
 
