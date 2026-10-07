@@ -577,6 +577,10 @@ a matching config rule (`trigger`), else the default (`default`). A CLI command 
 `agent-pet <state> auto` drops the command, so the trigger or the default applies again.
 `PetEffectiveStates.resolve(commands:trigger:)` is that rule, pure and tested.
 
+**Labels in a float.** With `hideLabelsWhileFloating` set to `true` in the config (off by default), a pet
+that is floating or falling draws no label and no bubble. They come back when it lands, before it walks to
+its lane. `PetChrome.shownOpacity` is the rule; a dive or an emerge fades the chrome as before.
+
 **Delivery.** `agent-pet physics float` and the other three commands read
 `~/.agent-pet/control/states.json`, change one key, and write the whole file back through a temp file
 and a rename (the file is removed when every state is `auto`). The daemon watches `control/` with a
@@ -924,6 +928,7 @@ the defaults.
 | Dive on exit | off: SIGTERM and SIGINT end the daemon at once | the daemon dives its pets first | `diveOnExit` |
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
 | Full screen rules | none | set pet states while a listed app covers a display, see "Pet states" | `whenFullScreen` |
+| Labels while floating | shown: the label and bubble float with the pet | while a pet floats or falls its label and bubble are hidden; they come back the moment it lands | `hideLabelsWhileFloating` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;

@@ -442,7 +442,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             spriteImage: spriteImage,
             bubbleVerticalOffset: presence.animator.bubbleVerticalOffset,
             groundOffsetFraction: CGFloat(presence.animator.groundOffsetFraction),
-            chromeOpacity: CGFloat(presence.animator.chromeOpacity)
+            chromeOpacity: CGFloat(PetChrome.shownOpacity(
+                presence.animator.chromeOpacity,
+                spaceMotion: presence.spaceMotion,
+                hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating
+            ))
         )
     }
 
