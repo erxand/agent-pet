@@ -71,4 +71,69 @@ struct NeighbourLabelTests {
         }
         #expect(rightCenter - leftCenter >= (left + right) / 2)
     }
+
+    private var nineLaneRoom: CGFloat {
+        LaneLayout.maximumPetWidth(laneCount: 9, screenFrame: screens[0])
+    }
+
+    @Test func labelsThatDifferOnlyInTheirSuffixStillDifferWhenCut() {
+        let pairs = [
+            ("DEV SYSTEM T1", "DEV SYSTEM T2"),
+            ("ZZTEST-1140 (RVW)", "ZZTEST-1140 (QA)"),
+            ("a much longer project name 1a2b", "a much longer project name 3c4d")
+        ]
+        for placement in [LabelPlacement.pill, .nametag] {
+            for (first, second) in pairs {
+                let left = appearance(first, placement: placement).fitted(toWidth: nineLaneRoom).label
+                let right = appearance(second, placement: placement).fitted(toWidth: nineLaneRoom).label
+                #expect(left != right, "\(placement): \(left) vs \(right)")
+                #expect(PetView.labelWidth(for: left, placement: placement) <= nineLaneRoom)
+                if left != first { #expect(left.contains(LabelShortening.ellipsis)) }
+            }
+        }
+        let cut = appearance("DEVELOPMENT SYSTEM T1", placement: .nametag).fitted(toWidth: 80).label
+        #expect(cut.hasSuffix(" T1"))
+        #expect(cut.contains(LabelShortening.ellipsis))
+        let parenthesised = appearance("ZZTEST-1140 (RVW)", placement: .nametag).fitted(toWidth: 80).label
+        #expect(parenthesised.hasSuffix(" (RVW)"))
+    }
+
+    @Test func aTrimmedLabelAlwaysShowsTheEllipsis() {
+        let words = ["x", "short", "DEV SYSTEM T1", "ZZTEST-2 (QA)", "averyverylongsinglewordwithoutspaces",
+                     "a very long session title that runs on", "trailing (unclosed"]
+        for placement in [LabelPlacement.pill, .nametag] {
+            for word in words {
+                for width in stride(from: CGFloat(30), through: 260, by: 10) {
+                    let fitted = appearance(word, placement: placement).fitted(toWidth: width).label
+                    if fitted != word { #expect(fitted.contains(LabelShortening.ellipsis), "\(word) at \(width)") }
+                }
+            }
+        }
+        let middle = appearance("averyverylongsinglewordwithoutspaces", placement: .nametag).fitted(toWidth: 90).label
+        #expect(middle.hasPrefix("a"))
+        #expect(middle.hasSuffix("s"))
+        #expect(PixelFont.canRender(middle))
+    }
+
+    @Test func movingToASmallerScreenRefitsTheNamesSoNeighboursStayApart() {
+        let large = CGRect(x: 0, y: 0, width: 2560, height: 1415)
+        let small = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let laneCount = 7
+        let names = ["A LONG SESSION TITLE HERE", "ANOTHER LONG TITLE HERE"]
+        let onLarge = names.map { name in
+            appearance(name, placement: .nametag).fitted(toWidth: LaneLayout.maximumPetWidth(laneCount: laneCount, screenFrame: large))
+        }
+        let widestOnLarge = onLarge.map { look in PetView.size(for: look).width }.max() ?? 0
+        let smallRoom = LaneLayout.maximumPetWidth(laneCount: laneCount, screenFrame: small)
+        #expect(widestOnLarge > smallRoom + LaneLayout.neighbourPadding)
+        let refitted = onLarge.map { look in
+            appearance(names[onLarge.firstIndex { other in other.label == look.label } ?? 0], placement: .nametag)
+                .fitted(toWidth: smallRoom)
+        }
+        let widths = refitted.map { look in PetView.size(for: look).width }
+        let gap = LaneLayout.minimumGroundGap(widestPet: widths.max() ?? 0, laneCount: laneCount, screenFrame: small)
+        let wander = LaneLayout.wanderHalfWidth(laneCount: laneCount, screenFrame: small, minimumGap: gap)
+        let closest = LaneLayout.laneSpacing(laneCount: laneCount, screenFrame: small) - 2 * wander
+        #expect((widths[0] + widths[1]) / 2 <= closest + 0.001)
+    }
 }

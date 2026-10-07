@@ -188,8 +188,13 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    so that two neighbours at the ends of their ranges still keep the gap. The gap is the widest pet on the
    ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the lane
    spacing so every lane stays reachable. So the names of two pets side by side never overlap: a label or
-   bubble caption wider than that cap less 8 px is cut short, character by character from the end
-   (`PetAppearance.fitted(toWidth:)`), when the pets are planned, never per frame. Only a sprite wider than
+   bubble caption wider than that cap less 8 px, or longer than 28 characters, is shortened with an
+   ellipsis (`PetAppearance.fitted(toWidth:)`, `LabelShortening`). The part that tells pets apart stays:
+   a final `(...)` group or a short last word (6 characters or fewer, such as `T1` or a disambiguation
+   suffix) is kept whole and the text before it is cut, and a label with neither is cut in the middle.
+   The length is found by binary search when the pets are planned, never per frame. A change of the
+   screen the pets use plans them again at the next poll, so the labels are fitted and the gap worked out
+   for the new width, and any two neighbours left closer than a new, larger gap walk home. Only a sprite wider than
    the cap, which takes about ten pets on a laptop screen, can still touch its neighbour. On the ground a
    step that would cross a neighbour, or bring it closer than that gap, is not taken: the pet runs in place,
    and a wandering pet turns round when its next walk starts. A pet walking home that is refused sends

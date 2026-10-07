@@ -10,28 +10,19 @@ struct PetAppearance {
     let labelPlacement: LabelPlacement
     let spriteSideLength: CGFloat
 
-    func withResolvedLabel(_ resolvedLabel: String) -> PetAppearance {
-        PetAppearance(
-            label: resolvedLabel,
-            accent: accent,
-            mood: mood,
-            message: message,
-            bubbleCaption: bubbleCaption,
-            labelPlacement: labelPlacement,
-            spriteSideLength: spriteSideLength
-        )
-    }
 }
 
 extension PetAppearance {
     func fitted(toWidth maximumWidth: CGFloat) -> PetAppearance {
-        let fittedLabel = PetAppearance.trimmed(String(label.prefix(PetGeometry.labelCharacterLimit))) { text in
-            PetView.labelWidth(for: text, placement: labelPlacement) <= maximumWidth
+        let fittedLabel = PetAppearance.shortened(label) { text in
+            text.count <= PetGeometry.labelCharacterLimit
+                && PetView.labelWidth(for: text, placement: labelPlacement) <= maximumWidth
         }
         let symbol = PetBubbleSymbol.forMood(mood)
         let fittedCaption = bubbleCaption.map { caption in
-            PetAppearance.trimmed(String(caption.prefix(PetGeometry.labelCharacterLimit))) { text in
-                PetView.bubbleWidth(symbol: symbol, caption: text) <= maximumWidth
+            PetAppearance.shortened(caption) { text in
+                text.count <= PetGeometry.labelCharacterLimit
+                    && PetView.bubbleWidth(symbol: symbol, caption: text) <= maximumWidth
             }
         }
         guard fittedLabel != label || fittedCaption != bubbleCaption else { return self }
@@ -45,14 +36,69 @@ extension PetAppearance {
             spriteSideLength: spriteSideLength
         )
     }
+}
 
-    private static func trimmed(_ text: String, fits: (String) -> Bool) -> String {
-        var fitted = text
-        while fitted.count > 1 && !fits(fitted) {
-            fitted.removeLast()
-            while fitted.last == " " { fitted.removeLast() }
+enum LabelShortening {
+    static let ellipsis = "\u{2026}"
+    private static let longestSuffixWord = 6
+
+    static func shortened(_ text: String, fits: (String) -> Bool) -> String {
+        guard !fits(text) else { return text }
+        if let (head, suffix) = splitDistinguishingSuffix(text),
+           let kept = longestFit(upTo: head.count, fits: { count in fits(headCut(head, keeping: count) + suffix) }) {
+            return headCut(head, keeping: kept) + suffix
         }
-        return fitted
+        let characters = Array(text)
+        let kept = longestFit(upTo: characters.count - 1) { count in fits(middleCut(characters, keeping: count)) } ?? 0
+        return middleCut(characters, keeping: kept)
+    }
+
+    static func splitDistinguishingSuffix(_ text: String) -> (head: String, suffix: String)? {
+        if text.hasSuffix(")"), let open = text.lastIndex(of: "("), open > text.startIndex {
+            var head = String(text[..<open])
+            let separator = head.hasSuffix(" ") ? " " : ""
+            while head.last == " " { head.removeLast() }
+            guard !head.isEmpty else { return nil }
+            return (head, separator + String(text[open...]))
+        }
+        guard let space = text.lastIndex(of: " ") else { return nil }
+        let word = text[text.index(after: space)...]
+        let head = String(text[..<space])
+        guard !word.isEmpty, word.count <= longestSuffixWord,
+              !head.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return (head, String(text[space...]))
+    }
+
+    private static func headCut(_ head: String, keeping count: Int) -> String {
+        var kept = String(head.prefix(count))
+        while kept.last == " " { kept.removeLast() }
+        return kept + ellipsis
+    }
+
+    private static func middleCut(_ characters: [Character], keeping count: Int) -> String {
+        let front = (count + 1) / 2
+        var head = String(characters.prefix(front))
+        while head.last == " " { head.removeLast() }
+        var tail = String(characters.suffix(count - front))
+        while tail.first == " " { tail.removeFirst() }
+        return head + ellipsis + tail
+    }
+
+    private static func longestFit(upTo maximum: Int, fits: (Int) -> Bool) -> Int? {
+        guard maximum >= 0, fits(0) else { return nil }
+        var low = 0
+        var high = maximum
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if fits(middle) { low = middle } else { high = middle - 1 }
+        }
+        return low
+    }
+}
+
+extension PetAppearance {
+    fileprivate static func shortened(_ text: String, fits: (String) -> Bool) -> String {
+        LabelShortening.shortened(text, fits: fits)
     }
 }
 
@@ -162,13 +208,6 @@ final class PetView: NSView {
     func update(petAppearance: PetAppearance) {
         self.petAppearance = petAppearance
         toolTip = isInert ? nil : petAppearance.message
-        redrawChrome()
-        layoutParts()
-    }
-
-    func update(resolvedLabel: String) {
-        guard resolvedLabel != petAppearance.label else { return }
-        petAppearance = petAppearance.withResolvedLabel(resolvedLabel)
         redrawChrome()
         layoutParts()
     }
