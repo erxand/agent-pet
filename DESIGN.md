@@ -191,10 +191,13 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    bubble caption wider than that cap less 8 px, or longer than 28 characters, is shortened with an
    ellipsis (`PetAppearance.fitted(toWidth:)`, `LabelShortening`). The part that tells pets apart stays:
    a final `(...)` group or a short last word (6 characters or fewer, such as `T1` or a disambiguation
-   suffix) is kept whole and the text before it is cut, and a label with neither is cut in the middle.
-   The length is found by binary search when the pets are planned, never per frame. A change of the
-   screen the pets use plans them again at the next poll, so the labels are fitted and the gap worked out
-   for the new width, and any two neighbours left closer than a new, larger gap walk home. Only a sprite wider than
+   suffix) is kept whole, and the text before it keeps its start and up to its last 4 characters around
+   the ellipsis, the start giving way first (`NIS…140 (DEV)`), since numbers that tell tickets apart sit at
+   the end of it. A label with neither is cut in the middle. The lengths are found by binary search when
+   the pets are planned, never per frame. A change of the screen the pets use plans them again at the
+   next poll, so the labels are fitted and the gap worked out for the new width. After every lane
+   assignment, for any reason, two neighbours on the ground standing closer than the current gap both
+   walk home. Only a sprite wider than
    the cap, which takes about ten pets on a laptop screen, can still touch its neighbour. On the ground a
    step that would cross a neighbour, or bring it closer than that gap, is not taken: the pet runs in place,
    and a wandering pet turns round when its next walk starts. A pet walking home that is refused sends

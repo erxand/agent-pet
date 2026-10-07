@@ -41,12 +41,13 @@ extension PetAppearance {
 enum LabelShortening {
     static let ellipsis = "\u{2026}"
     private static let longestSuffixWord = 6
+    private static let longestKeptHeadTail = 4
 
     static func shortened(_ text: String, fits: (String) -> Bool) -> String {
         guard !fits(text) else { return text }
         if let (head, suffix) = splitDistinguishingSuffix(text),
-           let kept = longestFit(upTo: head.count, fits: { count in fits(headCut(head, keeping: count) + suffix) }) {
-            return headCut(head, keeping: kept) + suffix
+           let cut = headCut(Array(head), suffix: suffix, fits: fits) {
+            return cut
         }
         let characters = Array(text)
         let kept = longestFit(upTo: characters.count - 1) { count in fits(middleCut(characters, keeping: count)) } ?? 0
@@ -69,10 +70,24 @@ enum LabelShortening {
         return (head, String(text[space...]))
     }
 
-    private static func headCut(_ head: String, keeping count: Int) -> String {
-        var kept = String(head.prefix(count))
-        while kept.last == " " { kept.removeLast() }
-        return kept + ellipsis
+    private static func headCut(_ head: [Character], suffix: String, fits: (String) -> Bool) -> String? {
+        for tailCount in stride(from: min(longestKeptHeadTail, head.count - 1), through: 0, by: -1) {
+            let joined: (Int) -> String = { prefixCount in
+                headCut(head, keepingFront: prefixCount, back: tailCount) + suffix
+            }
+            if let prefixCount = longestFit(upTo: head.count - tailCount - 1, fits: { count in fits(joined(count)) }) {
+                return joined(prefixCount)
+            }
+        }
+        return nil
+    }
+
+    private static func headCut(_ head: [Character], keepingFront frontCount: Int, back backCount: Int) -> String {
+        var front = String(head.prefix(frontCount))
+        while front.last == " " { front.removeLast() }
+        var back = String(head.suffix(backCount))
+        while back.first == " " { back.removeFirst() }
+        return front + ellipsis + back
     }
 
     private static func middleCut(_ characters: [Character], keeping count: Int) -> String {
