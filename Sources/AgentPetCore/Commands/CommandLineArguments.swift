@@ -83,6 +83,10 @@ struct ParsedFlags {
         presentSwitches = collectedSwitches
     }
 
+    func valueOrEmpty(for flag: CommandFlag) -> String? {
+        valuesByFlag[flag]
+    }
+
     func value(for flag: CommandFlag) -> String? {
         guard let value = valuesByFlag[flag], !value.isEmpty else { return nil }
         return value

@@ -56,7 +56,8 @@ enum FlagParsing {
     }
 
     static func groupMode(in flags: ParsedFlags) throws -> PetGroupMode? {
-        guard let rawValue = flags.value(for: .groupMode) else { return nil }
+        guard let rawValue = flags.valueOrEmpty(for: .groupMode) else { return nil }
+        if rawValue.isEmpty { return .shared }
         guard let groupMode = PetGroupMode(rawValue: rawValue) else {
             throw FlagParseFailure.unknownGroupMode(rawValue)
         }
@@ -84,8 +85,8 @@ enum FlagParsing {
             group: flags.value(for: .group),
             owner: flags.isPresent(.owner),
             groupMode: try groupMode(in: flags),
-            disambiguator: flags.value(for: .disambiguator),
-            disambiguationScope: flags.value(for: .disambiguationScope)
+            disambiguator: flags.valueOrEmpty(for: .disambiguator),
+            disambiguationScope: flags.valueOrEmpty(for: .disambiguationScope)
         )
     }
 }

@@ -270,3 +270,173 @@ struct DisambiguationHintTests {
         #expect(sandbox.record(RecordFixtures.sessionId)?["disambiguationScope"] as? String == "win:1a2b")
     }
 }
+
+@Suite("lead groups: answers, settling, status and clearing")
+struct LeadGroupFollowUpTests {
+    private static let group = "ticket:ABC-1140"
+    private static let dev = "dev-aaaa-1111"
+    private static let review = "review-bbbb-2222"
+    private static let test = "test-cccc-3333"
+    private var all: [String] { [LeadGroupFollowUpTests.dev, LeadGroupFollowUpTests.review, LeadGroupFollowUpTests.test] }
+
+    private func enroll(_ sandbox: Sandbox, _ sessionId: String, owner: Bool, pid: Int32 = getpid()) throws {
+        var arguments = [
+            "on", "--session", sessionId, "--group", LeadGroupFollowUpTests.group, "--group-mode", "lead",
+            "--label", sessionId, "--focus-target", "pane:" + sessionId, "--pid", String(pid), "--no-color-sync"
+        ]
+        if owner { arguments.append("--owner") }
+        try sandbox.run(arguments)
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+
+    private func hook(_ sandbox: Sandbox, _ event: String, _ sessionId: String, extra: [String: Any] = [:]) throws {
+        try sandbox.hook(RecordFixtures.hookPayload(event, sessionId: sessionId, extra: extra))
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+
+    private func records(_ sandbox: Sandbox) throws -> [PetSession] {
+        try all.compactMap { sessionId in
+            guard sandbox.exists(sandbox.recordURL(sessionId)) else { return nil }
+            return try JSONDecoder().decode(PetSession.self, from: Data(contentsOf: sandbox.recordURL(sessionId)))
+        }
+    }
+
+    private func plan(_ sandbox: Sandbox) throws -> [PetDisplayItem] {
+        PetDisplayPlanner(grouping: SharedKeyGrouping()).displayItems(records: try records(sandbox), claudeSessions: [:])
+    }
+
+    private func window() throws -> Sandbox {
+        let sandbox = try Sandbox()
+        try enroll(sandbox, LeadGroupFollowUpTests.dev, owner: true)
+        try enroll(sandbox, LeadGroupFollowUpTests.review, owner: false)
+        try enroll(sandbox, LeadGroupFollowUpTests.test, owner: false)
+        return sandbox
+    }
+
+    @Test func anAnsweredAskerDivesAndItsReadyFoldsIntoTheLeadsPet() throws {
+        let sandbox = try window()
+        for sessionId in all { try hook(sandbox, "UserPromptSubmit", sessionId) }
+        try hook(sandbox, "Stop", LeadGroupFollowUpTests.dev)
+        try hook(sandbox, "Stop", LeadGroupFollowUpTests.test)
+        try hook(sandbox, "Notification", LeadGroupFollowUpTests.review, extra: ["notification_type": "permission_prompt"])
+        let asker = PetDisplayPlanner.memberPetKey(group: LeadGroupFollowUpTests.group, sessionId: LeadGroupFollowUpTests.review)
+        #expect(try plan(sandbox).map { item in item.petKey } == [asker])
+
+        try hook(sandbox, "PreToolUse", LeadGroupFollowUpTests.review)
+        try hook(sandbox, "UserPromptSubmit", LeadGroupFollowUpTests.review)
+        #expect(try plan(sandbox).isEmpty)
+
+        try hook(sandbox, "Stop", LeadGroupFollowUpTests.review)
+        let items = try plan(sandbox)
+        #expect(items.map { item in item.petKey } == [LeadGroupFollowUpTests.group])
+        #expect(items.first?.memberSessionIds.contains(LeadGroupFollowUpTests.review) == true)
+        #expect(items.first?.focusRequest.sessionId == LeadGroupFollowUpTests.dev)
+    }
+
+    @Test func anAskerPetThatIsUpIsNotSettledAgain() {
+        var lead = PetSession.newlyEnrolled(sessionId: LeadGroupFollowUpTests.dev)
+        lead.group = LeadGroupFollowUpTests.group
+        lead.groupMode = .lead
+        lead.owner = true
+        lead.pid = getpid()
+        var asking = PetSession.newlyEnrolled(sessionId: LeadGroupFollowUpTests.review)
+        asking.group = LeadGroupFollowUpTests.group
+        asking.groupMode = .lead
+        asking.pid = getpid()
+        asking.visible = true
+        asking.mood = .needsInput
+        asking.waitingSince = 100
+        asking.updatedAt = 100
+        let planner = PetDisplayPlanner(grouping: SharedKeyGrouping(), settleSeconds: 5)
+        let asker = PetDisplayPlanner.memberPetKey(group: LeadGroupFollowUpTests.group, sessionId: LeadGroupFollowUpTests.review)
+        #expect(planner.displayItems(records: [lead, asking], claudeSessions: [:], now: 101).isEmpty)
+        #expect(planner.displayItems(records: [lead, asking], claudeSessions: [:], now: 106).map { item in item.petKey } == [asker])
+        #expect(planner.displayItems(records: [lead, asking], claudeSessions: [:], now: 101, shownPetKeys: [asker])
+            .map { item in item.petKey } == [asker])
+    }
+
+    @Test func everySessionBelongsToOnePetSoADemoOrSnapshotMapsItOnce() throws {
+        let sandbox = try window()
+        for sessionId in all { try hook(sandbox, "UserPromptSubmit", sessionId) }
+        try hook(sandbox, "Stop", LeadGroupFollowUpTests.dev)
+        try hook(sandbox, "Stop", LeadGroupFollowUpTests.test)
+        try hook(sandbox, "Stop", LeadGroupFollowUpTests.review)
+        try sandbox.run(["show", "--session", LeadGroupFollowUpTests.review, "--mood", "needsInput"])
+        let items = try plan(sandbox)
+        #expect(items.count == 2)
+        let mapped = items.flatMap { item in item.memberSessionIds }
+        #expect(mapped.count == Set(mapped).count)
+        #expect(Set(mapped) == Set(all))
+        let keys = items.map { item in item.petKey }
+        #expect(Set(keys).count == 2)
+        #expect(keys.contains(PetDisplayPlanner.memberPetKey(group: LeadGroupFollowUpTests.group, sessionId: LeadGroupFollowUpTests.review)))
+    }
+
+    @Test func twoFlaggedOwnersResolveByEnrollmentNotByUpdate() {
+        var first = PetSession.newlyEnrolled(sessionId: "b-first")
+        first.group = "g"
+        first.owner = true
+        first.enrolledAt = 1
+        first.updatedAt = 50
+        var second = PetSession.newlyEnrolled(sessionId: "a-second")
+        second.group = "g"
+        second.owner = true
+        second.enrolledAt = 2
+        second.updatedAt = 10
+        #expect(PetGroup(key: "g", members: [second, first]).flaggedOwner?.sessionId == "b-first")
+        #expect(PetGroup(key: "g", members: [first, second]).flaggedOwner?.sessionId == "b-first")
+    }
+
+    @Test func hidingTheLeadLeavesDeadAndDisabledMembersAlone() throws {
+        let sandbox = try window()
+        for sessionId in all { try hook(sandbox, "UserPromptSubmit", sessionId) }
+        for sessionId in all { try hook(sandbox, "Stop", sessionId) }
+        var dead = try #require(sandbox.record(LeadGroupFollowUpTests.review))
+        dead["pid"] = 999_999
+        try sandbox.writeRecord(dead)
+        try sandbox.run(["hide", "--session", LeadGroupFollowUpTests.dev])
+        #expect(sandbox.record(LeadGroupFollowUpTests.review)?["visible"] as? Bool == true)
+        #expect(sandbox.record(LeadGroupFollowUpTests.test)?["visible"] as? Bool == false)
+    }
+
+    @Test func emptyValuesClearTheModeAndTheHint() throws {
+        let sandbox = try Sandbox()
+        let sessionId = LeadGroupFollowUpTests.dev
+        try sandbox.run([
+            "on", "--session", sessionId, "--group-mode", "lead", "--disambiguator", "T2",
+            "--disambiguation-scope", "w1", "--no-color-sync"
+        ])
+        try sandbox.run(["on", "--session", sessionId, "--label", "kept", "--no-color-sync"])
+        #expect(sandbox.record(sessionId)?["disambiguator"] as? String == "T2")
+        try sandbox.run([
+            "on", "--session", sessionId, "--group-mode", "", "--disambiguator", "",
+            "--disambiguation-scope=", "--no-color-sync"
+        ])
+        let record = try #require(sandbox.record(sessionId))
+        #expect(record["groupMode"] == nil)
+        #expect(record["disambiguator"] == nil)
+        #expect(record["disambiguationScope"] == nil)
+        #expect(record["label"] as? String == "kept")
+    }
+
+    @Test func statusJsonReportsTheModeTheHintAndTheFlaggedOwner() throws {
+        let sandbox = try Sandbox()
+        try sandbox.run([
+            "on", "--session", LeadGroupFollowUpTests.dev, "--group", "g", "--group-mode", "lead", "--owner",
+            "--disambiguator", "T1", "--disambiguation-scope", "w1", "--pid", String(getpid()), "--no-color-sync"
+        ])
+        try sandbox.run(["on", "--session", LeadGroupFollowUpTests.test, "--pid", String(getpid()), "--no-color-sync"])
+        let run = try sandbox.run(["status", "--json"])
+        let payload = try #require(try JSONSerialization.jsonObject(with: Data(run.standardOutput.utf8)) as? [String: Any])
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        let lead = try #require(sessions.first { entry in entry["sessionId"] as? String == LeadGroupFollowUpTests.dev })
+        #expect(lead["groupMode"] as? String == "lead")
+        #expect(lead["flaggedOwner"] as? Bool == true)
+        #expect(lead["disambiguator"] as? String == "T1")
+        #expect(lead["disambiguationScope"] as? String == "w1")
+        let plain = try #require(sessions.first { entry in entry["sessionId"] as? String == LeadGroupFollowUpTests.test })
+        #expect(plain["groupMode"] as? String == "shared")
+        #expect(plain["flaggedOwner"] as? Bool == false)
+        #expect(plain["disambiguator"] is NSNull)
+    }
+}
