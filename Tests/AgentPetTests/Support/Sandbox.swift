@@ -79,7 +79,8 @@ final class Sandbox {
             "HOME": home.path,
             "CFFIXED_USER_HOME": home.path,
             "PATH": "/usr/bin:/bin",
-            "TMUX_EXECUTABLE": tmuxStub.path
+            "TMUX_EXECUTABLE": tmuxStub.path,
+            "AGENT_PET_NEVER_START_DAEMON": "1"
         ]
         environment.merge(extraEnvironment) { _, extraValue in extraValue }
         process.environment = environment

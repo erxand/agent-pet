@@ -3,7 +3,7 @@ import AppKit
 
 final class PetPresence: LaneWalker, HighFiveParticipant {
     let sessionId: String
-    let window: PetWindow
+    let window: PetWindowing
     let view: PetView
     let animator: PetAnimator
 
@@ -46,7 +46,7 @@ final class PetPresence: LaneWalker, HighFiveParticipant {
 
     init(
         sessionId: String,
-        window: PetWindow,
+        window: PetWindowing,
         view: PetView,
         spritePackName: String,
         spriteSheet: SpriteSheet,
