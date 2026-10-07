@@ -96,8 +96,11 @@ struct DatalessPackTests {
         askedAbout.removeAll()
         #expect(!registry.pendingDownloadBecameLocal())
         let golemDirectory = sandbox.spritesDirectory.appendingPathComponent("golem", isDirectory: true).standardizedFileURL.path
+        let privateFolderPrefix = "/private"
         #expect(!askedAbout.isEmpty)
-        #expect(askedAbout.allSatisfy { path in path.hasPrefix(golemDirectory) })
+        #expect(askedAbout.allSatisfy { path in
+            path.hasPrefix(golemDirectory) || path.hasPrefix(privateFolderPrefix + golemDirectory)
+        })
         let quietTick = gate.shouldRescan(changeReported: false, forced: false, now: 0.3)
         #expect(!quietTick)
 

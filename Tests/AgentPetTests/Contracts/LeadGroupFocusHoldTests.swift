@@ -105,7 +105,7 @@ struct LeadGroupFocusHoldTests {
         for sessionId in all { try hook(sandbox, "Stop", sessionId) }
         #expect(try all.map { sessionId in try record(sandbox, sessionId).held } == [true, true, true])
         try writeFocus(sandbox, "termie:elsewhere")
-        try sandbox.run(["release", "--focus-target", "termie:dev", "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", "termie:dev", "--grace", "3600"])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).visible } == [true, true, true])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).held } == [nil, nil, nil])
     }
@@ -129,7 +129,7 @@ struct LeadGroupFocusHoldTests {
         for sessionId in all { try hook(sandbox, "Stop", sessionId) }
         try sandbox.run(["hide", "--focus-target", "termie:dev"])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).held } == [nil, nil, nil])
-        try sandbox.run(["release", "--focus-target", "termie:dev", "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", "termie:dev", "--grace", "3600"])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).visible } == [false, false, false])
     }
 
@@ -144,7 +144,7 @@ struct LeadGroupFocusHoldTests {
         try finishAll(sandbox)
         #expect(try record(sandbox, LeadGroupFocusHoldTests.dev).held == true)
         try writeFocus(sandbox, "termie:elsewhere")
-        try sandbox.run(["release", "--focus-target", "termie:test", "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", "termie:test", "--grace", "3600"])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).visible } == [true, true, true])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).held } == [nil, nil, nil])
     }
@@ -155,7 +155,7 @@ struct LeadGroupFocusHoldTests {
         try finishAll(sandbox)
         try sandbox.run(["remove", "--session", LeadGroupFocusHoldTests.dev])
         try writeFocus(sandbox, "termie:elsewhere")
-        try sandbox.run(["release", "--focus-target", "termie:test", "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", "termie:test", "--grace", "3600"])
         #expect(try record(sandbox, LeadGroupFocusHoldTests.review).visible)
         #expect(try record(sandbox, LeadGroupFocusHoldTests.review).held == nil)
     }
@@ -166,7 +166,7 @@ struct LeadGroupFocusHoldTests {
         try finishAll(sandbox)
         let heldAt = try all.map { sessionId in try record(sandbox, sessionId).heldAt }
         try writeFocus(sandbox, "termie:review")
-        try sandbox.run(["release", "--focus-target", "termie:dev", "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", "termie:dev", "--grace", "3600"])
         try sandbox.run(["hide", "--focus-target", "termie:review"])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).visible } == [false, false, false])
         #expect(try record(sandbox, LeadGroupFocusHoldTests.dev).held == true)
@@ -174,7 +174,7 @@ struct LeadGroupFocusHoldTests {
         #expect(try record(sandbox, LeadGroupFocusHoldTests.dev).heldAt == heldAt[0])
 
         try writeFocus(sandbox, "termie:elsewhere")
-        try sandbox.run(["release", "--focus-target", "termie:review", "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", "termie:review", "--grace", "3600"])
         #expect(try all.map { sessionId in try record(sandbox, sessionId).visible } == [true, false, true])
     }
 

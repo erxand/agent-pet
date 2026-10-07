@@ -53,13 +53,13 @@ struct StatusCharacterizationTests {
 
     @Test func livenessFollowsThePidThenTheClaudeSessionFileThenTheGracePeriod() throws {
         let sandbox = try Sandbox()
-        let thirtySecondsAgo = Date().timeIntervalSince1970 - 60
+        let sixtySecondsAgo = Date().timeIntervalSince1970 - 60
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "aaaaaaaa-1"))
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "bbbbbbbb-1", extra: ["pid": Int(Self.deadProcessIdentifier)]))
         try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "cccccccc-1", extra: ["pid": NSNull()]))
-        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "dddddddd-1", extra: ["pid": NSNull(), "updatedAt": thirtySecondsAgo]))
-        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "eeeeeeee-1", extra: ["pid": NSNull(), "updatedAt": thirtySecondsAgo]))
-        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "ffffffff-1", extra: ["pid": NSNull(), "agent": "pi", "updatedAt": thirtySecondsAgo]))
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "dddddddd-1", extra: ["pid": NSNull(), "updatedAt": sixtySecondsAgo]))
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "eeeeeeee-1", extra: ["pid": NSNull(), "updatedAt": sixtySecondsAgo]))
+        try sandbox.writeRecord(RecordFixtures.enrolled(sessionId: "ffffffff-1", extra: ["pid": NSNull(), "agent": "pi", "updatedAt": sixtySecondsAgo]))
         try sandbox.writeClaudeSession(processIdentifier: getpid(), sessionId: "eeeeeeee-1")
 
         let rows = try statusRows(sandbox)

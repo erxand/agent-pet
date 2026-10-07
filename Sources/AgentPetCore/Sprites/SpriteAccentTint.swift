@@ -51,6 +51,8 @@ package enum SpriteAccentTint {
             sit: sheet.sit,
             emerge: sheet.emerge,
             dive: sheet.dive,
+            jump: sheet.jump,
+            fall: sheet.fall,
             colorsByCharacter: colorsByCharacter(sheet.colorsByCharacter, inks: inks, accent: accent)
         )
     }

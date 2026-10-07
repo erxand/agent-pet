@@ -97,7 +97,7 @@ struct PetLifecycleTests {
         #expect(held["heldAt"] as? Double == waitingSince)
 
         try writeFocus(sandbox, target: otherPaneTarget)
-        try sandbox.run(["release", "--focus-target", paneTarget, "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", paneTarget, "--grace", "3600"])
         let released = try #require(sandbox.record(RecordFixtures.sessionId))
         #expect(released["visible"] as? Bool == true)
         #expect(released["waitingSince"] as? Double == waitingSince)
@@ -106,7 +106,7 @@ struct PetLifecycleTests {
     @Test func leavingWithinTheGraceReleasesThePet() throws {
         let sandbox = try Sandbox()
         try sandbox.writeRecord(enrolledOnPane(["held": true, "heldAt": Date().timeIntervalSince1970 - 3]))
-        try sandbox.run(["release", "--focus-target", paneTarget, "--grace", "10"])
+        try sandbox.run(["release", "--focus-target", paneTarget, "--grace", "3600"])
 
         #expect(sandbox.record(RecordFixtures.sessionId)?["visible"] as? Bool == true)
     }

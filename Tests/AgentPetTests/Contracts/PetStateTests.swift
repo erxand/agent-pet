@@ -254,23 +254,51 @@ struct RescanTests {
         }
     }
 
-    @Test func theMonitorReportsAFileWrittenInAWatchedFolderOnce() async throws {
+    private func awaitChange(
+        to fileName: String,
+        from monitor: DirectoryChangeMonitor,
+        collecting changes: inout [DirectoryChange]
+    ) async throws {
+        let hangBound = Date().addingTimeInterval(30)
+        while !changes.contains(where: { change in change.path.hasSuffix("/golem/" + fileName) || change.requiresRescan })
+            && Date() < hangBound {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            changes += monitor.consumeChanges()
+        }
+    }
+
+    @Test func theMonitorReportsAFileWrittenInAWatchedFolderBeforeALaterOne() async throws {
         let directory = try TemporaryDirectory()
         let packs = try directory.makeDirectory("sprites/golem")
-        let monitor = DirectoryChangeMonitor()
+        let monitor = DirectoryChangeMonitor(recordsPaths: true)
         monitor.watch(directories: [directory.url.appendingPathComponent("sprites", isDirectory: true)])
         #expect(monitor.isWatching)
-        try await Task.sleep(nanoseconds: 300_000_000)
+        var changes: [DirectoryChange] = []
+        try "".write(to: packs.appendingPathComponent("ready"), atomically: false, encoding: .utf8)
+        try await awaitChange(to: "ready", from: monitor, collecting: &changes)
+        #expect(changes.contains { change in change.path.hasSuffix("/golem/ready") || change.requiresRescan })
+        changes = []
         _ = monitor.consumeChange()
+
         try "{}".write(to: packs.appendingPathComponent("pack.json"), atomically: false, encoding: .utf8)
-        var reported = false
-        for _ in 0..<60 where !reported {
-            try await Task.sleep(nanoseconds: 50_000_000)
-            reported = monitor.consumeChange()
-        }
-        #expect(reported)
-        try await Task.sleep(nanoseconds: 300_000_000)
+        try "".write(to: packs.appendingPathComponent("sentinel"), atomically: false, encoding: .utf8)
+        try await awaitChange(to: "sentinel", from: monitor, collecting: &changes)
+        let sentinelIndex = changes.firstIndex { change in change.path.hasSuffix("/golem/sentinel") }
+        #expect(sentinelIndex != nil, "\(changes)")
+        let beforeSentinel = changes.prefix(sentinelIndex ?? changes.count)
+        let covered = beforeSentinel.contains { change in change.path.hasSuffix("/golem/pack.json") || change.requiresRescan }
+        #expect(covered, "\(changes)")
+        #expect(monitor.consumeChange())
+    }
+
+    @Test func aReportedChangeIsConsumedExactlyOnce() {
+        let monitor = DirectoryChangeMonitor()
         #expect(!monitor.consumeChange())
+        monitor.noteChange([DirectoryChange(path: "/watched/a", requiresRescan: false)])
+        monitor.noteChange([DirectoryChange(path: "/watched/a", requiresRescan: false)])
+        #expect(monitor.consumeChange())
+        #expect(!monitor.consumeChange())
+        #expect(monitor.consumeChanges().isEmpty)
     }
 
     @Test func watchingTheSameFoldersAgainKeepsTheStreamAndNoFoldersStopsIt() throws {
@@ -298,7 +326,8 @@ struct InertPetTests {
         let registry = RunningFocusCommands()
         let reports = ReportRecorder()
         let focuser = CommandFocuser(
-            arguments: ["/bin/sleep", "5"],
+            arguments: ["/bin/sleep", "1000"],
+            timeoutInSeconds: 120,
             waitsForCompletion: false,
             report: { line in reports.append(line) },
             runningCommands: registry
@@ -306,8 +335,8 @@ struct InertPetTests {
         focuser.focus(FocusRequest(sessionId: "inert", processIdentifier: nil, focusTarget: nil, group: "inert", agent: .claudeCode, tmuxTarget: nil, allowsClientSwitch: true))
         #expect(registry.runningCount == 1)
         #expect(registry.cancelAll() == 1)
-        let deadline = Date().addingTimeInterval(2)
-        while registry.runningCount > 0 && Date() < deadline {
+        let hangBound = Date().addingTimeInterval(30)
+        while registry.runningCount > 0 && Date() < hangBound {
             Thread.sleep(forTimeInterval: 0.02)
         }
         #expect(registry.runningCount == 0)

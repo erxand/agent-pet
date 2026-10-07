@@ -38,6 +38,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var timers: [Timer] = []
     private var displayChangeObserver: NSObjectProtocol?
     private var homeScreenFrame: CGRect?
+    private let dockAccess: DockAccessReporter
+    private lazy var ground = PetGround { [weak self] in
+        DockGround(sensing: SystemDockSensing { self?.dockAccess.isGranted ?? false })
+    }
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
@@ -45,8 +49,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     init(
         configurationFile: URL = ConfigurationFile.path(),
         store: PetSessionStore = PetSessionStore(),
-        spritePackRegistry: SpritePackRegistry = SpritePackRegistry()
+        spritePackRegistry: SpritePackRegistry = SpritePackRegistry(),
+        dockAccess: DockAccessReporter = DockAccessReporter(
+            files: .standard,
+            access: AccessibilityDockAccess(),
+            processIdentifier: ProcessInfo.processInfo.processIdentifier
+        )
     ) {
+        self.dockAccess = dockAccess
         self.configurationFile = configurationFile
         self.store = store
         self.spritePackRegistry = spritePackRegistry
@@ -80,12 +90,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let oldFrame = homeScreenFrame ?? screenFrames.visibleFrame
         homeScreenFrame = screenFrames.visibleFrame
         if oldFrame != screenFrames.visibleFrame { screenChangedSincePlan = true }
+        refreshGround(screenFrames: screenFrames, elapsedSeconds: nil)
         for presence in presencesBySessionId.values {
             presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
                 presence.homeHorizontalCenter,
                 from: oldFrame,
                 to: screenFrames.visibleFrame
             )
+            presence.groundBody = nil
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
     }
@@ -259,6 +271,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private func reconcile(forceReload: Bool) {
         guard !isShuttingDown else { return }
         let now = Date().timeIntervalSince1970
+        dockAccess.tick()
         let configurationChanged = reloadConfigurationIfChanged()
         let rescanForced = configurationChanged || forceReload
         let pendingPackIsLocal = spritePackRegistry.hasPendingDownloads && spritePackRegistry.pendingDownloadBecameLocal()
@@ -318,6 +331,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         followScreen(to: screenFrames.visibleFrame)
+        refreshGround(screenFrames: screenFrames, elapsedSeconds: nil)
         let newcomers = Set(items.map { item in item.petKey }.filter { petKey in presencesBySessionId[petKey] == nil })
         let widthPerPet = LaneLayout.maximumPetWidth(laneCount: items.count, screenFrame: screenFrames.visibleFrame)
         for item in items {
@@ -372,6 +386,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 from: oldFrame,
                 to: visibleFrame
             )
+            presence.groundBody = nil
         }
     }
 
@@ -455,6 +470,19 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func allowsStep(_ presence: PetPresence, toOffset offset: CGFloat) -> Bool {
+        allowsNeighbourStep(presence, toOffset: offset) && ground.allowsStep(presence, toOffset: offset)
+    }
+
+    private func refreshGround(screenFrames: OverlayScreenFrames, elapsedSeconds: Double?) {
+        ground.refresh(
+            standsOnDock: contracts.configuration.standsOnDock,
+            screenFrames: screenFrames,
+            now: ProcessInfo.processInfo.systemUptime,
+            elapsedSeconds: elapsedSeconds
+        )
+    }
+
+    private func allowsNeighbourStep(_ presence: PetPresence, toOffset offset: CGFloat) -> Bool {
         let index = presence.groundIndex
         guard index >= 0, groundPets.count > 1 else { return true }
         let current = groundCenter(of: presence)
@@ -538,6 +566,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         followScreen(to: screenFrames.visibleFrame)
+        refreshGround(screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
         var submergedSessionIds: [String] = []
         collideFloatingPets()
         sortGroundPets()
@@ -548,21 +577,27 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 elapsedSeconds: elapsedSeconds,
                 floats: floatsPets,
                 screenFrame: screenFrames.screenFrame,
-                groundBottom: screenFrames.visibleFrame.minY + PetGeometry.windowBottomInset,
+                groundBottom: ground.floorUnderFlight(of: presence),
                 homeCenterX: presence.homeHorizontalCenter,
                 render: { flyingPresence in self.renderSprite(for: flyingPresence) },
                 landed: { landedPresence in self.petLanded(landedPresence) }
-            ) { continue }
+            ) {
+                presence.groundBody = nil
+                continue
+            }
             presence.animator.advance(elapsedSeconds: elapsedSeconds, mood: presence.view.petAppearance.mood) { offset in
                 self.allowsStep(presence, toOffset: offset)
             }
+            ground.finishStep(presence)
             if presence.animator.isSubmerged {
                 submergedSessionIds.append(presence.sessionId)
                 continue
             }
+            // Rendered after the body moves, so a launch or a touchdown tick shows its own state; PetGroundTests.step follows this order.
+            if !presence.animator.isDiving {
+                applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
+            }
             renderSprite(for: presence)
-            guard !presence.animator.isDiving else { continue }
-            applyGeometry(to: presence, screenFrames: screenFrames)
         }
         for sessionId in submergedSessionIds {
             removePresence(sessionId: sessionId)
@@ -584,17 +619,20 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         )
     }
 
-    private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames) {
+    private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames, elapsedSeconds: Double = 0) {
         guard presence.spaceMotion == nil else { return }
         let windowSize = presence.view.preferredSize
         let desiredCenter = presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
-        let unclampedHorizontalOrigin = desiredCenter - windowSize.width / 2
-        let horizontalOrigin = min(
-            max(unclampedHorizontalOrigin, screenFrames.visibleFrame.minX),
-            max(screenFrames.visibleFrame.maxX - windowSize.width, screenFrames.visibleFrame.minX)
+        let horizontalOrigin = PetGround.horizontalOrigin(
+            desiredCenter: desiredCenter,
+            windowWidth: windowSize.width,
+            visibleFrame: screenFrames.visibleFrame
         )
-
-        let verticalOrigin = screenFrames.visibleFrame.minY + PetGeometry.windowBottomInset
+        let verticalOrigin = ground.windowBottom(
+            for: presence,
+            standingCenter: horizontalOrigin + windowSize.width / 2,
+            elapsedSeconds: elapsedSeconds
+        )
 
         let frame = CGRect(
             x: horizontalOrigin.rounded(),

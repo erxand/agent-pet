@@ -72,6 +72,11 @@ Eight commands are useful from any shell, plus `agent-pet demo`, described under
 - `agent-pet capabilities` prints one word per line, one for each feature this build has, such as
   `focus-target-select`. A script that drives agent-pet can check for a word instead of comparing
   versions, and a build that predates the command exits 2.
+- `agent-pet dock-access` prints `granted`, `not granted` or `unknown`: whether the running daemon
+  may read the Dock's exact frame (macOS Accessibility). It reports the daemon's own access, not
+  the terminal's, and never prompts; `unknown` means the daemon is not running.
+  `agent-pet dock-access --ask` has the daemon ask macOS once; turn agent-pet on in
+  System Settings > Privacy & Security > Accessibility and the daemon notices within 5 seconds.
 
 ## Demo
 
@@ -160,6 +165,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
 | `whenFullScreen` | `[]` | rules that set pet states while an app shows a window covering a display, see "Scripting the pets" |
 | `hideLabelsWhileFloating` | `false` | `true` hides each pet's label and bubble while it floats or falls, and shows them again when it lands |
+| `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give the agent-pet daemon Accessibility access (`agent-pet dock-access --ask`); without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
 The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
@@ -385,6 +391,7 @@ sprites/README.md for the full rules.
 <pack-name>/pack.json                    name, frameSize, optional accent and accentInks, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
+<pack-name>/jump.txt fall.txt            optional, 2 frames each (takeoff, rise; apex, later fall); without them a jump shows walk and a fall shows idle
 ```
 
 Every color in a pack comes from its palette, except the inks named in the optional `accentInks`

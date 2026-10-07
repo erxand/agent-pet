@@ -121,6 +121,14 @@ struct PetDiveTests {
                     homeDirectory: sandbox.home
                 ),
                 reportFailure: { _ in }
+            ),
+            dockAccess: DockAccessReporter(
+                files: DockAccessFiles(
+                    reportFile: sandbox.stateDirectory.appendingPathComponent("dock-access.json"),
+                    requestFile: sandbox.stateDirectory.appendingPathComponent("control/dock-access-ask")
+                ),
+                access: UngrantedDockAccess(),
+                processIdentifier: 4242
             )
         )
         var completions = 0
@@ -130,4 +138,9 @@ struct PetDiveTests {
         controller.beginShutdown { completions += 1 }
         #expect(completions == 1)
     }
+}
+
+private struct UngrantedDockAccess: DockAccessChecking {
+    func isGranted() -> Bool { false }
+    func ask() -> Bool { false }
 }
