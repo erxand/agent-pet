@@ -301,6 +301,20 @@ struct RescanTests {
         #expect(monitor.consumeChanges().isEmpty)
     }
 
+    @Test func aMonitorFreedWhileEventsArriveNeverCallsBackIntoIt() throws {
+        let directory = try TemporaryDirectory()
+        for round in 0..<40 {
+            var monitor: DirectoryChangeMonitor? = DirectoryChangeMonitor(latencyInSeconds: 0.001)
+            monitor?.watch(directories: [directory.url])
+            for file in 0..<5 {
+                try "\(round)".write(to: directory.url.appendingPathComponent("file-\(file)"), atomically: false, encoding: .utf8)
+            }
+            Thread.sleep(forTimeInterval: Double(round % 4) * 0.002)
+            monitor = nil
+            #expect(monitor == nil)
+        }
+    }
+
     @Test func watchingTheSameFoldersAgainKeepsTheStreamAndNoFoldersStopsIt() throws {
         let directory = try TemporaryDirectory()
         let monitor = DirectoryChangeMonitor()
