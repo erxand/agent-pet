@@ -2,6 +2,7 @@ import Foundation
 
 package enum AgentPetCapability: String, CaseIterable {
     case focusTargetSelect = "focus-target-select"
+    case hideLabelsFloating = "hide-labels-floating"
 }
 
 enum CapabilitiesCommand {
