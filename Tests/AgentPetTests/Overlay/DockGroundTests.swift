@@ -818,7 +818,7 @@ struct PetGroundTests {
     private func step(_ presence: PetPresence, ground: PetGround, now: Double, standsOnDock: Bool = true, sawWait: inout Bool) -> CGFloat {
         ground.refresh(standsOnDock: standsOnDock, screenFrames: screenFrames, now: now, elapsedSeconds: tick)
         var waitedThisTick = false
-        presence.animator.advance(elapsedSeconds: tick, mood: .ready) { offset in
+        presence.animator.advance(elapsedSeconds: tick, mood: .ready, airborne: presence.groundBody?.isAirborne ?? false) { offset in
             let allowed = ground.allowsStep(presence, toOffset: offset)
             if presence.waitsOnJump { waitedThisTick = true }
             return allowed

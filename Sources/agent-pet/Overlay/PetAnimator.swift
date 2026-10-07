@@ -45,6 +45,7 @@ final class PetAnimator {
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
     private(set) var strollDestination: CGFloat?
+    private var isAirborne = false
     private var blockedSeconds: Double = 0
     private var looksAroundAt: Double?
     private(set) var walkWasBlocked = false
@@ -56,10 +57,6 @@ final class PetAnimator {
     init(random: @escaping () -> Double = { Double.random(in: 0..<1) }) {
         self.random = random
         startEmerging(fromGroundOffsetFraction: PetAnimator.fullyUnderground)
-    }
-
-    private func randomValue(in range: ClosedRange<Double>) -> Double {
-        range.lowerBound + (range.upperBound - range.lowerBound) * random()
     }
 
     var isSubmerged: Bool {
@@ -108,8 +105,10 @@ final class PetAnimator {
     func advance(
         elapsedSeconds unclampedElapsedSeconds: Double,
         mood: PetMood,
+        airborne: Bool = false,
         canMoveTo: (CGFloat) -> Bool = { _ in true }
     ) {
+        isAirborne = airborne
         let elapsedSeconds = playsGroundAnimationOnce
             ? min(unclampedElapsedSeconds, PetAnimator.maximumGroundStepInSeconds)
             : unclampedElapsedSeconds
@@ -160,12 +159,14 @@ final class PetAnimator {
 
     func stand(atHorizontalOffsetFromHome offset: CGFloat) {
         horizontalOffsetFromHome = offset
+        strollDestination = nil
         isWalkingHome = abs(offset) > wanderHalfWidth
     }
 
     func moveHome(by shift: CGFloat) {
         guard shift != 0 else { return }
         horizontalOffsetFromHome -= shift
+        strollDestination = strollDestination.map { destination in destination - shift }
         if abs(horizontalOffsetFromHome) > wanderHalfWidth {
             isWalkingHome = true
         }
@@ -297,18 +298,22 @@ final class PetAnimator {
     }
 
     private func advanceWandering(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
+        if strollDestination != nil || animationName == .walk {
+            stroll(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
+            return
+        }
         remainingActivityInSeconds -= elapsedSeconds
         switch animationName {
         case .walk:
-            stroll(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
+            return
         case .idle, .wave:
-            if let looksAroundAt, remainingActivityInSeconds <= looksAroundAt {
+            if let looksAroundAt, remainingActivityInSeconds <= looksAroundAt, !isAirborne {
                 self.looksAroundAt = nil
                 facingLeft.toggle()
             }
-            if remainingActivityInSeconds <= 0 { beginWalking() }
+            if remainingActivityInSeconds <= 0 && !isAirborne { beginWalking() }
         case .sit, .emerge, .dive, .jump, .fall:
-            beginWalking()
+            if !isAirborne { beginWalking() }
         }
     }
 
@@ -362,22 +367,39 @@ final class PetAnimator {
     }
 
     private func stroll(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
-        let destination = min(max(strollDestination ?? horizontalOffsetFromHome, -wanderHalfWidth), wanderHalfWidth)
+        guard let strollDestination else {
+            beginResting()
+            return
+        }
+        let destination = min(max(strollDestination, -wanderHalfWidth), wanderHalfWidth)
         let remaining = destination - horizontalOffsetFromHome
+        if remaining != 0 {
+            walkDirection = remaining < 0 ? -1 : 1
+            facingLeft = walkDirection < 0
+        }
         let step = PetAnimator.walkSpeedInPointsPerSecond * CGFloat(elapsedSeconds)
         let arrives = abs(remaining) <= step
         let next = arrives ? destination : horizontalOffsetFromHome + (remaining < 0 ? -step : step)
         guard canMoveTo(next) else {
             walkWasBlocked = true
             blockedSeconds += elapsedSeconds
-            if blockedSeconds >= PetAnimator.strollGiveUpInSeconds { beginResting() }
+            if blockedSeconds >= PetAnimator.strollGiveUpInSeconds {
+                beginResting()
+            } else if animationName != .idle {
+                animationName = .idle
+                frameTick = 0
+            }
             return
         }
+        walkWasBlocked = false
         blockedSeconds = 0
+        if animationName != .walk {
+            animationName = .walk
+            frameTick = 0
+        }
         horizontalOffsetFromHome = next
         if arrives { beginResting() }
     }
-
 
     private static func clampedUnitValue(_ value: Double) -> Double {
         min(max(value, 0), 1)
