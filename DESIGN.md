@@ -295,7 +295,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "downloaded"}]}` with `accent` null for a pack that yields none. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`) and `hide-labels-floating` (the `hideLabelsWhileFloating` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`) and `hide-labels-floating` (the `hideLabelsWhileFloating` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -524,11 +524,15 @@ moment its session started waiting and a `!` command since then still keeps it d
 Because the integration writes the file before it runs `release`, a hook deciding at the same moment either
 still sees the old pane and holds (which the `release` then answers) or already sees the new one and shows.
 
-In a lead group (see "Lead groups") a member's `ready` is also held when the pane in front is any member's
-of its group, so the window counts as one place: a finish in the lead's pane, or in a helper's, while any
-pane of that window is in front never flashes the window's pet. A question (`needsInput`, `blocked`) is held
-only by its own pane, as before. A `release` that names the lead also releases every held member of its
-group, each on its own `heldAt`, and a `hide` that names the lead drops every member's hold.
+In a lead group (see "Lead groups") a member's `ready` is also held when the pane in front is any live,
+enabled member's of its group, so the window counts as one place: a finish in the lead's pane, or in a
+helper's, while any pane of that window is in front never flashes the window's pet. A question
+(`needsInput`, `blocked`) is held only by its own pane, as before. A `release` that names any member of a
+lead group does nothing while the pane in front (read from `focus.json`, which the integration writes
+first) still belongs to a live member of that group, so moving between the window's panes keeps every
+hold and its `heldAt`. Once focus has left the group, it releases that member and every other held member
+of the group, each on its own `heldAt`. A `hide` that names the lead drops the hold of every member whose
+held mood is `ready`; a held question keeps its hold.
 
 ### Groups
 

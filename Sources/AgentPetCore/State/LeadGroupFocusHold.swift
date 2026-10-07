@@ -2,28 +2,40 @@ import Foundation
 
 enum LeadGroupFocusHold {
     static func isInFront(_ session: PetSession, focusedTarget: String?, store: PetSessionStore = PetSessionStore()) -> Bool {
-        guard let focusedTarget, session.group != nil else { return false }
-        let groupmates = store.list().filter { member in member.petKey == session.petKey }
-        guard groupmates.contains(where: { member in member.leadsItsGroup }) else { return false }
-        return groupmates.contains { member in member.focusTarget == focusedTarget }
+        guard let focusedTarget else { return false }
+        return leadGroupmates(of: session, store: store).contains { member in member.focusTarget == focusedTarget }
+    }
+
+    static func focusStaysInGroup(
+        of sessionId: String,
+        focusedTarget: String? = FocusedTarget.current(),
+        store: PetSessionStore = PetSessionStore()
+    ) -> Bool {
+        guard let focusedTarget, let session = store.load(sessionId: sessionId) else { return false }
+        return isInFront(session, focusedTarget: focusedTarget, store: store)
     }
 
     static func releaseHeldMembers(
-        ofLead leadSessionId: String,
+        ofMember sessionId: String,
         grace: TimeInterval?,
         store: PetSessionStore = PetSessionStore()
     ) -> Bool {
-        guard let lead = store.load(sessionId: leadSessionId),
-              lead.leadsItsGroup,
-              lead.isFlaggedOwner,
-              lead.group != nil else { return false }
+        guard let session = store.load(sessionId: sessionId) else { return false }
         var anyVisible = false
-        for member in store.list() where member.sessionId != lead.sessionId
-            && member.petKey == lead.petKey
+        for member in leadGroupmates(of: session, store: store) where member.sessionId != session.sessionId
             && member.held == true
             && PetTurnState.release(sessionId: member.sessionId, grace: grace).visible {
             anyVisible = true
         }
         return anyVisible
+    }
+
+    private static func leadGroupmates(of session: PetSession, store: PetSessionStore) -> [PetSession] {
+        guard session.group != nil else { return [] }
+        let groupmates = store.list().filter { member in
+            member.petKey == session.petKey && LeadGroupQuieting.isLiveMember(member)
+        }
+        guard groupmates.contains(where: { member in member.leadsItsGroup }) else { return [] }
+        return groupmates
     }
 }
