@@ -697,11 +697,12 @@ air and goes straight back to its ground animation on the tick it lands.
 
 - **Riding and the spring.** A floor rising faster than 60 pt/s (`rideSpeed`) under a pet makes it ride: it moves
   with the floor at no velocity of its own, from the height it had before that tick. The ride ends only once the
-  floor has been still for 0.1 s (`rideSettleSeconds`), so a repeated reading mid-slide never ends it early. Then a
+  floor has been still (moved less than 0.5 pt a tick, `stillFloorTolerance`) for 0.1 s (`rideSettleSeconds`), so
+  a repeated reading mid-slide never ends it early and a slow sink does not count as settled. Then a
   pet the floor lifted by 8 pt or more (`springMinimumRise`) is launched at `springSpeed`, derived so it peaks
   `springOvershoot` (16 pt) above the floor, and falls back onto it: the spring. The same overshoot results for any
   slide curve, slide length and poll rate. A floor that drops faster than `rideSpeed` mid-ride (a Dock that starts
-  hiding) or that the pet walks off ends the ride with no launch, and the pet falls.
+  hiding) or that the pet walks off ends the ride with no launch and no speed of its own, and the pet falls.
 - **Falling.** A floor that drops away faster than gravity leaves the pet in the air, and it falls.
 - **Steps and jumps.** Walking is still `PetAnimator`'s; every step also asks the body. A step is measured from the
   ground under the pet now, not from its last height, so a floor rising under a walking pet is never mistaken for
@@ -778,7 +779,7 @@ it only when its pid is the running daemon's. `agent-pet dock-access --ask` is t
   with the nonce. A request within 10 s of the last prompt is answered from `AXIsProcessTrusted` with no second
   prompt.
 
-Claimed requests a crashed daemon left behind are deleted at the next daemon start once they are more than 5 s old.
+Claimed requests a crashed daemon left behind are all deleted at the next daemon start, since only one daemon runs.
 
 A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it.
 
@@ -944,7 +945,8 @@ sprites/<pack-name>/
   (`crouchSeconds`, one or two ticks); frame 1 is the stretch, held for the rest of the rise. A spring from the Dock
   skips the crouch and shows the stretch at once. `fall` frame 0 is the apex, shown for the first 0.15 s of a fall
   (`firstFallFrameSeconds`); frame 1 is the later fall, held until the pet lands. Each phase change starts its own
-  frames again, and a frame a pack does not have falls back to its last frame. The overlay renders a pet after its
+  frames again, and a frame a pack does not have falls back to its last frame. A pack without the file shows its
+  stand-in (`walk`, `idle`) on the usual 8 fps clock instead. The overlay renders a pet after its
   body has moved, so the launch tick already shows the rise and the touchdown tick shows the ground animation. A
   float's fall still uses the 8 fps clock. The fallback rule is
   `SpriteAnimationName.standIn`: a pack without `jump.txt` plays `walk` for it, and one without `fall.txt` plays

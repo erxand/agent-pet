@@ -35,6 +35,8 @@ package struct GroundBody: Equatable {
     package static let springSpeed: CGFloat = (2 * gravity * springOvershoot).squareRoot()
     package static let rideSpeed: CGFloat = 60
     package static let rideSettleSeconds: Double = 0.1
+    package static let stillFloorTolerance: CGFloat = 0.5
+    private static let settleEpsilon: Double = 1e-9
     package static let springMinimumRise: CGFloat = 8
     package static let maximumJumpHeight: CGFloat = 160
     package static let crouchSeconds: Double = 0.07
@@ -139,22 +141,21 @@ package struct GroundBody: Equatable {
         ground newGround: CGFloat,
         groundVelocity: CGFloat
     ) -> Bool {
-        if groundVelocity > 0 {
-            height = newGround
-            velocity = 0
-            phase = .riding(start: start, stillSeconds: 0)
-            return false
-        }
+        let floorMove = groundVelocity * CGFloat(elapsedSeconds)
         let pulledAway = groundVelocity < -GroundBody.rideSpeed || newGround < height - GroundBody.restingTolerance
         guard !pulledAway else {
             phase = .standing
-            velocity = min(groundVelocity, 0)
+            velocity = 0
             return true
         }
         height = newGround
         velocity = 0
+        guard abs(floorMove) < GroundBody.stillFloorTolerance else {
+            phase = .riding(start: start, stillSeconds: 0)
+            return false
+        }
         let settledFor = stillSeconds + elapsedSeconds
-        guard settledFor >= GroundBody.rideSettleSeconds else {
+        guard settledFor + GroundBody.settleEpsilon >= GroundBody.rideSettleSeconds else {
             phase = .riding(start: start, stillSeconds: settledFor)
             return false
         }

@@ -76,15 +76,12 @@ package struct DockAccessFiles {
         PetStateFile.writeAtomically(Data(nonce.utf8), to: requestFile)
     }
 
-    package func removeStaleClaims(olderThan age: TimeInterval, now: Date = Date()) {
+    package func removeClaims() {
         let directory = requestFile.deletingLastPathComponent()
         let claimPrefix = ".\(requestFile.lastPathComponent)\(DockAccessFiles.claimSuffix)"
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
         for name in names where name.hasPrefix(claimPrefix) {
-            let claimed = directory.appendingPathComponent(name, isDirectory: false)
-            let modified = (try? FileManager.default.attributesOfItem(atPath: claimed.path))?[.modificationDate] as? Date
-            guard let modified, now.timeIntervalSince(modified) > age else { continue }
-            try? FileManager.default.removeItem(at: claimed)
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name, isDirectory: false))
         }
     }
 
@@ -101,7 +98,6 @@ package struct DockAccessFiles {
 package final class DockAccessReporter {
     package static let checkIntervalInSeconds: TimeInterval = 5
     package static let askCooldownInSeconds: TimeInterval = 10
-    package static let staleClaimAgeInSeconds: TimeInterval = 5
 
     private let files: DockAccessFiles
     private let access: DockAccessChecking
@@ -130,7 +126,7 @@ package final class DockAccessReporter {
         let now = clock()
         if !removedStaleClaims {
             removedStaleClaims = true
-            files.removeStaleClaims(olderThan: DockAccessReporter.staleClaimAgeInSeconds)
+            files.removeClaims()
         }
         if let nonce = files.consumeRequest() {
             answer(nonce: nonce, now: now)

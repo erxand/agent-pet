@@ -593,6 +593,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 submergedSessionIds.append(presence.sessionId)
                 continue
             }
+            // Rendered after the body moves, so a launch or a touchdown tick shows its own state; PetGroundTests.step follows this order.
             if !presence.animator.isDiving {
                 applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
             }

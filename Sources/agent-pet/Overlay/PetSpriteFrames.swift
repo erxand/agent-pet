@@ -45,7 +45,7 @@ final class PetSpriteFrames {
 
     private func frameIndex(for presence: PetPresence, resolvedAnimation: ResolvedAnimation) -> Int {
         let frameCount = resolvedAnimation.frames.count
-        if let flightFrame = presence.groundBodyFrameIndex {
+        if let flightFrame = presence.groundBodyFrameIndex, resolvedAnimation.animationName == presence.shownAnimationName {
             return min(flightFrame, frameCount - 1)
         }
         guard presence.animator.playsGroundAnimationOnce else {

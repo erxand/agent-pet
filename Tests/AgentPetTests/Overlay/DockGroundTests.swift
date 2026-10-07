@@ -240,30 +240,69 @@ struct GroundBodyTests {
     @Test func aDockThatHidesMidRideDropsThePetWithoutASpring() {
         var body = GroundBody(height: inset)
         var phases: [GroundBodyPhase] = []
-        var apex: CGFloat = 0
+        var highestBody: CGFloat = 0
+        var highestFloor: CGFloat = 0
         for index in 0..<45 {
             let fraction: CGFloat = index < 4 ? CGFloat(index) / 8 : max(0, CGFloat(8 - index) / 8)
             let floor = max(inset, bar(shownFraction: fraction).maxY + inset)
             body.advance(elapsedSeconds: tick, ground: floor)
             phases.append(body.phase)
-            apex = max(apex, body.height - floor)
+            highestBody = max(highestBody, body.height)
+            highestFloor = max(highestFloor, floor)
         }
         #expect(launches(phases) == 0)
-        #expect(apex < GroundBody.springOvershoot / 2)
+        #expect(phases.contains(.falling))
+        #expect(highestBody <= highestFloor + GroundBody.restingTolerance)
         #expect(body.height == inset)
     }
 
     @Test func aPetWalkingOffARisingDockFallsWithoutASpring() {
         var walker = Walker(centerX: shownBar.maxX - 4, profile: dockProfile(bar(shownFraction: 0)))
         var phases: [GroundBodyPhase] = []
+        var biggestDrop: CGFloat = 0
         for index in 0..<60 {
             let profile = dockProfile(bar(shownFraction: easeOut(Double(index) * tick / 0.6)))
+            let before = walker.body.height
             walker.step(profile: profile)
             phases.append(walker.body.phase)
+            biggestDrop = max(biggestDrop, before - walker.body.height)
         }
         #expect(walker.centerX > shownBar.maxX + spriteSide)
         #expect(launches(phases) == 0)
+        #expect(phases.contains(.falling))
+        let impactSpeed = (2 * GroundBody.gravity * (shownBar.maxY + inset - inset)).squareRoot()
+        #expect(biggestDrop <= impactSpeed * CGFloat(tick) + 1)
         #expect(walker.body.height == inset)
+    }
+
+    @Test func aJitteringFloorEndsTheRideAndASlowDescentDoesNotCountAsStill() {
+        var jittery = GroundBody(height: inset)
+        jittery.advance(elapsedSeconds: tick, ground: inset)
+        jittery.advance(elapsedSeconds: tick, ground: inset + 30)
+        var jitterPhases: [GroundBodyPhase] = []
+        for index in 0..<30 {
+            jittery.advance(elapsedSeconds: tick, ground: inset + 30 + (index.isMultiple(of: 2) ? 0.25 : 0))
+            jitterPhases.append(jittery.phase)
+        }
+        #expect(launches(jitterPhases) == 1)
+        #expect(jitterPhases.firstIndex(of: .rising).map { index in index <= 4 } == true)
+
+        var sinking = GroundBody(height: inset)
+        sinking.advance(elapsedSeconds: tick, ground: inset)
+        sinking.advance(elapsedSeconds: tick, ground: inset + 30)
+        var floor = inset + 30
+        var sinkingPhases: [GroundBodyPhase] = []
+        for _ in 0..<20 {
+            floor -= 0.8
+            sinking.advance(elapsedSeconds: tick, ground: floor)
+            sinkingPhases.append(sinking.phase)
+        }
+        #expect(launches(sinkingPhases) == 0)
+        for _ in 0..<10 {
+            sinking.advance(elapsedSeconds: tick, ground: floor)
+            sinkingPhases.append(sinking.phase)
+        }
+        #expect(launches(sinkingPhases) == 1)
     }
 
     @Test func aJumpStartedOnARisingDockLeavesTheRide() {
@@ -638,6 +677,7 @@ struct PetGroundTests {
         PetGround { DockGround(sensing: sensing, screenFrames: { [screenFrame] }) }
     }
 
+    // The controller's tick order, by hand: refresh, the animator's step, finishStep, the body, then the render.
     private func step(_ presence: PetPresence, ground: PetGround, now: Double, standsOnDock: Bool = true, sawWait: inout Bool) -> CGFloat {
         ground.refresh(standsOnDock: standsOnDock, screenFrames: screenFrames, now: now, elapsedSeconds: tick)
         var waitedThisTick = false
@@ -792,6 +832,26 @@ struct PetGroundTests {
         }
         #expect(sawWait)
         checkFlight(shown, landing: landing, hop: true, label: "hop")
+        presence.window.close()
+    }
+
+    @Test func aPackWithoutFlightFramesKeepsItsStandInsOnTheirOwnClock() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = CGRect(x: 300, y: 1033, width: 600, height: 74)
+        let ground = makeGround(sensing)
+        let presence = makePresence(home: 234)
+        let frames = PetSpriteFrames()
+        var sawWait = false
+        var airborneTicks = 0
+        for index in 0..<120 {
+            _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
+            guard presence.groundBody?.isAirborne == true, let shown = frames.shownFrame(for: presence) else { continue }
+            airborneTicks += 1
+            let standIn = shown.animationName.frames(in: presence.spriteSheet)
+            #expect(shown.animationName != presence.shownAnimationName)
+            #expect(shown.frameIndex == presence.animator.frameTick % standIn.count)
+        }
+        #expect(airborneTicks > 5)
         presence.window.close()
     }
 
