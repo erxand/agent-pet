@@ -19,6 +19,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var lanePetKeys: [String] = []
     private var groundPets: [PetPresence] = []
     private var minimumGroundGap: CGFloat = 0
+    private var screenChangedSincePlan = false
     private let spriteFrames = PetSpriteFrames()
     private var lastPetSessionsSignature: SessionsDirectorySignature?
     private var lastClaudeSessionsSignature: SessionSourceSignature?
@@ -78,6 +79,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         let oldFrame = homeScreenFrame ?? screenFrames.visibleFrame
         homeScreenFrame = screenFrames.visibleFrame
+        if oldFrame != screenFrames.visibleFrame { screenChangedSincePlan = true }
         for presence in presencesBySessionId.values {
             presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
                 presence.homeHorizontalCenter,
@@ -279,7 +281,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let settleDue = nextSettleDeadline.map { deadline in now >= deadline } ?? false
         let visibilityChanged = updateStates(now: now, forced: rescanForced)
 
-        if petSessionsChanged || claudeSessionsChanged || settleDue || visibilityChanged {
+        if petSessionsChanged || claudeSessionsChanged || settleDue || visibilityChanged || screenChangedSincePlan {
             applyRecords(store.list(), claudeSessions: currentClaudeSessions())
         }
     }
@@ -351,6 +353,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
         lanePetKeys = items.map { item in item.petKey }
         assignLanes(newcomers: newcomers, screenFrame: screenFrames.visibleFrame)
+        screenChangedSincePlan = false
         for petKey in lanePetKeys {
             guard let presence = presencesBySessionId[petKey] else { continue }
             applyGeometry(to: presence, screenFrames: screenFrames)
@@ -360,6 +363,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private func followScreen(to visibleFrame: CGRect) {
         defer { homeScreenFrame = visibleFrame }
         guard let oldFrame = homeScreenFrame, oldFrame != visibleFrame else { return }
+        screenChangedSincePlan = true
         for presence in presencesBySessionId.values {
             presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
                 presence.homeHorizontalCenter,
@@ -398,6 +402,16 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             }
             presence.homeHorizontalCenter = home
             presence.animator.limitWander(to: wanderHalfWidth)
+        }
+        sendCrowdedNeighboursHome()
+    }
+
+    private func sendCrowdedNeighboursHome() {
+        sortGroundPets()
+        for (left, right) in zip(groundPets, groundPets.dropFirst())
+            where groundCenter(of: right) - groundCenter(of: left) < minimumGroundGap {
+            left.animator.walkHomeNow()
+            right.animator.walkHomeNow()
         }
     }
 
