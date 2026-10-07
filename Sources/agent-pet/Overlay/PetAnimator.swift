@@ -37,7 +37,7 @@ final class PetAnimator {
     private(set) var chromeOpacity: Double = PetAnimator.transparentChrome
     private(set) var groundAnimationProgress: Double = 0
     private(set) var isWalkingHome = false
-    private(set) var wanderHalfWidth: CGFloat = LaneLayout.wanderHalfWidth
+    private(set) var wanderHalfWidth: CGFloat = LaneLayout.initialWanderHalfWidth
 
     private var frameClockInSeconds: Double = 0
     private var remainingActivityInSeconds: Double = 0
