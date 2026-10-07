@@ -26,9 +26,12 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `emerge.txt` and `dive.txt` are optional, 3 frames each. They play once while the pet rises
   out of the ground as it appears and drops back into it as it hides. A pack without them holds
   `idle` frame 0 for both moves.
-- `jump.txt` and `fall.txt` are optional, 2 frames each, looped at 8 fps. `jump` plays while the
-  pet is going up (a hop onto the Dock, or being sprung up by it) and `fall` while it is coming
-  down (off the Dock, off its edge, or out of a float). A pack without `jump.txt` shows `walk`
+- `jump.txt` and `fall.txt` are optional, 2 frames each, and they do not loop: the pet picks the
+  frame from where it is in the air. `jump` frame 0 is the takeoff crouch, shown once for a tick
+  or two when the pet hops onto the Dock; frame 1 is the stretch, held while it rises. Being sprung
+  up by the Dock skips the crouch. `fall` frame 0 is the apex, shown for the first 0.15 s of a fall;
+  frame 1 is the later fall, held until it lands. `fall` plays off the Dock, off its edge, and out
+  of a float (where it loops at 8 fps like `walk`). A pack without `jump.txt` shows `walk`
   instead, and one without `fall.txt` shows `idle`.
 - Every other color is fixed by the palette. `.` is transparent, and so is any character that is
   not in `palette`. No character is reserved: only the `accentInks` characters ever change color.

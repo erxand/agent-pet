@@ -908,7 +908,7 @@ sprites/<pack-name>/
   idle.txt       frames of <frameSize> rows, separated by one blank line
   walk.txt, wave.txt, sit.txt
   emerge.txt, dive.txt         optional, 3 frames each recommended
-  jump.txt, fall.txt           optional, 2 frames each recommended, looped at 8 fps
+  jump.txt, fall.txt           optional, 2 frames each: picked by flight phase, never looped
 ```
 
 - Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
@@ -939,7 +939,14 @@ sprites/<pack-name>/
   one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
   different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
-- `jump.txt` and `fall.txt` are optional and loop like `walk`. The fallback rule is
+- `jump.txt` and `fall.txt` are optional and do not loop: `GroundBody.frameIndex` picks the frame from the flight
+  phase. `jump` frame 0 is the takeoff crouch, shown only for the first 0.07 s of a hop the pet makes itself
+  (`crouchSeconds`, one or two ticks); frame 1 is the stretch, held for the rest of the rise. A spring from the Dock
+  skips the crouch and shows the stretch at once. `fall` frame 0 is the apex, shown for the first 0.15 s of a fall
+  (`firstFallFrameSeconds`); frame 1 is the later fall, held until the pet lands. Each phase change starts its own
+  frames again, and a frame a pack does not have falls back to its last frame. The overlay renders a pet after its
+  body has moved, so the launch tick already shows the rise and the touchdown tick shows the ground animation. A
+  float's fall still uses the 8 fps clock. The fallback rule is
   `SpriteAnimationName.standIn`: a pack without `jump.txt` plays `walk` for it, and one without `fall.txt` plays
   `idle`, which is what every pet showed in those moments before the files existed. `shown(in:)` applies it, then
   the first animation the pack has.
@@ -963,8 +970,9 @@ sprites/<pack-name>/
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
   then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
-  jump 2 = crouch with the legs tucked, then stretched upward with the arms or ears up. fall 2 = arms or ears up and
-  eyes wide, then the same with the body a pixel longer (a flutter); the frames face right like the rest.
+  jump 2 = frame 0 a takeoff crouch with the legs tucked (shown once, at takeoff), frame 1 stretched upward with the
+  arms or ears up (held while rising). fall 2 = frame 0 the apex, arms or ears up and eyes wide; frame 1 the later
+  fall, the body a pixel longer. Neither needs to loop; the frames face right like the rest.
 
 ## Demo
 

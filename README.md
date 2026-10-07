@@ -391,7 +391,7 @@ sprites/README.md for the full rules.
 <pack-name>/pack.json                    name, frameSize, optional accent and accentInks, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
-<pack-name>/jump.txt fall.txt            optional, 2 frames each; without them a jump shows walk and a fall shows idle
+<pack-name>/jump.txt fall.txt            optional, 2 frames each (takeoff, rise; apex, later fall); without them a jump shows walk and a fall shows idle
 ```
 
 Every color in a pack comes from its palette, except the inks named in the optional `accentInks`

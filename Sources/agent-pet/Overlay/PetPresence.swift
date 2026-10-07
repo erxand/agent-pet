@@ -23,6 +23,11 @@ final class PetPresence {
         spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName
     }
 
+    var groundBodyFrameIndex: Int? {
+        guard spaceMotion == nil, animator.isGrounded else { return nil }
+        return groundBody?.frameIndex
+    }
+
     private var groundBodyAnimationName: SpriteAnimationName? {
         guard animator.isGrounded else { return nil }
         return groundBody?.animationName

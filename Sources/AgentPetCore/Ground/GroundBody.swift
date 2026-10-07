@@ -8,6 +8,24 @@ package enum GroundBodyPhase: Equatable {
     case falling
 }
 
+extension GroundBodyPhase {
+    fileprivate enum Kind: Equatable {
+        case standing
+        case riding
+        case rising
+        case falling
+    }
+
+    fileprivate var kind: Kind {
+        switch self {
+        case .standing: return .standing
+        case .riding: return .riding
+        case .rising: return .rising
+        case .falling: return .falling
+        }
+    }
+}
+
 package struct GroundBody: Equatable {
     package static let gravity: CGFloat = SpaceMotion.fallAcceleration
     package static let restingTolerance: CGFloat = 1
@@ -19,11 +37,18 @@ package struct GroundBody: Equatable {
     package static let rideSettleSeconds: Double = 0.1
     package static let springMinimumRise: CGFloat = 8
     package static let maximumJumpHeight: CGFloat = 160
+    package static let crouchSeconds: Double = 0.07
+    package static let firstFallFrameSeconds: Double = 0.15
+    package static let takeoffFrame = 0
+    package static let risingFrame = 1
+    package static let apexFrame = 0
+    package static let laterFallFrame = 1
 
     package private(set) var height: CGFloat
     package private(set) var velocity: CGFloat = 0
     package private(set) var phase: GroundBodyPhase = .standing
     package private(set) var isJumping = false
+    package private(set) var phaseSeconds: Double = 0
     private var lastGround: CGFloat?
 
     package init(height: CGFloat) {
@@ -45,7 +70,24 @@ package struct GroundBody: Equatable {
         }
     }
 
+    package var frameIndex: Int? {
+        switch phase {
+        case .rising:
+            return isJumping && phaseSeconds <= GroundBody.crouchSeconds ? GroundBody.takeoffFrame : GroundBody.risingFrame
+        case .falling:
+            return phaseSeconds < GroundBody.firstFallFrameSeconds ? GroundBody.apexFrame : GroundBody.laterFallFrame
+        case .standing, .riding:
+            return nil
+        }
+    }
+
     package mutating func advance(elapsedSeconds: Double, ground newGround: CGFloat) {
+        let phaseBefore = phase.kind
+        step(elapsedSeconds: elapsedSeconds, ground: newGround)
+        phaseSeconds = phase.kind == phaseBefore ? phaseSeconds + elapsedSeconds : 0
+    }
+
+    private mutating func step(elapsedSeconds: Double, ground newGround: CGFloat) {
         guard elapsedSeconds > 0 else {
             lastGround = newGround
             if height < newGround { land(on: newGround, groundVelocity: 0, from: height) }
@@ -86,6 +128,7 @@ package struct GroundBody: Equatable {
         velocity = (2 * GroundBody.gravity * (rise + GroundBody.jumpClearance)).squareRoot()
         isJumping = true
         phase = .rising
+        phaseSeconds = 0
         return false
     }
 

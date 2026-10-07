@@ -593,9 +593,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 submergedSessionIds.append(presence.sessionId)
                 continue
             }
+            if !presence.animator.isDiving {
+                applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
+            }
             renderSprite(for: presence)
-            guard !presence.animator.isDiving else { continue }
-            applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
         }
         for sessionId in submergedSessionIds {
             removePresence(sessionId: sessionId)

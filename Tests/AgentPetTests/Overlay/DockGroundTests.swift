@@ -279,6 +279,20 @@ struct GroundBodyTests {
         #expect(!body.isJumping)
     }
 
+    @Test func aLongFallShowsTheApexFrameFirstThenTheLaterFrame() {
+        var body = GroundBody(height: top)
+        var frames: [Int] = []
+        for _ in 0..<40 {
+            body.advance(elapsedSeconds: tick, ground: inset)
+            if let frame = body.frameIndex { frames.append(frame) }
+        }
+        let apexTicks = frames.prefix { frame in frame == GroundBody.apexFrame }.count
+        #expect(apexTicks == Int((GroundBody.firstFallFrameSeconds / tick).rounded(.up)))
+        #expect(frames.dropFirst(apexTicks).allSatisfy { frame in frame == GroundBody.laterFallFrame })
+        #expect(frames.count > apexTicks)
+        #expect(body.frameIndex == nil)
+    }
+
     @Test func aSmallRiseCarriesThePetWithoutASpring() {
         var body = GroundBody(height: inset)
         body.advance(elapsedSeconds: tick, ground: inset)
@@ -690,55 +704,94 @@ struct PetGroundTests {
         presence.window.close()
     }
 
-    private func assertOneFallThenGround(_ shown: [SpriteAnimationName], landing: Int?, label: String) {
-        let falls = zip([SpriteAnimationName.idle] + shown, shown).filter { previous, current in previous != .fall && current == .fall }.count
-        #expect(falls == 1, "\(label): \(shown)")
-        let firstJump = shown.firstIndex(of: .jump)
-        let firstFall = shown.firstIndex(of: .fall)
-        #expect(firstJump != nil && firstFall != nil && firstJump! < firstFall!, "\(label): \(shown)")
-        guard let landing else {
-            Issue.record("\(label): never landed")
-            return
-        }
-        #expect(shown[landing...].allSatisfy { animation in animation != .jump && animation != .fall }, "\(label): \(shown)")
+    private struct ShownFrame: Equatable, CustomStringConvertible {
+        let animationName: SpriteAnimationName
+        let frameIndex: Int
+
+        var description: String { "\(animationName)[\(frameIndex)]" }
     }
 
-    @Test func aSpringShowsJumpThenOneFallAndLandsStraightIntoItsGroundAnimation() {
+    private static let flightSheet: SpriteSheet = {
+        let claude = SpriteSheet.claude8Bit
+        return SpriteSheet(
+            idle: claude.idle, walk: claude.walk, wave: claude.wave, sit: claude.sit,
+            emerge: claude.emerge, dive: claude.dive,
+            jump: [claude.walk[0], claude.walk[1]], fall: [claude.idle[0], claude.idle[1]]
+        )
+    }()
+
+    private func record(_ presence: PetPresence, frames: PetSpriteFrames) -> ShownFrame? {
+        frames.shownFrame(for: presence).map { shown in ShownFrame(animationName: shown.animationName, frameIndex: shown.frameIndex) }
+    }
+
+    private func checkFlight(_ shown: [ShownFrame], landing: Int?, hop: Bool, label: String) {
+        let names = shown.map { frame in frame.animationName }
+        let falls = zip([SpriteAnimationName.idle] + names, names).filter { previous, current in previous != .fall && current == .fall }.count
+        #expect(falls == 1, "\(label): \(shown)")
+        guard let firstJump = names.firstIndex(of: .jump), let firstFall = names.firstIndex(of: .fall), let landing else {
+            Issue.record("\(label): no jump, fall or landing in \(shown)")
+            return
+        }
+        #expect(firstJump < firstFall, "\(label): \(shown)")
+        #expect(names[landing...].allSatisfy { name in name != .jump && name != .fall }, "\(label): \(shown)")
+        let jumps = shown[firstJump..<firstFall]
+        let crouches = jumps.prefix { frame in frame.frameIndex == GroundBody.takeoffFrame }.count
+        let laterCrouches = jumps.dropFirst(crouches).filter { frame in frame.frameIndex == GroundBody.takeoffFrame }.count
+        #expect(laterCrouches == 0, "\(label): \(shown)")
+        if hop {
+            #expect(crouches >= 1 && crouches <= 2, "\(label): \(shown)")
+        } else {
+            #expect(crouches == 0, "\(label): \(shown)")
+        }
+        let fallFrames = shown[firstFall..<landing].map { frame in frame.frameIndex }
+        #expect(fallFrames.first == GroundBody.apexFrame, "\(label): \(shown)")
+        #expect(fallFrames == fallFrames.sorted(), "\(label): \(shown)")
+    }
+
+    @Test func aSpringShowsTheStretchThenOneFallAndLandsStraightIntoItsGroundAnimation() {
         let sensing = FakeDockSensing()
         sensing.pointer = CGPoint(x: 800, y: 20)
         sensing.listFrame = hiddenListFrame
         let ground = makeGround(sensing)
         let presence = makePresence(home: 800)
+        presence.spriteSheet = PetGroundTests.flightSheet
+        let frames = PetSpriteFrames()
         var sawWait = false
         for index in 0..<20 { _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait) }
-        var shown: [SpriteAnimationName] = []
+        var shown: [ShownFrame] = []
         var landing: Int?
         for index in 0..<60 {
             let progress = easeOut(Double(index) * tick / DockSlide.showSeconds)
             sensing.listFrame = CGRect(x: 76, y: 1117 - 84 * progress, width: 1576, height: 74)
             _ = step(presence, ground: ground, now: Double(20 + index) * tick, sawWait: &sawWait)
-            shown.append(presence.shownAnimationName)
-            if landing == nil, shown.contains(.fall), presence.groundBody?.phase == .standing { landing = index }
+            if let frame = record(presence, frames: frames) { shown.append(frame) }
+            if landing == nil, shown.contains(where: { frame in frame.animationName == .fall }), presence.groundBody?.phase == .standing {
+                landing = shown.count - 1
+            }
         }
-        assertOneFallThenGround(shown, landing: landing, label: "spring")
+        checkFlight(shown, landing: landing, hop: false, label: "spring")
         presence.window.close()
     }
 
-    @Test func anEdgeHopShowsJumpThenOneFallAndLandsStraightIntoItsGroundAnimation() {
+    @Test func anEdgeHopCrouchesOnlyAtTakeoffThenOneFallAndLandsStraightIntoItsGroundAnimation() {
         let sensing = FakeDockSensing()
         sensing.listFrame = CGRect(x: 300, y: 1033, width: 600, height: 74)
         let ground = makeGround(sensing)
         let presence = makePresence(home: 234)
+        presence.spriteSheet = PetGroundTests.flightSheet
+        let frames = PetSpriteFrames()
         var sawWait = false
-        var shown: [SpriteAnimationName] = []
+        var shown: [ShownFrame] = []
         var landing: Int?
         for index in 0..<120 {
             _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
-            shown.append(presence.shownAnimationName)
-            if landing == nil, shown.contains(.fall), presence.groundBody?.phase == .standing { landing = index }
+            if let frame = record(presence, frames: frames) { shown.append(frame) }
+            if landing == nil, shown.contains(where: { frame in frame.animationName == .fall }), presence.groundBody?.phase == .standing {
+                landing = shown.count - 1
+            }
         }
         #expect(sawWait)
-        assertOneFallThenGround(shown, landing: landing, label: "hop")
+        checkFlight(shown, landing: landing, hop: true, label: "hop")
         presence.window.close()
     }
 
