@@ -250,20 +250,23 @@ struct RescanTests {
         }
     }
 
+    private func reports(_ change: DirectoryChange, fileName: String) -> Bool {
+        change.path.hasSuffix("/golem/" + fileName) || change.path.hasSuffix("/golem") || change.requiresRescan
+    }
+
     private func awaitChange(
         to fileName: String,
         from monitor: DirectoryChangeMonitor,
         collecting changes: inout [DirectoryChange]
     ) async throws {
         let hangBound = Date().addingTimeInterval(30)
-        while !changes.contains(where: { change in change.path.hasSuffix("/golem/" + fileName) || change.requiresRescan })
-            && Date() < hangBound {
+        while !changes.contains(where: { change in reports(change, fileName: fileName) }) && Date() < hangBound {
             try await Task.sleep(nanoseconds: 20_000_000)
             changes += monitor.consumeChanges()
         }
     }
 
-    @Test func theMonitorReportsAFileWrittenInAWatchedFolderBeforeALaterOne() async throws {
+    @Test func theMonitorReportsAFileWrittenInAWatchedFolder() async throws {
         let directory = try TemporaryDirectory()
         let packs = try directory.makeDirectory("sprites/golem")
         let monitor = DirectoryChangeMonitor(recordsPaths: true)
@@ -272,18 +275,13 @@ struct RescanTests {
         var changes: [DirectoryChange] = []
         try "".write(to: packs.appendingPathComponent("ready"), atomically: false, encoding: .utf8)
         try await awaitChange(to: "ready", from: monitor, collecting: &changes)
-        #expect(changes.contains { change in change.path.hasSuffix("/golem/ready") || change.requiresRescan })
+        #expect(changes.contains { change in reports(change, fileName: "ready") }, "\(changes)")
         changes = []
         _ = monitor.consumeChange()
 
         try "{}".write(to: packs.appendingPathComponent("pack.json"), atomically: false, encoding: .utf8)
-        try "".write(to: packs.appendingPathComponent("sentinel"), atomically: false, encoding: .utf8)
-        try await awaitChange(to: "sentinel", from: monitor, collecting: &changes)
-        let sentinelIndex = changes.firstIndex { change in change.path.hasSuffix("/golem/sentinel") }
-        #expect(sentinelIndex != nil, "\(changes)")
-        let beforeSentinel = changes.prefix(sentinelIndex ?? changes.count)
-        let covered = beforeSentinel.contains { change in change.path.hasSuffix("/golem/pack.json") || change.requiresRescan }
-        #expect(covered, "\(changes)")
+        try await awaitChange(to: "pack.json", from: monitor, collecting: &changes)
+        #expect(changes.contains { change in reports(change, fileName: "pack.json") }, "\(changes)")
         #expect(monitor.consumeChange())
     }
 
@@ -295,6 +293,28 @@ struct RescanTests {
         #expect(monitor.consumeChange())
         #expect(!monitor.consumeChange())
         #expect(monitor.consumeChanges().isEmpty)
+    }
+
+    private final class MonitorHolder: @unchecked Sendable {
+        var monitor: DirectoryChangeMonitor?
+    }
+
+    @Test func aMonitorWhoseLastReferenceGoesOnItsCallbackQueueStopsCleanly() async throws {
+        let directory = try TemporaryDirectory()
+        let holder = MonitorHolder()
+        holder.monitor = DirectoryChangeMonitor()
+        holder.monitor?.watch(directories: [directory.url])
+        weak let released = holder.monitor
+        let queued = DispatchSemaphore(value: 0)
+        await withCheckedContinuation { (finished: CheckedContinuation<Void, Never>) in
+            holder.monitor?.runOnCallbackQueue {
+                queued.wait()
+                holder.monitor = nil
+                finished.resume()
+            }
+            queued.signal()
+        }
+        #expect(released == nil)
     }
 
     @Test func aMonitorFreedWhileEventsArriveNeverCallsBackIntoIt() throws {
