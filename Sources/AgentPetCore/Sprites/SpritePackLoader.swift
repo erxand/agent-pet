@@ -99,6 +99,10 @@ package struct SpritePackLoader {
         return result
     }
 
+    package func searchDirectories() -> [URL] {
+        searchRoots().compactMap { root in root.url }
+    }
+
     private struct SearchRoot {
         let url: URL?
         let configuredPath: String

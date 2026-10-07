@@ -129,6 +129,10 @@ package enum CommandFeedback {
       packs            list installed sprite packs with accent, reserved, and live pet count
       capabilities     print one word per line naming each feature this build has
       demo             play a short tour on the desktop. It changes no session.
+      physics          ground | float | auto: float makes every pet drift and spin, ground lands them
+      input            on | off | auto: off makes every pet click-through and never take focus
+      visibility       shown | hidden | auto: hidden sends every pet under, records untouched
+      level            normal | above <bundle id> | auto: draw pets just above that app's windows
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

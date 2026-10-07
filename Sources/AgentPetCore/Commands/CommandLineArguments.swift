@@ -18,6 +18,10 @@ enum CommandName: String, CaseIterable {
     case packs
     case capabilities
     case demo
+    case physics
+    case input
+    case visibility
+    case level
 }
 
 enum CommandFlag: String, CaseIterable {
@@ -93,6 +97,7 @@ struct ParsedFlags {
 
 enum ExitCode {
     static let success: Int32 = 0
+    static let failure: Int32 = 1
     static let usage: Int32 = 2
 }
 

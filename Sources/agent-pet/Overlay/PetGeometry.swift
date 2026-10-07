@@ -101,6 +101,7 @@ struct OverlayScreenFrames {
     private static let fallbackFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
     let visibleFrame: CGRect
+    let screenFrame: CGRect
 
     static func current(chooser: DisplayChooser) -> OverlayScreenFrames {
         let screens = NSScreen.screens
@@ -112,8 +113,9 @@ struct OverlayScreenFrames {
             focusedIndex: focusedIndex
         )
         guard let chosenIndex = chooser.chosenIndex(among: displays) else {
-            return OverlayScreenFrames(visibleFrame: fallbackFrame)
+            return OverlayScreenFrames(visibleFrame: fallbackFrame, screenFrame: fallbackFrame)
         }
-        return OverlayScreenFrames(visibleFrame: screens[chosenIndex].visibleFrame)
+        let screen = screens[chosenIndex]
+        return OverlayScreenFrames(visibleFrame: screen.visibleFrame, screenFrame: screen.frame)
     }
 }

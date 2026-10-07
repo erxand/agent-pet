@@ -99,8 +99,26 @@ package enum DemoScript {
         )
     ]
 
+    package static let extraScenes: [DemoScene] = [
+        DemoScene(
+            name: .space,
+            caption: "A script can float the pets over anything, like a screensaver. Back on the ground, they walk home.",
+            durationInSeconds: 15,
+            labelPlacement: .pill,
+            steps: [
+                DemoStep(offsetInSeconds: 0.4, action: .show(actorId: ActorId.refactor, mood: .ready, message: "Refactor done")),
+                DemoStep(offsetInSeconds: 0.6, action: .show(actorId: ActorId.migrate, mood: .needsInput, message: "Run the migration?")),
+                DemoStep(offsetInSeconds: 0.8, action: .show(actorId: ActorId.deploy, mood: .ready, message: "Deployed")),
+                DemoStep(offsetInSeconds: 2, action: .showScreensaver),
+                DemoStep(offsetInSeconds: 9, action: .hideScreensaver),
+                DemoStep(offsetInSeconds: 14, action: .hide(actorIds: [ActorId.refactor, ActorId.migrate, ActorId.deploy]))
+            ],
+            holdOffsetInSeconds: 13.5
+        )
+    ]
+
     package static func scene(named name: DemoSceneName) -> DemoScene? {
-        scenes.first { scene in scene.name == name }
+        (scenes + extraScenes).first { scene in scene.name == name }
     }
 
     package static var totalDurationInSeconds: Double {
