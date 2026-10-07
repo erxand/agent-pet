@@ -347,7 +347,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 message: item.message,
                 bubbleCaption: item.bubbleCaption,
                 labelPlacement: contracts.configuration.labelPlacement,
-                spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize)
+                spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize),
+                feetFlush: contracts.configuration.groundGap != nil
             ).fitted(toWidth: widthPerPet)
             let presence = presencesBySessionId[item.petKey]
                 ?? makePresence(
@@ -476,7 +477,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             standsOnDock: contracts.configuration.standsOnDock,
             screenFrames: screenFrames,
             now: ProcessInfo.processInfo.systemUptime,
-            elapsedSeconds: elapsedSeconds
+            elapsedSeconds: elapsedSeconds,
+            bottomInset: contracts.configuration.groundGap ?? PetGeometry.windowBottomInset
         )
     }
 

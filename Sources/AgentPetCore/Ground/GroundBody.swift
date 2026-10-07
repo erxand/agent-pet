@@ -3,27 +3,9 @@ import Foundation
 
 package enum GroundBodyPhase: Equatable {
     case standing
-    case riding(start: CGFloat, stillSeconds: Double)
+    case riding
     case rising
     case falling
-}
-
-extension GroundBodyPhase {
-    fileprivate enum Kind: Equatable {
-        case standing
-        case riding
-        case rising
-        case falling
-    }
-
-    fileprivate var kind: Kind {
-        switch self {
-        case .standing: return .standing
-        case .riding: return .riding
-        case .rising: return .rising
-        case .falling: return .falling
-        }
-    }
 }
 
 package struct GroundBody: Equatable {
@@ -32,12 +14,10 @@ package struct GroundBody: Equatable {
     package static let stepUpTolerance: CGFloat = 2
     package static let jumpClearance: CGFloat = 16
     package static let springOvershoot: CGFloat = 16
-    package static let springSpeed: CGFloat = (2 * gravity * springOvershoot).squareRoot()
     package static let rideSpeed: CGFloat = 60
-    package static let rideSettleSeconds: Double = 0.1
-    package static let stillFloorTolerance: CGFloat = 0.5
-    private static let settleEpsilon: Double = 1e-9
-    package static let springMinimumRise: CGFloat = 8
+    package static let floorVelocitySamples = 3
+    package static let rideHoldTicks = 1
+    package static let rideGap: CGFloat = 3
     package static let maximumJumpHeight: CGFloat = 160
     package static let crouchSeconds: Double = 0.07
     package static let firstFallFrameSeconds: Double = 0.15
@@ -52,9 +32,15 @@ package struct GroundBody: Equatable {
     package private(set) var isJumping = false
     package private(set) var phaseSeconds: Double = 0
     private var lastGround: CGFloat?
+    private var floorVelocities: [CGFloat] = []
+    private var ticksSincePush = 0
 
     package init(height: CGFloat) {
         self.height = height
+    }
+
+    package static func speedToPeak(from height: CGFloat, at apex: CGFloat) -> CGFloat {
+        (2 * gravity * max(0, apex - height)).squareRoot()
     }
 
     package var isAirborne: Bool {
@@ -83,40 +69,58 @@ package struct GroundBody: Equatable {
         }
     }
 
-    package mutating func advance(elapsedSeconds: Double, ground newGround: CGFloat) {
-        let phaseBefore = phase.kind
-        step(elapsedSeconds: elapsedSeconds, ground: newGround)
-        phaseSeconds = phase.kind == phaseBefore ? phaseSeconds + elapsedSeconds : 0
+    package mutating func advance(
+        elapsedSeconds: Double,
+        ground newGround: CGFloat,
+        floorRise: CGFloat? = nil,
+        restingGround: CGFloat? = nil
+    ) {
+        let phaseBefore = phase
+        step(elapsedSeconds: elapsedSeconds, ground: newGround, floorRise: floorRise, restingGround: restingGround)
+        phaseSeconds = phase == phaseBefore ? phaseSeconds + elapsedSeconds : 0
     }
 
-    private mutating func step(elapsedSeconds: Double, ground newGround: CGFloat) {
+    private mutating func step(elapsedSeconds: Double, ground newGround: CGFloat, floorRise: CGFloat?, restingGround: CGFloat?) {
         guard elapsedSeconds > 0 else {
             lastGround = newGround
-            if height < newGround { land(on: newGround, groundVelocity: 0, from: height) }
+            if height < newGround { settle(on: newGround) }
             return
         }
         let seconds = CGFloat(elapsedSeconds)
-        let groundVelocity = lastGround.map { previousGround in (newGround - previousGround) / seconds } ?? 0
+        let rise = floorRise ?? lastGround.map { previousGround in newGround - previousGround } ?? 0
+        let rawFloorVelocity = rise / seconds
         lastGround = newGround
-        let heightBeforeStep = height
-        if case .riding(let start, let stillSeconds) = phase {
-            guard ride(start: start, stillSeconds: stillSeconds, elapsedSeconds: elapsedSeconds, ground: newGround, groundVelocity: groundVelocity) else {
-                return
-            }
-        }
+        floorVelocities.append(rawFloorVelocity)
+        if floorVelocities.count > GroundBody.floorVelocitySamples { floorVelocities.removeFirst() }
+        let floorVelocity = floorVelocities.reduce(0, +) / CGFloat(floorVelocities.count)
+
         let launchVelocity = velocity
         velocity -= GroundBody.gravity * seconds
         height += (launchVelocity + velocity) / 2 * seconds
         if height <= newGround {
-            land(on: newGround, groundVelocity: groundVelocity, from: heightBeforeStep)
+            guard floorVelocity > GroundBody.rideSpeed else {
+                settle(on: newGround)
+                return
+            }
+            let apex = max(restingGround ?? newGround, newGround) + GroundBody.springOvershoot
+            height = newGround
+            velocity = min(floorVelocity, GroundBody.speedToPeak(from: newGround, at: apex))
+            isJumping = false
+            ticksSincePush = 0
+            phase = .riding
             return
         }
+        ticksSincePush += 1
         switch phase {
+        case .riding:
+            let clearlyAbove = height - newGround > GroundBody.rideGap
+            guard (ticksSincePush > GroundBody.rideHoldTicks && clearlyAbove) || velocity <= 0 else { return }
+            phase = velocity > 0 ? .rising : .falling
         case .standing:
             if height - newGround > GroundBody.restingTolerance { phase = velocity > 0 ? .rising : .falling }
         case .rising:
             if velocity <= 0 { phase = .falling }
-        case .falling, .riding:
+        case .falling:
             break
         }
     }
@@ -127,56 +131,17 @@ package struct GroundBody: Equatable {
         guard !isAirborne else { return false }
         let rise = nextGround - height
         guard rise <= GroundBody.maximumJumpHeight else { return false }
-        velocity = (2 * GroundBody.gravity * (rise + GroundBody.jumpClearance)).squareRoot()
+        velocity = GroundBody.speedToPeak(from: height, at: nextGround + GroundBody.jumpClearance)
         isJumping = true
         phase = .rising
         phaseSeconds = 0
         return false
     }
 
-    private mutating func ride(
-        start: CGFloat,
-        stillSeconds: Double,
-        elapsedSeconds: Double,
-        ground newGround: CGFloat,
-        groundVelocity: CGFloat
-    ) -> Bool {
-        let floorMove = groundVelocity * CGFloat(elapsedSeconds)
-        let pulledAway = groundVelocity < -GroundBody.rideSpeed || newGround < height - GroundBody.restingTolerance
-        guard !pulledAway else {
-            phase = .standing
-            velocity = 0
-            return true
-        }
+    private mutating func settle(on newGround: CGFloat) {
         height = newGround
         velocity = 0
-        guard abs(floorMove) < GroundBody.stillFloorTolerance else {
-            phase = .riding(start: start, stillSeconds: 0)
-            return false
-        }
-        let settledFor = stillSeconds + elapsedSeconds
-        guard settledFor + GroundBody.settleEpsilon >= GroundBody.rideSettleSeconds else {
-            phase = .riding(start: start, stillSeconds: settledFor)
-            return false
-        }
-        guard height - start >= GroundBody.springMinimumRise else {
-            phase = .standing
-            return false
-        }
-        velocity = GroundBody.springSpeed
-        phase = .rising
-        return true
-    }
-
-    private mutating func land(on newGround: CGFloat, groundVelocity: CGFloat, from heightBeforeStep: CGFloat) {
-        height = newGround
         isJumping = false
-        if groundVelocity > GroundBody.rideSpeed {
-            velocity = 0
-            phase = .riding(start: min(heightBeforeStep, newGround), stillSeconds: 0)
-            return
-        }
-        velocity = min(groundVelocity, 0)
         phase = .standing
     }
 }
@@ -186,7 +151,8 @@ package enum GroundPlacement {
         body: inout GroundBody?,
         profile: GroundProfile,
         span: ClosedRange<CGFloat>,
-        elapsedSeconds: Double
+        elapsedSeconds: Double,
+        previousProfile: GroundProfile? = nil
     ) -> CGFloat {
         switch profile.kind {
         case .flat:
@@ -195,7 +161,12 @@ package enum GroundPlacement {
         case .dock:
             let ground = profile.height(over: span)
             var settled = body ?? GroundBody(height: ground)
-            settled.advance(elapsedSeconds: elapsedSeconds, ground: ground)
+            settled.advance(
+                elapsedSeconds: elapsedSeconds,
+                ground: ground,
+                floorRise: previousProfile.map { previous in ground - previous.height(over: span) },
+                restingGround: profile.restingHeight(over: span)
+            )
             body = settled
             return settled.height
         }

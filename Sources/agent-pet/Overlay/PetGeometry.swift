@@ -34,37 +34,63 @@ enum PetGeometry {
     static let bubbleBobRadiansPerSecond: Double = 4
 
     static func spriteBaseline(labelPlacement: LabelPlacement) -> CGFloat {
-        switch labelPlacement {
-        case .pill: return labelPillHeight + verticalGap
-        case .nametag: return verticalGap
-        }
+        spriteBaseline(layout: LabelLayout(placement: labelPlacement))
+    }
+
+    static func spriteBaseline(layout: LabelLayout) -> CGFloat {
+        if layout.labelUnderFeet { return labelPillHeight + verticalGap }
+        return layout.feetFlush ? 0 : verticalGap
     }
 
     static func spritePixelSideLength(frameSize: Int) -> CGFloat {
         CGFloat(frameSize * spriteScale)
     }
 
-    static func submergedGroundOffset(spriteSideLength: CGFloat, labelPlacement: LabelPlacement) -> CGFloat {
-        spriteBaseline(labelPlacement: labelPlacement) + spriteSideLength
+    static func submergedGroundOffset(spriteSideLength: CGFloat, layout: LabelLayout) -> CGFloat {
+        spriteBaseline(layout: layout) + spriteSideLength
     }
 
-    static func nametagBaseline(spriteSideLength: CGFloat) -> CGFloat {
-        spriteBaseline(labelPlacement: .nametag) + spriteSideLength + verticalGap
+    static func labelOverHeadBaseline(spriteSideLength: CGFloat, layout: LabelLayout) -> CGFloat {
+        spriteBaseline(layout: layout) + spriteSideLength + verticalGap
     }
 
-    static func bubbleBaseline(spriteSideLength: CGFloat, labelPlacement: LabelPlacement) -> CGFloat {
-        switch labelPlacement {
-        case .pill:
-            return spriteBaseline(labelPlacement: .pill) + spriteSideLength + verticalGap
-        case .nametag:
-            return nametagBaseline(spriteSideLength: spriteSideLength) + nametagHeight + verticalGap
+    static func bubbleBaseline(spriteSideLength: CGFloat, layout: LabelLayout) -> CGFloat {
+        guard !layout.labelUnderFeet else {
+            return spriteBaseline(layout: layout) + spriteSideLength + verticalGap
         }
+        let labelHeight: CGFloat
+        switch layout.placement {
+        case .pill: labelHeight = labelPillHeight
+        case .nametag: labelHeight = nametagHeight
+        }
+        return labelOverHeadBaseline(spriteSideLength: spriteSideLength, layout: layout) + labelHeight + verticalGap
     }
 
     static func totalHeight(spriteSideLength: CGFloat, labelPlacement: LabelPlacement) -> CGFloat {
-        bubbleBaseline(spriteSideLength: spriteSideLength, labelPlacement: labelPlacement)
+        totalHeight(spriteSideLength: spriteSideLength, layout: LabelLayout(placement: labelPlacement))
+    }
+
+    static func totalHeight(spriteSideLength: CGFloat, layout: LabelLayout) -> CGFloat {
+        bubbleBaseline(spriteSideLength: spriteSideLength, layout: layout)
             + bubbleSideLength
             + bubbleBobAmplitude
+    }
+}
+
+struct LabelLayout: Equatable {
+    let placement: LabelPlacement
+    let feetFlush: Bool
+
+    init(placement: LabelPlacement, feetFlush: Bool = false) {
+        self.placement = placement
+        self.feetFlush = feetFlush
+    }
+
+    var labelUnderFeet: Bool {
+        switch placement {
+        case .pill: return !feetFlush
+        case .nametag: return false
+        }
     }
 }
 

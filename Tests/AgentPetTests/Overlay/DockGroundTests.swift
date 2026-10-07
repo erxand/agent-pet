@@ -17,7 +17,14 @@ private func bar(shownFraction: CGFloat) -> CGRect {
 }
 
 private func dockProfile(_ dockBar: CGRect? = shownBar, visibleFrame: CGRect = screenFrame) -> GroundProfile {
-    GroundProfile.resolve(standsOnDock: true, screenFrame: screenFrame, visibleFrame: visibleFrame, dockBar: dockBar, bottomInset: inset)
+    GroundProfile.resolve(
+        standsOnDock: true,
+        screenFrame: screenFrame,
+        visibleFrame: visibleFrame,
+        dockBar: dockBar,
+        dockRestingTop: shownBar.maxY,
+        bottomInset: inset
+    )
 }
 
 private func span(_ centerX: CGFloat) -> ClosedRange<CGFloat> {
@@ -97,12 +104,21 @@ private struct Walker {
         body = GroundBody(height: profile.height(over: span(centerX)))
     }
 
+    var previousProfile: GroundProfile?
+
     mutating func step(profile: GroundProfile, walks: Bool = true) {
         if walks {
             let next = centerX + direction * PetAnimator.walkSpeedInPointsPerSecond * CGFloat(tick)
             if body.allowsStep(toGround: profile.height(over: span(next)), from: profile.height(over: span(centerX))) { centerX = next }
         }
-        body.advance(elapsedSeconds: tick, ground: profile.height(over: span(centerX)))
+        let ground = profile.height(over: span(centerX))
+        body.advance(
+            elapsedSeconds: tick,
+            ground: ground,
+            floorRise: previousProfile.map { previous in ground - previous.height(over: span(centerX)) },
+            restingGround: profile.restingHeight(over: span(centerX))
+        )
+        previousProfile = profile
     }
 }
 
@@ -110,22 +126,80 @@ private struct Walker {
 struct GroundBodyTests {
     private let top = shownBar.maxY + inset
 
-    @Test func aRisingDockSpringsAPetUpPastItsTopAndItSettlesBackOnIt() {
-        var walker = Walker(centerX: 800, profile: dockProfile(bar(shownFraction: 0)))
-        #expect(walker.body.height == inset)
-        var peak: CGFloat = 0
-        var shown: [SpriteAnimationName] = []
-        for index in 0..<60 {
-            let profile = dockProfile(bar(shownFraction: easeOut(Double(index + 1) * tick / DockSlide.showSeconds)))
-            walker.step(profile: profile, walks: false)
-            #expect(walker.body.height >= profile.height(over: span(walker.centerX)))
-            peak = max(peak, walker.body.height)
-            if let animationName = walker.body.animationName, shown.last != animationName { shown.append(animationName) }
+    private func launches(_ phases: [GroundBodyPhase]) -> Int {
+        zip([GroundBodyPhase.standing] + phases, phases).filter { previous, current in
+            previous != .rising && current == .rising
+        }.count
+    }
+
+    struct SpringTick {
+        let floor: CGFloat
+        let height: CGFloat
+        let velocity: CGFloat
+        let phase: GroundBodyPhase
+    }
+
+    static func spring(slide: (Double) -> CGFloat, step: Double = tick, stutters: Bool = false, seconds: Double = 1.5) -> [SpringTick] {
+        let finalTop = shownBar.maxY + inset
+        var body = GroundBody(height: inset)
+        var ticks: [SpringTick] = []
+        var floor = inset
+        var previousFloor = inset
+        for index in 0..<Int(seconds / step) {
+            let fresh = max(inset, bar(shownFraction: slide(Double(index) * step / DockSlide.showSeconds)).maxY + inset)
+            if !stutters || index.isMultiple(of: 2) { floor = fresh }
+            let before = body.height
+            body.advance(elapsedSeconds: step, ground: floor, floorRise: floor - previousFloor, restingGround: finalTop)
+            previousFloor = floor
+            ticks.append(SpringTick(floor: floor, height: body.height, velocity: (body.height - before) / CGFloat(step), phase: body.phase))
         }
-        #expect(abs(peak - (top + GroundBody.springOvershoot)) <= 1, "peak \(peak - top) above the top")
-        #expect(shown == [.jump, .fall])
-        #expect(walker.body.height == top)
-        #expect(!walker.body.isAirborne)
+        return ticks
+    }
+
+    static let slides: [(name: String, curve: (Double) -> CGFloat)] = [
+        ("eased", { progress in easeOut(progress) }),
+        ("smoothstep", { progress in
+            let clamped = CGFloat(min(max(progress, 0), 1))
+            return clamped * clamped * (3 - 2 * clamped)
+        }),
+        ("linear", { progress in CGFloat(min(max(progress, 0), 1)) }),
+        ("instant", { progress in progress <= 0 ? 0 : 1 })
+    ]
+
+    private func checkSpring(_ ticks: [SpringTick], step: Double, label: String) {
+        let phases = ticks.map { tick in tick.phase }
+        let rises = zip([GroundBodyPhase.standing] + phases, phases).filter { previous, current in previous != .rising && current == .rising }.count
+        let falls = zip([GroundBodyPhase.standing] + phases, phases).filter { previous, current in previous != .falling && current == .falling }.count
+        #expect(rises == 1, "\(label): \(phases)")
+        #expect(falls == 1, "\(label): \(phases)")
+        let apex = ticks.map { tick in tick.height }.max() ?? 0
+        #expect(abs(apex - (top + GroundBody.springOvershoot)) <= 1, "\(label): apex \(apex - top) above the top")
+        let gravityStep = GroundBody.gravity * CGFloat(step)
+        for index in 2..<ticks.count {
+            let floorChange = abs((ticks[index].floor - ticks[index - 1].floor) - (ticks[index - 1].floor - ticks[index - 2].floor)) / CGFloat(step)
+            let velocityChange = abs(ticks[index].velocity - ticks[index - 1].velocity)
+            if ticks[index].phase != .standing {
+                #expect(velocityChange <= gravityStep + floorChange + 1, "\(label) tick \(index): \(ticks[index - 1].velocity) to \(ticks[index].velocity)")
+            }
+            #expect(ticks[index].height >= ticks[index].floor - 0.001)
+        }
+        #expect(ticks.last?.height == top)
+        #expect(ticks.last?.phase == .standing)
+    }
+
+    @Test func aRisingDockCarriesThePetThenItArcsOnceAboutSixteenPointsAboveTheTop() {
+        for step in [1.0 / 30.0, 1.0 / 60.0] {
+            for slide in GroundBodyTests.slides {
+                checkSpring(GroundBodyTests.spring(slide: slide.curve, step: step), step: step, label: "\(slide.name) at \(step)")
+            }
+        }
+    }
+
+    @Test func aStutteredSlideStillCarriesThePetSmoothlyAndArcsOnce() {
+        for slide in GroundBodyTests.slides.prefix(3) {
+            let ticks = GroundBodyTests.spring(slide: slide.curve, stutters: true)
+            checkSpring(ticks, step: tick, label: "stuttered \(slide.name)")
+        }
     }
 
     @Test func aPetOnTheDockFallsWhenItHidesAndLandsOnTheScreenBottom() {
@@ -189,71 +263,57 @@ struct GroundBodyTests {
         }
     }
 
-    @Test func aSpringPeaksAtItsOvershootAboveTheFinalTopWhateverTheSlideAndStep() {
-        let slides: [(Double) -> CGFloat] = [
-            { progress in easeOut(progress) },
-            { progress in CGFloat(min(max(progress, 0), 1)) },
-            { progress in progress <= 0 ? 0 : 1 }
-        ]
-        for step in [1.0 / 30.0, 1.0 / 60.0] {
-            for slide in slides {
-                var body = GroundBody(height: inset)
-                var apex = body.height
-                for index in 0..<Int(1.5 / step) {
-                    let shown = slide(Double(index) * step / DockSlide.showSeconds)
-                    body.advance(elapsedSeconds: step, ground: max(inset, bar(shownFraction: shown).maxY + inset))
-                    apex = max(apex, body.height)
-                }
-                #expect(abs(apex - (top + GroundBody.springOvershoot)) <= 1, "step \(step): apex \(apex - top) above the top")
-                #expect(body.height == top)
-            }
-        }
-    }
-
-    private func launches(_ phases: [GroundBodyPhase]) -> Int {
-        zip([GroundBodyPhase.standing] + phases, phases).filter { previous, current in
-            previous != .rising && current == .rising
-        }.count
-    }
-
-    @Test func aStutteredSlideSpringsOnceAndOnlyWhenTheDockHasSettled() {
-        var body = GroundBody(height: inset)
-        var phases: [GroundBodyPhase] = []
-        var floor = inset
-        for index in 0..<60 {
-            let shown = easeOut(Double(index) * tick / DockSlide.showSeconds)
-            if index % 2 == 0 { floor = max(inset, bar(shownFraction: shown).maxY + inset) }
-            body.advance(elapsedSeconds: tick, ground: floor)
-            phases.append(body.phase)
-        }
-        #expect(launches(phases) == 1)
-        #expect(body.height == top)
-    }
-
-    @Test func theRideStartsAtTheHeightBeforeTheTick() {
-        var body = GroundBody(height: inset)
-        body.advance(elapsedSeconds: tick, ground: inset)
-        body.advance(elapsedSeconds: tick, ground: inset + 30)
-        #expect(body.phase == .riding(start: inset, stillSeconds: 0))
-    }
-
-    @Test func aDockThatHidesMidRideDropsThePetWithoutASpring() {
+    @Test func aDockThatHidesMidRiseLetsThePetCoastUpAndFall() {
         var body = GroundBody(height: inset)
         var phases: [GroundBodyPhase] = []
         var highestBody: CGFloat = 0
         var highestFloor: CGFloat = 0
+        var previousFloor = inset
         for index in 0..<45 {
             let fraction: CGFloat = index < 4 ? CGFloat(index) / 8 : max(0, CGFloat(8 - index) / 8)
             let floor = max(inset, bar(shownFraction: fraction).maxY + inset)
-            body.advance(elapsedSeconds: tick, ground: floor)
+            body.advance(elapsedSeconds: tick, ground: floor, floorRise: floor - previousFloor, restingGround: top)
+            previousFloor = floor
             phases.append(body.phase)
             highestBody = max(highestBody, body.height)
             highestFloor = max(highestFloor, floor)
         }
-        #expect(launches(phases) == 0)
         #expect(phases.contains(.falling))
-        #expect(highestBody <= highestFloor + GroundBody.restingTolerance)
+        #expect(highestBody <= top + GroundBody.springOvershoot + GroundBody.restingTolerance)
+        #expect(highestFloor < top)
         #expect(body.height == inset)
+    }
+
+    @Test func aSmallFastBumpGivesOnlyASmallHop() {
+        var body = GroundBody(height: inset)
+        body.advance(elapsedSeconds: tick, ground: inset, floorRise: 0)
+        body.advance(elapsedSeconds: tick, ground: inset + 4, floorRise: 4)
+        var apex = body.height
+        for _ in 0..<30 {
+            body.advance(elapsedSeconds: tick, ground: inset + 4, floorRise: 0)
+            apex = max(apex, body.height)
+        }
+        #expect(apex - (inset + 4) < 2)
+        #expect(body.height == inset + 4)
+    }
+
+    @Test func walkingOntoTheDockIsNotReadAsARisingFloor() {
+        var body = GroundBody(height: top)
+        for _ in 0..<5 { body.advance(elapsedSeconds: tick, ground: top, floorRise: 0) }
+        body.advance(elapsedSeconds: tick, ground: top, floorRise: 0)
+        #expect(body.phase == .standing)
+        var hopper = GroundBody(height: inset)
+        let stepped = hopper.allowsStep(toGround: top)
+        #expect(!stepped)
+        var phases: [GroundBodyPhase] = []
+        var ground = inset
+        for index in 0..<40 {
+            if index == 8 { ground = top }
+            hopper.advance(elapsedSeconds: tick, ground: ground, floorRise: 0, restingGround: top)
+            phases.append(hopper.phase)
+        }
+        #expect(!phases.contains(.riding))
+        #expect(hopper.height == top)
     }
 
     @Test func aPetWalkingOffARisingDockFallsWithoutASpring() {
@@ -268,57 +328,11 @@ struct GroundBodyTests {
             biggestDrop = max(biggestDrop, before - walker.body.height)
         }
         #expect(walker.centerX > shownBar.maxX + spriteSide)
-        #expect(launches(phases) == 0)
+        #expect(launches(phases) <= 1, "\(phases)")
         #expect(phases.contains(.falling))
         let impactSpeed = (2 * GroundBody.gravity * (shownBar.maxY + inset - inset)).squareRoot()
         #expect(biggestDrop <= impactSpeed * CGFloat(tick) + 1)
         #expect(walker.body.height == inset)
-    }
-
-    @Test func aJitteringFloorEndsTheRideAndASlowDescentDoesNotCountAsStill() {
-        var jittery = GroundBody(height: inset)
-        jittery.advance(elapsedSeconds: tick, ground: inset)
-        jittery.advance(elapsedSeconds: tick, ground: inset + 30)
-        var jitterPhases: [GroundBodyPhase] = []
-        for index in 0..<30 {
-            jittery.advance(elapsedSeconds: tick, ground: inset + 30 + (index.isMultiple(of: 2) ? 0.25 : 0))
-            jitterPhases.append(jittery.phase)
-        }
-        #expect(launches(jitterPhases) == 1)
-        #expect(jitterPhases.firstIndex(of: .rising).map { index in index <= 4 } == true)
-
-        var sinking = GroundBody(height: inset)
-        sinking.advance(elapsedSeconds: tick, ground: inset)
-        sinking.advance(elapsedSeconds: tick, ground: inset + 30)
-        var floor = inset + 30
-        var sinkingPhases: [GroundBodyPhase] = []
-        for _ in 0..<20 {
-            floor -= 0.8
-            sinking.advance(elapsedSeconds: tick, ground: floor)
-            sinkingPhases.append(sinking.phase)
-        }
-        #expect(launches(sinkingPhases) == 0)
-        for _ in 0..<10 {
-            sinking.advance(elapsedSeconds: tick, ground: floor)
-            sinkingPhases.append(sinking.phase)
-        }
-        #expect(launches(sinkingPhases) == 1)
-    }
-
-    @Test func theSettleTimeCountsTicksWhoseSumFallsJustShort() {
-        let step = GroundBody.rideSettleSeconds / 6
-        var sum = 0.0
-        for _ in 0..<6 { sum += step }
-        #expect(sum < GroundBody.rideSettleSeconds)
-        var body = GroundBody(height: inset)
-        body.advance(elapsedSeconds: step, ground: inset)
-        body.advance(elapsedSeconds: step, ground: inset + 30)
-        var stillTicks = 0
-        while body.phase != .rising && stillTicks < 20 {
-            body.advance(elapsedSeconds: step, ground: inset + 30)
-            stillTicks += 1
-        }
-        #expect(stillTicks == 6)
     }
 
     @Test func aJumpStartedOnARisingDockLeavesTheRide() {
@@ -346,18 +360,6 @@ struct GroundBodyTests {
         #expect(frames.dropFirst(apexTicks).allSatisfy { frame in frame == GroundBody.laterFallFrame })
         #expect(frames.count > apexTicks)
         #expect(body.frameIndex == nil)
-    }
-
-    @Test func aSmallRiseCarriesThePetWithoutASpring() {
-        var body = GroundBody(height: inset)
-        body.advance(elapsedSeconds: tick, ground: inset)
-        body.advance(elapsedSeconds: tick, ground: inset + GroundBody.springMinimumRise - 2)
-        var apex = body.height
-        for _ in 0..<30 {
-            body.advance(elapsedSeconds: tick, ground: inset + GroundBody.springMinimumRise - 2)
-            apex = max(apex, body.height)
-        }
-        #expect(apex == inset + GroundBody.springMinimumRise - 2)
     }
 
     @Test func aLedgeTooHighToJumpStopsThePetInsteadOfJumping() {
