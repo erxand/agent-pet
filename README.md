@@ -47,7 +47,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Seven commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
+Eight commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
   enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
@@ -69,6 +69,9 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+- `agent-pet capabilities` prints one word per line, one for each feature this build has, such as
+  `focus-target-select`. A script that drives agent-pet can check for a word instead of comparing
+  versions, and a build that predates the command exits 2.
 
 ## Demo
 
