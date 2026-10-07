@@ -19,11 +19,12 @@ agent-pet/
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
     State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking, DirectoryChangeMonitor and RescanGate
     PetStates/                 PetStates (physics, input, visibility, level, their resolution and files), WindowDetection, SpaceMotion, see "Pet states"
+    Ground/                    GroundProfile, GroundBody and GroundPlacement, DockTracker and the Dock geometry rules, see "The Dock as ground"
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, SpriteAccentTint, PixelFont (nametag glyphs), TerminalSpriteRenderer
     Demo/                      DemoScript (scenes and cast), DemoRunner (timeline), DemoPlayback (clock and signals), DemoPixelFont, DemoCommand, see "Demo"
   Sources/agent-pet/
     main.swift                 hands argv and the overlay to AgentPetCommandLine
-    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, AppWindowWatcher, PetSpaceFlight
+    Overlay/                   NSApplication daemon, PetWindow, PetAnimator, PetSpriteFrames, lanes, clicks, AppWindowWatcher, PetSpaceFlight, SystemDockSensing
     Demo/                      the demo's AppKit stage: caption and title card panels, snapshots
   Tests/AgentPetTests/         characterization and contract tests, see "Tests"
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
@@ -315,7 +316,8 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "downloaded"}]}` with `accent` null for a pack that yields none. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`) and `hide-labels-floating` (the `hideLabelsWhileFloating` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups") `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key) and `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `dock-access [--ask]` | print `granted` or `not granted`: whether this binary may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". Exit 0 when granted, 1 when not. Without `--ask` it only checks and never shows a prompt; `--ask` asks macOS once (the system prompt opens System Settings) and says where to turn it on |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
 ## `hook` dispatch on `hook_event_name`
@@ -475,7 +477,9 @@ crash left every later hook updating records that nothing drew.
   `isOpaque`/`hasShadow`/`ignoresMouseEvents` false, `collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]`.
 - Sprite rendered at 4x pixel scale (16 px frame -> 64 px), label pill beneath. Window sits on
   `visibleFrame.minY + 4` of the display the DisplayChooser picks, so it rides above the Dock. The
-  default picks `NSScreen.main`, else the first screen, as before.
+  default picks `NSScreen.main`, else the first screen, as before. With `dockGround` on (the
+  default) and a bottom Dock on that display, the ground is the true screen bottom plus the Dock as
+  a raised step, see "The Dock as ground".
 - With a `display` other than `focused`, the daemon observes
   `NSApplication.didChangeScreenParametersNotification`. On it every pet, a diving one included, is
   re-placed on the chosen display with its home at the same fraction of the width
@@ -636,7 +640,8 @@ only stamps `waitingSince`, and the daemon decides.
 ### Emerge and dive
 
 The pet comes up out of the "ground" (the bottom edge of the usable screen) when it appears and dives back down when
-it is hidden. The ground line is `NSScreen.main.visibleFrame.minY`, and the window never moves vertically: `PetView`
+it is hidden. The ground line is `NSScreen.main.visibleFrame.minY` (or the ground profile under the pet, see "The
+Dock as ground"), and an emerge or a dive never moves the window vertically: `PetView`
 draws the sprite with a vertical `groundOffset` and clips at the view's bottom edge, so the underground part is
 invisible whatever sits below. The hook and CLI paths stay instant; only the daemon animates.
 
@@ -658,6 +663,61 @@ invisible whatever sits below. The hook and CLI paths stay instant; only the dae
 - An emerge or dive advances at most 1/15 s per animation tick, so a late tick (a busy main thread or Mac) slows
   the move down rather than skipping its frames. A diving window is not re-placed, so it dives where it was even if
   `NSScreen.main` moves to another display.
+
+### The Dock as ground
+
+With `dockGround` on (the default), a pet never stands over the Dock's icons. When an auto-hidden Dock slides in under
+pets, they are sprung up onto its top, overshoot a little and land on it; they walk on it, fall off when it hides or
+when they walk past its end, and jump up onto it when its edge is in their lane. An always-visible Dock is a step on
+the screen bottom: pets beside it stand on the true bottom of the screen and jump up and down its edges. With the key
+off, or with no bottom Dock on the pets' display, nothing changes: the ground is `visibleFrame.minY + 4` as before.
+
+**Ground profile.** `GroundProfile` (AgentPetCore, pure) is what a pet stands on, rebuilt every animation tick by
+`GroundProfile.resolve`. It is `flat` (the old ground, `visibleFrame.minY + 4`) when the key is off, the Dock is not
+at the bottom of the pets' display, or its frame is unknown. Otherwise it is `dock`: a base at `screenFrame.minY + 4`
+and one raised `GroundSegment` from the drawn bar's left to right edge at its top plus 4. A pet counts by its body,
+the middle 60% of its sprite (`LaneLayout.bodyWidthFraction`), not by its label or bubble: `height(over:)` is the
+segment top while any part of that body span is over the bar, else the base. A hidden Dock still makes a `dock`
+profile whose segment is below the base, so a pet falls off it rather than snapping down. Lanes, homes and wander
+widths are unchanged; the profile moves pets only vertically.
+
+**Vertical state.** Each grounded pet on a `dock` profile has a `GroundBody` (AgentPetCore, pure): a height and a
+vertical velocity under gravity (`SpaceMotion.fallAcceleration`, 1400 pt/s squared) with the ground under its body
+as a floor. On contact with a rising floor the pet takes the floor's speed (at most 260 pt/s), so when the Dock slows
+down at the end of its slide the pet leaves it, rises a little higher and falls back onto it: the spring. A floor that
+drops away faster than gravity leaves the pet in the air, and it falls. Walking is still `PetAnimator`'s; every step
+also asks the body: a step onto ground more than 2 pt higher is refused, and a standing pet then jumps with the
+speed that clears the edge by 10 pt, taking the step once it is above the top. A step up of more than 160 pt is
+refused with no jump, so the pet turns as it does at a neighbour. With a `flat` profile there is no body and the
+window is placed exactly as before. A body is dropped when the pet floats or its display changes, and a new one
+starts standing on the ground under the pet. `GroundPlacement.windowBottom` is the one rule the overlay calls.
+
+**Geometry source.** The Dock posts no event when it slides, so the overlay polls. `DockTracker` (AgentPetCore,
+pure, driven by a `DockSensing`) decides when to read and turns readings into the drawn bar in AppKit coordinates;
+`SystemDockSensing` (overlay) does the reading:
+
+- With Accessibility granted to the binary, it reads the Dock's `AXList` position and size (about 1 ms; the Dock
+  moves it every 16 ms through a 0.23 s show and a 0.2 s hide; hidden, the list sits just below the screen). The
+  drawn bar is that list frame through `DockBarInset.measured`: top 5 pt lower, 26 pt wider on each side, bottom
+  3 pt lower (measured on a bottom Dock with tile size 54 and no magnification). A 50 ms messaging timeout keeps a
+  stuck Dock from stalling the overlay.
+- Without the grant, it never asks. It reads the free shown flag (the Dock's layer 20 window is in the on-screen
+  window list only while the Dock is shown; always shown when `autohide` is off) and estimates the bar from
+  `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents and other items,
+  plus Finder and Trash, centered on the primary display. `DockSlide` eases the estimate in over 0.23 s and out over
+  0.2 s. Minimized windows and folder stacks are not counted, so the estimate can be shorter than the real bar.
+- Preferences are read every 5 s. The Dock is read every 0.3 s while idle, and every tick (30 Hz) while the pointer
+  is in the bottom band of a display (tile size plus 50 pt), for 0.6 s after a change, and while an estimate slides.
+- A left or right Dock gives no ground (the profile stays flat). The estimate assumes the Dock is on the primary
+  display; the Accessibility frame is wherever the Dock really is, and the profile checks it against the pets'
+  display.
+
+`agent-pet dock-access` reports the grant without prompting; `agent-pet dock-access --ask` is the only path that
+asks. A grant belongs to the binary's code signature, so a binary that is re-signed on every build loses it.
+
+**Animations.** A pet in the air plays `jump` while it rises (a jump, or the spring) and `fall` while it comes
+down: off the Dock, off an edge, after the spring, and in a float when `physics` goes back to `ground`. Both are
+optional in a pack; see "Sprite packs".
 
 ### Pet states
 
@@ -761,7 +821,7 @@ is data (a `[Character: NSColor]`, nothing else) and the compiled-in palette is 
 image depends only on its pack, animation, frame and facing, plus the session's chosen accent when the pack names
 `accentInks` (the recolor swaps palette entries and leaves the contract types alone). The
 initializer is `SpriteSheet(idle:walk:wave:sit:emerge:dive:colorsByCharacter:)` with `emerge` and `dive` defaulting
-to `[]`, and `SpriteAnimationName` covers all six. `ClaudeSprite.swift` provides the built-in art as
+to `[]`, and `SpriteAnimationName` covers them all plus the optional `jump` and `fall` (also defaulting to `[]`). `ClaudeSprite.swift` provides the built-in art as
 `extension SpriteSheet { static let claude8Bit: SpriteSheet }`: frames of `PixelInk` raw characters, `.` transparent,
 idle 2 frames, walk 4, wave 3, sit 2, facing right for the renderer to mirror. The character is a squat, rounded,
 friendly orange critter in the spirit of the pixel Claude persona Anthropic uses (terracotta body, two dark eyes,
@@ -781,6 +841,7 @@ sprites/<pack-name>/
   idle.txt       frames of <frameSize> rows, separated by one blank line
   walk.txt, wave.txt, sit.txt
   emerge.txt, dive.txt         optional, 3 frames each recommended
+  jump.txt, fall.txt           optional, 2 frames each recommended, looped at 8 fps
 ```
 
 - Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
@@ -811,6 +872,10 @@ sprites/<pack-name>/
   one that went away, and re-reads a pack when its directory mtime changes or it is now read from a
   different folder. A config change applies new `spriteDirectories` on the next tick. A pack that fails to parse logs one line and falls back to
   `claude8Bit`; one without `emerge.txt` or `dive.txt` holds `idle` frame 0 during the offset move.
+- `jump.txt` and `fall.txt` are optional and loop like `walk`. The fallback rule is
+  `SpriteAnimationName.standIn`: a pack without `jump.txt` plays `walk` for it, and one without `fall.txt` plays
+  `idle`, which is what every pet showed in those moments before the files existed. `shown(in:)` applies it, then
+  the first animation the pack has.
 - Files iCloud has evicted. A file iCloud Drive has evicted is dataless: its metadata is local and its
   bytes are not, and reading it blocks until the download finishes, or for as long as the Mac is offline.
   No command and no daemon tick reads one. Before reading a pack, `SpritePackLoader` checks the pack
@@ -831,6 +896,8 @@ sprites/<pack-name>/
 - Art direction shared by every pack: idle 2 = breathe or blink; walk 4 = a leg cycle facing right; wave 3 = raise
   something, hold, lower; sit 2 = settle lower, then eyes closed. emerge = eyes closed under a few loose dirt pixels,
   then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
+  jump 2 = crouch with the legs tucked, then stretched upward with the arms or ears up. fall 2 = arms or ears up and
+  eyes wide, then the same with the body a pixel longer (a flutter); the frames face right like the rest.
 
 ## Demo
 
@@ -1051,6 +1118,7 @@ the defaults.
 | Subagent tool calls and needsInput | off: any `PreToolUse` hides the pet | a subagent's `PreToolUse` leaves a `needsInput` pet up | `subagentToolsKeepNeedsInput` |
 | Full screen rules | none | set pet states while a listed app covers a display, see "Pet states" | `whenFullScreen` |
 | Labels while floating | shown: the label and bubble float with the pet | while a pet floats or falls its label and bubble are hidden; they come back the moment it lands | `hideLabelsWhileFloating` |
+| Dock as ground | on: a bottom Dock is a raised step pets stand on, jump onto and fall off, see "The Dock as ground" | off: the ground is `visibleFrame.minY + 4` everywhere | `dockGround` |
 | DisplayChooser | `focused`, `FocusedDisplayChooser`: the display with keyboard focus, else the first | `primary`, `PrimaryDisplayChooser`; `name:<name>`, `NamedDisplayChooser`, primary while that display is absent | `display` |
 
 The accent stays as before: the pack accent, or `--accent`. Both label placements are drawn by `PetView`;
@@ -1122,6 +1190,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   recomputes every home on the newly chosen display. `primary` may be the better default; it stays
   `focused` so that no config keeps today's behavior, and that call is left to the maintainer.
 
+- `dockGround` is a boolean, default `true`: a bottom Dock is ground pets stand on, see "The Dock as ground".
+  `false` keeps the ground at `visibleFrame.minY + 4` everywhere.
 - `whenFullScreen` is a list of rules, default `[]`, see "Pet states". A rule needs a non-empty
   `bundleIds` list and an `apply` object with at least one known state; anything else is dropped, and so
   are non-string and empty bundle ids and unknown state values.

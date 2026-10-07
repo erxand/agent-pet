@@ -59,16 +59,7 @@ final class PetSpriteFrames {
         _ requestedAnimation: SpriteAnimationName,
         in spriteSheet: SpriteSheet
     ) -> ResolvedAnimation? {
-        let requestedFrames = requestedAnimation.frames(in: spriteSheet)
-        if !requestedFrames.isEmpty {
-            return ResolvedAnimation(animationName: requestedAnimation, frames: requestedFrames)
-        }
-        for fallbackAnimation in SpriteAnimationName.allCases {
-            let fallbackFrames = fallbackAnimation.frames(in: spriteSheet)
-            if !fallbackFrames.isEmpty {
-                return ResolvedAnimation(animationName: fallbackAnimation, frames: fallbackFrames)
-            }
-        }
-        return nil
+        guard let shownAnimation = requestedAnimation.shown(in: spriteSheet) else { return nil }
+        return ResolvedAnimation(animationName: shownAnimation, frames: shownAnimation.frames(in: spriteSheet))
     }
 }

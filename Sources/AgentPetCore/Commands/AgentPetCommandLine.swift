@@ -52,6 +52,8 @@ public enum AgentPetCommandLine {
             return PacksCommand.run(flags: flags)
         case .capabilities:
             return CapabilitiesCommand.run()
+        case .dockAccess:
+            return DockAccessCommand.run(flags: flags)
         case .demo:
             return DemoCommand.run(flags: flags, runDemo: runDemo)
         case .physics:

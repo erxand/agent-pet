@@ -138,6 +138,10 @@ final class PetAnimator {
         if abs(horizontalOffsetFromHome) > wanderHalfWidth { isWalkingHome = true }
     }
 
+    func forgetBlockedWalk() {
+        walkWasBlocked = false
+    }
+
     func walkHomeNow() {
         guard horizontalOffsetFromHome != 0 else { return }
         isWalkingHome = true
@@ -285,7 +289,7 @@ final class PetAnimator {
             if remainingActivityInSeconds <= 0 { beginResting() }
         case .idle, .wave:
             if remainingActivityInSeconds <= 0 { beginWalking() }
-        case .sit, .emerge, .dive:
+        case .sit, .emerge, .dive, .jump, .fall:
             beginWalking()
         }
     }

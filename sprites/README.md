@@ -26,6 +26,10 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `emerge.txt` and `dive.txt` are optional, 3 frames each. They play once while the pet rises
   out of the ground as it appears and drops back into it as it hides. A pack without them holds
   `idle` frame 0 for both moves.
+- `jump.txt` and `fall.txt` are optional, 2 frames each, looped at 8 fps. `jump` plays while the
+  pet is going up (a hop onto the Dock, or being sprung up by it) and `fall` while it is coming
+  down (off the Dock, off its edge, or out of a float). A pack without `jump.txt` shows `walk`
+  instead, and one without `fall.txt` shows `idle`.
 - Every other color is fixed by the palette. `.` is transparent, and so is any character that is
   not in `palette`. No character is reserved: only the `accentInks` characters ever change color.
 - The shipped packs all use `#` for the outline, `e` for eyes and a lowercase/uppercase pair for

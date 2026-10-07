@@ -83,7 +83,8 @@ package struct SpaceMotion: Equatable {
 
     package var animationName: SpriteAnimationName {
         switch phase {
-        case .floating, .falling, .home: return .idle
+        case .floating, .home: return .idle
+        case .falling: return .fall
         case .walkingHome: return .walk
         }
     }
