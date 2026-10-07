@@ -420,6 +420,10 @@ color.
 across its whole lane, so a lone pet roams the full width and two pets never overlap. When pets come
 or go the lanes are divided again and each pet walks to its new one.
 
+**High five**: now and then two neighbouring pets that face each other walk up to the border
+between their lanes, meet, and high five, then go back to wandering. A pet with a question or
+a request for you never joins in.
+
 ## Customizing the pet
 
 A sprite pack is a directory of plain text, so you can draw a new pet in any editor. See
@@ -430,6 +434,7 @@ sprites/README.md for the full rules.
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
 <pack-name>/jump.txt fall.txt            optional, 2 frames each (takeoff, rise; apex, later fall); without them a jump shows walk and a fall shows idle
+<pack-name>/highfive.txt                 optional, 3 frames (raise, reach, contact); without it a high five shows wave
 ```
 
 Every color in a pack comes from its palette, except the inks named in the optional `accentInks`

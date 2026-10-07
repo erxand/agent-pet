@@ -512,6 +512,18 @@ crash left every later hook updating records that nothing drew.
   spring, a fall) it starts no stroll and does not look around. Between strolls the pet waves (35%, as before) or idles for 0.6 to 4 s with the
   shorter pauses likelier, and one idle in five it turns to look the other way halfway through
   (`lookAroundProbability`). `sit` keeps meaning blocked.
+- High fives (`HighFiveDirector`, one at a time, all randomness from its own injectable source): two pets on the
+  ground in neighbouring lanes that face each other within 320 pt (`greetingDistance`) may start one, with a
+  chance of 0.2 a second (`triggerRatePerSecond`) and no more than once a minute per pair
+  (`pairCooldownInSeconds`). Both drop what they were doing (the receiver's stroll is interrupted) and walk to the
+  border between their lanes, stopping 85% of a sprite apart (`meetSpacingFraction`), closer than the usual
+  gap only for this moment and never across the border. There the initiator raises its hand (`highfive` frame 0,
+  then frame 1 after 0.15 s), the other answers 0.4 s later (`answerDelayInSeconds`) the same way, both show the
+  contact frame on the same tick, hold it 0.4 s (`contactHoldInSeconds`), then step back to the edges of their own
+  ranges and wander again. A pet takes part only while it is on the ground and standing (not floating, in the air,
+  diving or walking home), its session's mood is `ready` (a pet with a `!` or `?` bubble is never pulled away),
+  and the ground from it to the border is level (no Dock edge in between). If either stops qualifying, the lanes
+  are divided again, or the walk takes over 10 s, the greeting ends and both step back.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
 - Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
@@ -943,6 +955,7 @@ sprites/<pack-name>/
   walk.txt, wave.txt, sit.txt
   emerge.txt, dive.txt         optional, 3 frames each recommended
   jump.txt, fall.txt           optional, 2 frames each: picked by flight phase, never looped
+  highfive.txt                 optional, 3 frames: raise, reach, contact; picked by the greeting, never looped
 ```
 
 - Every character in `palette` maps to a fixed hex color. `.` and any character not in `palette`
@@ -1007,7 +1020,9 @@ sprites/<pack-name>/
   then eyes open wide, then a shake. dive = look down, squash flat, then a small dust puff where the body was.
   jump 2 = frame 0 a takeoff crouch with the legs tucked (shown once, at takeoff), frame 1 stretched upward with the
   arms or ears up (held while rising). fall 2 = frame 0 the apex, arms or ears up and eyes wide; frame 1 the later
-  fall, the body a pixel longer. Neither needs to loop; the frames face right like the rest.
+  fall, the body a pixel longer. Neither needs to loop; the frames face right like the rest. highfive 3 = frame 0
+  the hand raised, frame 1 the arm reaching forward, frame 2 the contact with the palm at the frame's front edge,
+  facing right (the right-hand pet of a pair shows them mirrored). A pack without it shows `wave` frame for frame.
 
 ## Demo
 

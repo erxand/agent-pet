@@ -33,6 +33,11 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
   frame 1 is the later fall, held until it lands. `fall` plays off the Dock, off its edge, and out
   of a float (where it loops at 8 fps like `walk`). A pack without `jump.txt` shows `walk`
   instead, and one without `fall.txt` shows `idle`.
+- `highfive.txt` is optional, 3 frames, facing right like every other animation; the pet on the
+  right of a pair shows them mirrored. Frame 0 raises the hand, frame 1 reaches out toward the
+  other pet, frame 2 is the contact, with the hand at the front edge of the frame so two pets
+  standing a little closer than usual touch hands. The frames are chosen by the greeting, not
+  looped. A pack without `highfive.txt` shows its `wave` frames in their place.
 - Every other color is fixed by the palette. `.` is transparent, and so is any character that is
   not in `palette`. No character is reserved: only the `accentInks` characters ever change color.
 - The shipped packs all use `#` for the outline, `e` for eyes and a lowercase/uppercase pair for

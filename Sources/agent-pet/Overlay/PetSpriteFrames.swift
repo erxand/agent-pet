@@ -45,6 +45,9 @@ final class PetSpriteFrames {
 
     private func frameIndex(for presence: PetPresence, resolvedAnimation: ResolvedAnimation) -> Int {
         let frameCount = resolvedAnimation.frames.count
+        if presence.shownAnimationName == .highfive, let highFiveFrame = presence.animator.highFiveFrame {
+            return min(max(highFiveFrame, 0), frameCount - 1)
+        }
         if let flightFrame = presence.groundBodyFrameIndex, resolvedAnimation.animationName == presence.shownAnimationName {
             return min(flightFrame, frameCount - 1)
         }
