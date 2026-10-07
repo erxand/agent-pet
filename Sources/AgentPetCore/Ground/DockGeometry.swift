@@ -237,6 +237,7 @@ package struct DockTracker {
     package static let goneDepth: CGFloat = 5
     package static let restingTolerance: CGFloat = 0.5
     package static let pointerAwayInSeconds: TimeInterval = 0.3
+    package static let restingObservationTolerance: CGFloat = 2
 
     package private(set) var bar: CGRect?
     package private(set) var restingTop: CGFloat?
@@ -245,7 +246,6 @@ package struct DockTracker {
     private struct ObservedResting: Equatable {
         let heightAboveScreenBottom: CGFloat
         let tileSize: CGFloat
-        let screen: CGRect
     }
     package private(set) var source: DockBarSource?
     private var preferences: DockPreferences?
@@ -341,17 +341,14 @@ package struct DockTracker {
             bar = readBar
             dockScreen = screens.screen(underDockList: listFrame) ?? dockScreen
             let screen = dockScreen ?? screens.primaryFrame
-            if let observed = observedResting, observed.tileSize != preferences.tileSize || observed.screen != screen {
+            if let observed = observedResting, observed.tileSize != preferences.tileSize {
                 observedResting = nil
             }
-            if previous == readBar && readBar.maxY > screen.minY {
-                observedResting = ObservedResting(
-                    heightAboveScreenBottom: readBar.maxY - screen.minY,
-                    tileSize: preferences.tileSize,
-                    screen: screen
-                )
-            }
             let predicted = DockListFrame.restingTop(screenBottom: screen.minY, drawnHeight: readBar.height, inset: inset)
+            let fullyUp = readBar.minY >= screen.minY && abs(readBar.maxY - predicted) <= DockTracker.restingObservationTolerance
+            if previous == readBar && fullyUp {
+                observedResting = ObservedResting(heightAboveScreenBottom: readBar.maxY - screen.minY, tileSize: preferences.tileSize)
+            }
             restingTop = max(readBar.maxY, observedResting.map { observed in screen.minY + observed.heightAboveScreenBottom } ?? predicted)
             source = .accessibility
             slide = nil
