@@ -94,11 +94,11 @@ package struct PetDisplayPlanner {
     }
 
     private func items(for group: PetGroup, claudeSessions: [String: ClaudeSessionRecord]) -> [PetDisplayItem] {
-        guard group.isLead else {
-            return item(for: group, claudeSessions: claudeSessions).map { item in [item] } ?? []
-        }
-        guard let lead = group.flaggedOwner else {
-            return leaderlessItem(for: group, claudeSessions: claudeSessions).map { item in [item] } ?? []
+        guard let lead = group.lead else {
+            let plainItem = group.hasLostItsLead
+                ? leaderlessItem(for: group, claudeSessions: claudeSessions)
+                : item(for: group, claudeSessions: claudeSessions)
+            return plainItem.map { item in [item] } ?? []
         }
         let askingMembers = group.askingMembersBesideTheLead
         let askingSessionIds = Set(askingMembers.map { member in member.sessionId })

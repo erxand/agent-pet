@@ -2,15 +2,13 @@ import Foundation
 
 enum LeadGroupQuieting {
     static func hideReadyMembers(ofLead leadSessionId: String, store: PetSessionStore = PetSessionStore()) {
-        guard let lead = store.load(sessionId: leadSessionId),
-              lead.enabled,
-              lead.leadsItsGroup,
-              lead.isFlaggedOwner,
-              lead.group != nil else { return }
-        for member in store.list() where member.sessionId != lead.sessionId
-            && member.petKey == lead.petKey
-            && isLiveMember(member)
-            && isQuietedWithTheLead(member) {
+        guard let named = store.load(sessionId: leadSessionId),
+              named.enabled,
+              named.leadsItsGroup,
+              named.group != nil else { return }
+        let liveMembers = store.list().filter { member in member.petKey == named.petKey && isLiveMember(member) }
+        guard PetGroup(key: named.petKey, members: liveMembers).lead?.sessionId == named.sessionId else { return }
+        for member in liveMembers where member.sessionId != named.sessionId && isQuietedWithTheLead(member) {
             PetTurnState.hide(sessionId: member.sessionId)
         }
     }

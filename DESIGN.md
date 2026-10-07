@@ -100,7 +100,7 @@ file on every write (temp file in the same dir, then rename).
   when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
 - `groupMode` is optional and absent unless `--group-mode lead` was passed; `--group-mode shared` or an empty
   `--group-mode ""` removes it.
-  A group with any member whose `groupMode` is `lead` follows the lead rules, see "Lead groups".
+  A group follows the lead rules when its flagged owner's own `groupMode` is `lead`, see "Lead groups".
 - `disambiguator` and `disambiguationScope` are optional and absent unless `--disambiguator TEXT` and
   `--disambiguation-scope KEY` were passed, and an empty value removes each. They change a label only on a
   clash, see "Session differentiation".
@@ -298,7 +298,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `on [identity flags] [--no-color-sync]` | upsert record: enabled true, and visible false for a new or disabled record (an enabled record keeps `visible`, so a relabel never takes a pet down), `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
 | `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
-| `hide [--session ID \| --focus-target T \| --pid N]` | visible false. When a selected record is the flagged owner of a lead group, every other member of that group that is visible and `ready` is hidden too, see "Lead groups" |
+| `hide [--session ID \| --focus-target T \| --pid N]` | visible false. When a selected record is the lead of a lead group (its live flagged owner, whose own `groupMode` is `lead`), every other live member of that group that is visible and `ready` is hidden too, see "Lead groups" |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
 | `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...], "states": {...}}` (`states` is described under "Pet states") with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session), `flaggedOwner` (the record's own `owner` flag), `groupMode` (`shared` or `lead`), `disambiguator` and `disambiguationScope` (null when absent) |
 | (selection) | `hide` and `remove` act on `--session`, else on every record whose `focusTarget` is `--focus-target` (what a terminal knows about its pane), else on every record whose `pid` is `--pid` (what knows the process after a `/clear` changed its id), else on `$CLAUDE_CODE_SESSION_ID` |
@@ -547,9 +547,12 @@ session id, and the planner applies these rules to the live members of each key:
 
 ### Lead groups
 
-A group in which any member has `groupMode` `lead` is a lead group, for a window where one session leads and
-the others support it. The lead is the live member flagged `owner`, the earliest enrolled when two are
-flagged. With a lead:
+A lead group is for a window where one session leads and the others support it. The lead is the live member
+flagged `owner`, the earliest enrolled when two are flagged, and the group is a lead group only when that
+member's own `groupMode` is `lead`. The members' modes do not decide it, so `on --group-mode shared` on the lead
+turns the group back into a plain group even while other members still have `lead`, and `--group-mode lead` on
+a member that is not the lead changes nothing while the lead lives. The planner and `hide` read this one rule
+(`PetGroup.lead`). With a lead:
 
 - The lead's pet keeps the group key. It is waiting while the lead is waiting, in any mood, or while any
   member is visible and `ready` and no member is working (the rule above). Its label, sprite, accent and
@@ -563,8 +566,10 @@ flagged. With a lead:
 - A member's own pet counts as up for settling, like the group's pet, so a new question on a pet that is
   already up never takes it down to settle again.
 
-With no live flagged owner, the group follows the plain rules, except that the label is the waiting
-member's own and there is no bubble caption. A group without the mode is unchanged.
+With no live flagged owner and a member whose `groupMode` is `lead` (the lead has exited), the group follows
+the plain rules, except that the label is the waiting member's own and there is no bubble caption. A group
+whose live flagged owner has no `lead` mode, and a group where no member has it, follow the plain rules
+unchanged.
 
 ### Settling
 
