@@ -235,6 +235,8 @@ package struct DockTracker {
     package static let pointerAwayInSeconds: TimeInterval = 0.3
 
     package private(set) var bar: CGRect?
+    package private(set) var restingTop: CGFloat?
+    private var observedRestingTop: CGFloat?
     package private(set) var source: DockBarSource?
     private var preferences: DockPreferences?
     private var preferencesReadAt: TimeInterval?
@@ -325,8 +327,16 @@ package struct DockTracker {
         if let accessibilityFrame = sensing.accessibilityListFrame() {
             let listFrame = DockListFrame.appKitFrame(fromTopLeftFrame: accessibilityFrame, primaryScreenHeight: screens.primaryFrame.maxY)
             let drawn = inset.drawnBar(fromListFrame: listFrame)
-            bar = capped(drawn, preferences: preferences, inset: inset, screens: screens, pointerSettledAway: pointerSettledAway)
+            let readBar = capped(drawn, preferences: preferences, inset: inset, screens: screens, pointerSettledAway: pointerSettledAway)
+            bar = readBar
             dockScreen = screens.screen(underDockList: listFrame) ?? dockScreen
+            let screenBottom = (dockScreen ?? screens.primaryFrame).minY
+            if previous == readBar && readBar.maxY > screenBottom { observedRestingTop = readBar.maxY }
+            let predicted = screenBottom
+                + DockListFrame.shownBottomGap * preferences.tileSize / DockBarInset.measuredTileSize
+                + inset.bottom
+                + readBar.height
+            restingTop = max(readBar.maxY, observedRestingTop ?? predicted)
             source = .accessibility
             slide = nil
             lastAccessibilityReadAt = now
@@ -358,6 +368,11 @@ package struct DockTracker {
             shownFraction: moving.shownFraction
         )
         bar = inset.drawnBar(fromListFrame: listFrame)
+        restingTop = inset.drawnBar(fromListFrame: DockListFrame.estimated(
+            preferences: preferences,
+            screenFrame: dockScreen ?? screens.primaryFrame,
+            shownFraction: 1
+        )).maxY
     }
 
     private mutating func capped(
