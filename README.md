@@ -100,7 +100,7 @@ Eight commands are useful from any shell, plus `agent-pet demo`, described under
 - `agent-pet render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` draws a sprite in the
   terminal with truecolor half blocks, two pixel rows per line, so a picker can show the pets without
   the overlay. `--accent` shows the pet as a session that chose that color would see it. `--animation`
-  is one of `idle`, `walk`, `wave`, `sit`, `emerge`, `dive`, `jump` and `fall`.
+  is one of `idle`, `walk`, `wave`, `sit`, `emerge`, `dive`, `jump`, `fall` and `highfive`.
 - `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
   them, and how many live pets use each.
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a

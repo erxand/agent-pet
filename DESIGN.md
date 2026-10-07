@@ -913,8 +913,8 @@ records are untouched; back to `shown`, the next reconcile brings the visible pe
 is data (a `[Character: NSColor]`, nothing else) and the compiled-in palette is its default instance, so a sprite
 image depends only on its pack, animation, frame and facing, plus the session's chosen accent when the pack names
 `accentInks` (the recolor swaps palette entries and leaves the contract types alone). The
-initializer is `SpriteSheet(idle:walk:wave:sit:emerge:dive:jump:fall:colorsByCharacter:)` with `emerge`, `dive`,
-`jump` and `fall` defaulting to `[]`, and `SpriteAnimationName` covers all eight. `ClaudeSprite.swift` provides the built-in art as
+initializer is `SpriteSheet(idle:walk:wave:sit:emerge:dive:jump:fall:highfive:colorsByCharacter:)` with `emerge`,
+`dive`, `jump`, `fall` and `highfive` defaulting to `[]`, and `SpriteAnimationName` covers all nine. `ClaudeSprite.swift` provides the built-in art as
 `extension SpriteSheet { static let claude8Bit: SpriteSheet }`: frames of `PixelInk` raw characters, `.` transparent,
 idle 2 frames, walk 4, wave 3, sit 2, facing right for the renderer to mirror. The character is a squat, rounded,
 friendly orange critter in the spirit of the pixel Claude persona Anthropic uses (terracotta body, two dark eyes,
