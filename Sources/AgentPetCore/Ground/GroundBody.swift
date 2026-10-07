@@ -8,6 +8,11 @@ package enum GroundBodyPhase: Equatable {
     case falling
 }
 
+private struct FloorRise: Equatable {
+    let rise: CGFloat
+    let seconds: CGFloat
+}
+
 package struct GroundBody: Equatable {
     package static let gravity: CGFloat = SpaceMotion.fallAcceleration
     package static let restingTolerance: CGFloat = 1
@@ -32,7 +37,7 @@ package struct GroundBody: Equatable {
     package private(set) var isJumping = false
     package private(set) var phaseSeconds: Double = 0
     private var lastGround: CGFloat?
-    private var floorVelocities: [CGFloat] = []
+    private var floorRises: [FloorRise] = []
     private var ticksSincePush = 0
 
     package init(height: CGFloat) {
@@ -88,11 +93,11 @@ package struct GroundBody: Equatable {
         }
         let seconds = CGFloat(elapsedSeconds)
         let rise = floorRise ?? lastGround.map { previousGround in newGround - previousGround } ?? 0
-        let rawFloorVelocity = rise / seconds
         lastGround = newGround
-        floorVelocities.append(rawFloorVelocity)
-        if floorVelocities.count > GroundBody.floorVelocitySamples { floorVelocities.removeFirst() }
-        let floorVelocity = floorVelocities.reduce(0, +) / CGFloat(floorVelocities.count)
+        floorRises.append(FloorRise(rise: rise, seconds: seconds))
+        if floorRises.count > GroundBody.floorVelocitySamples { floorRises.removeFirst() }
+        let floorVelocity = floorRises.reduce(0) { total, sample in total + sample.rise }
+            / floorRises.reduce(0) { total, sample in total + sample.seconds }
 
         let launchVelocity = velocity
         velocity -= GroundBody.gravity * seconds
@@ -164,7 +169,7 @@ package enum GroundPlacement {
             settled.advance(
                 elapsedSeconds: elapsedSeconds,
                 ground: ground,
-                floorRise: previousProfile.map { previous in ground - previous.height(over: span) },
+                floorRise: previousProfile.map { previous in ground - previous.height(over: span) } ?? 0,
                 restingGround: profile.restingHeight(over: span)
             )
             body = settled

@@ -6,6 +6,7 @@ final class PetGround {
     private var dockGround: DockGround?
     private(set) var profile = GroundProfile.flat(base: PetGeometry.windowBottomInset)
     private(set) var previousProfile: GroundProfile?
+    private var lastBottomInset: CGFloat?
     private(set) var visibleFrame = CGRect.zero
 
     var watchesTheDock: Bool { dockGround != nil }
@@ -33,7 +34,8 @@ final class PetGround {
         } else {
             dockBar = dockGround?.lastBar
         }
-        if elapsedSeconds != nil { previousProfile = profile }
+        if elapsedSeconds != nil { previousProfile = bottomInset == lastBottomInset ? profile : nil }
+        lastBottomInset = bottomInset
         profile = GroundProfile.resolve(
             standsOnDock: standsOnDock,
             screenFrame: screenFrames.screenFrame,

@@ -195,6 +195,34 @@ struct GroundBodyTests {
         }
     }
 
+    @Test func oneLongTickCoveringTheWholeRevealStillSpringsSixteenPoints() {
+        var body = GroundBody(height: inset)
+        body.advance(elapsedSeconds: tick, ground: inset, floorRise: 0, restingGround: top)
+        body.advance(elapsedSeconds: tick, ground: inset, floorRise: 0, restingGround: top)
+        body.advance(elapsedSeconds: 0.25, ground: top, floorRise: top - inset, restingGround: top)
+        var apex = body.height
+        for _ in 0..<60 {
+            body.advance(elapsedSeconds: tick, ground: top, floorRise: 0, restingGround: top)
+            apex = max(apex, body.height)
+        }
+        #expect(abs(apex - (top + GroundBody.springOvershoot)) <= 1, "apex \(apex - top)")
+    }
+
+    @Test func aWrongRestingTopMovesTheApexWithIt() {
+        let wrongTop = top + 30
+        var body = GroundBody(height: inset)
+        var previousFloor = inset
+        var apex: CGFloat = 0
+        for index in 0..<45 {
+            let floor = max(inset, bar(shownFraction: easeOut(Double(index) * tick / DockSlide.showSeconds)).maxY + inset)
+            body.advance(elapsedSeconds: tick, ground: floor, floorRise: floor - previousFloor, restingGround: wrongTop)
+            previousFloor = floor
+            apex = max(apex, body.height)
+        }
+        #expect(apex <= wrongTop + GroundBody.springOvershoot + 1)
+        #expect(apex > top + GroundBody.springOvershoot + 5)
+    }
+
     @Test func aStutteredSlideStillCarriesThePetSmoothlyAndArcsOnce() {
         for slide in GroundBodyTests.slides.prefix(3) {
             let ticks = GroundBodyTests.spring(slide: slide.curve, stutters: true)
@@ -401,6 +429,15 @@ struct GroundBodyTests {
             #expect(onFlat.centerX == onHidden.centerX)
             #expect(onHidden.body.height == inset)
         }
+    }
+
+    @Test func withNoEarlierProfileAChangeOfGroundIsNotAMovingFloor() {
+        var body: GroundBody?
+        let profile = dockProfile()
+        for _ in 0..<3 { _ = GroundPlacement.windowBottom(body: &body, profile: profile, span: span(10), elapsedSeconds: tick) }
+        _ = GroundPlacement.windowBottom(body: &body, profile: profile, span: span(800), elapsedSeconds: tick)
+        #expect(body?.phase == .standing)
+        #expect(body?.height == top)
     }
 
     @Test func thePlacementCreatesABodyStandingOnTheGroundUnderIt() {
@@ -659,6 +696,62 @@ struct DockGeometrySourceTests {
         #expect(sensing.listFrameReads - reads == 30)
     }
 
+    @Test func theRestingTopIsKnownBeforeTheDockHasEverRested() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = hiddenListFrame
+        var tracker = DockTracker()
+        _ = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(tracker.restingTop == shownBar.maxY)
+        sensing.listFrame = CGRect(x: 76, y: 1080, width: 1576, height: 74)
+        _ = tracker.update(now: 0.4, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(tracker.restingTop == shownBar.maxY)
+    }
+
+    @Test func aRestingTopSeenAtOneTileSizeIsDroppedWhenTheTileSizeChanges() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = shownListFrame
+        var tracker = DockTracker()
+        _ = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        _ = tracker.update(now: 0.4, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        #expect(tracker.restingTop == shownBar.maxY)
+        sensing.dockPreferences.tileSize = 27
+        sensing.listFrame = CGRect(x: 400, y: 1117, width: 900, height: 47)
+        _ = tracker.update(now: 6, elapsedSeconds: tick, screens: screens, sensing: sensing)
+        let smallInset = DockBarInset.scaled(forTileSize: 27)
+        let expected = DockListFrame.restingTop(screenBottom: screenFrame.minY, drawnHeight: 47 - smallInset.top - smallInset.bottom, inset: smallInset)
+        #expect(abs((tracker.restingTop ?? 0) - expected) < 0.001)
+        #expect(expected < shownBar.maxY - 20)
+    }
+
+    @Test func aRestingTopSeenOnOneDisplayIsDroppedWhenTheDockMovesToAnother() {
+        let lower = CGRect(x: 1728, y: -300, width: 1920, height: 1080)
+        let twoScreens = DockScreens(primaryFrame: screenFrame, allFrames: [screenFrame, lower])
+        let sensing = FakeDockSensing()
+        sensing.listFrame = shownListFrame
+        var tracker = DockTracker()
+        _ = tracker.update(now: 0, elapsedSeconds: tick, screens: twoScreens, sensing: sensing)
+        _ = tracker.update(now: 0.4, elapsedSeconds: tick, screens: twoScreens, sensing: sensing)
+        #expect(tracker.restingTop == shownBar.maxY)
+        sensing.listFrame = CGRect(x: 1900, y: 1117 - lower.minY, width: 1576, height: 74)
+        _ = tracker.update(now: 0.8, elapsedSeconds: tick, screens: twoScreens, sensing: sensing)
+        #expect(tracker.restingTop == lower.minY + shownBar.maxY)
+    }
+
+    @Test func theEstimateAndTheAccessibilityReadingAgreeOnTheRestingTopAtAnyTileSize() {
+        for tileSize in [CGFloat(27), 54, 96] {
+            let sensing = FakeDockSensing()
+            sensing.dockPreferences.tileSize = tileSize
+            sensing.window = DockWindowState(isOnScreen: true, topLeftFrame: nil)
+            var estimating = DockTracker()
+            _ = estimating.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+            let listHeight = tileSize + DockListFrame.verticalPadding
+            sensing.listFrame = CGRect(x: 100, y: 1117, width: 1000, height: listHeight)
+            var reading = DockTracker()
+            _ = reading.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
+            #expect(abs((estimating.restingTop ?? 0) - (reading.restingTop ?? 1)) < 0.001, "tile \(tileSize)")
+        }
+    }
+
     @Test func aSideDockGivesNoGround() {
         let sensing = FakeDockSensing()
         sensing.dockPreferences.orientation = .left
@@ -871,6 +964,57 @@ struct PetGroundTests {
             #expect(shown.frameIndex == presence.animator.frameTick % standIn.count)
         }
         #expect(airborneTicks > 5)
+        presence.window.close()
+    }
+
+    @Test func movingOntoTheDockIsNotARideButTheDockRisingIs() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = shownListFrame
+        let ground = makeGround(sensing)
+        let presence = makePresence(home: 800)
+        for index in 0..<3 {
+            ground.refresh(standsOnDock: true, screenFrames: screenFrames, now: Double(index) * tick, elapsedSeconds: tick)
+            _ = ground.windowBottom(for: presence, standingCenter: 10, elapsedSeconds: tick)
+        }
+        #expect(presence.groundBody?.height == inset)
+        ground.refresh(standsOnDock: true, screenFrames: screenFrames, now: 3 * tick, elapsedSeconds: tick)
+        _ = ground.windowBottom(for: presence, standingCenter: 800, elapsedSeconds: tick)
+        #expect(presence.groundBody?.phase == .standing)
+
+        sensing.pointer = CGPoint(x: 800, y: 20)
+        sensing.listFrame = hiddenListFrame
+        let risen = makePresence(home: 800)
+        var sawRide = false
+        for index in 0..<40 {
+            let progress = easeOut(Double(index) * tick / DockSlide.showSeconds)
+            sensing.listFrame = CGRect(x: 76, y: 1117 - 84 * progress, width: 1576, height: 74)
+            ground.refresh(standsOnDock: true, screenFrames: screenFrames, now: Double(10 + index) * tick, elapsedSeconds: tick)
+            _ = ground.windowBottom(for: risen, standingCenter: 800, elapsedSeconds: tick)
+            if risen.groundBody?.phase == .riding { sawRide = true }
+        }
+        #expect(sawRide)
+        presence.window.close()
+        risen.window.close()
+    }
+
+    @Test func changingTheGroundGapMovesPetsWithoutASpring() {
+        let sensing = FakeDockSensing()
+        sensing.listFrame = shownListFrame
+        let ground = makeGround(sensing)
+        let presence = makePresence(home: 800)
+        for index in 0..<3 {
+            ground.refresh(standsOnDock: true, screenFrames: screenFrames, now: Double(index) * tick, elapsedSeconds: tick)
+            _ = ground.windowBottom(for: presence, standingCenter: 800, elapsedSeconds: tick)
+        }
+        var phases: [GroundBodyPhase] = []
+        for index in 3..<30 {
+            ground.refresh(standsOnDock: true, screenFrames: screenFrames, now: Double(index) * tick, elapsedSeconds: tick, bottomInset: 10)
+            _ = ground.windowBottom(for: presence, standingCenter: 800, elapsedSeconds: tick)
+            phases.append(presence.groundBody?.phase ?? .standing)
+        }
+        #expect(!phases.contains(.riding))
+        #expect(!phases.contains(.rising))
+        #expect(presence.groundBody?.height == shownBar.maxY + 10)
         presence.window.close()
     }
 

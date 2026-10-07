@@ -673,16 +673,21 @@ air and goes straight back to its ground animation on the tick it lands.
 
 - **Riding and the spring.** The pet is always a ballistic body; a rising floor pushes it. The floor's speed is the
   rise of the floor under the pet's body since the last tick (so walking across an edge never reads as a moving
-  floor), averaged over the last 3 ticks (`floorVelocitySamples`) so one repeated reading mid-slide cannot stop the
-  push. When the floor meets the pet while that speed is above 60 pt/s (`rideSpeed`), the pet rides: it stands on
+  floor), taken over the last 3 ticks (`floorVelocitySamples`) as their total rise over their total time, so one
+  repeated reading mid-slide cannot stop the push and one long tick counts for its full length. When the floor meets the pet while that speed is above 60 pt/s (`rideSpeed`), the pet rides: it stands on
   the floor and its velocity becomes the smaller of the floor's speed and the speed that would carry it, in free
   flight, to `springOvershoot` (16 pt) above the Dock's resting top (`speedToPeak`). As long as the floor is faster
   the floor keeps pushing; the moment the floor slows below that speed, the pet simply keeps going, decelerates
   under gravity, peaks 16 pt above where the Dock comes to rest and falls back onto it. There is no pause and no
   second impulse: the velocity is continuous except where the floor itself changes speed abruptly. The Dock's
-  resting top comes from the geometry source (`DockTracker.restingTop`: the last top seen with the Dock standing
-  still, else one predicted from the list's height), so the apex is the same for any slide curve, slide length and
-  poll rate. A ride shows the walk's animation; it turns into `rising` only when the pet is more than 3 pt
+  resting top comes from the geometry source (`DockTracker.restingTop`). It is the last top seen with the Dock
+  standing still, kept as a height above that display's bottom and dropped when the tile size or the Dock's display
+  changes; else it is predicted with `DockListFrame.restingTop`: the display's bottom, a 10 pt gap under the list,
+  and the bar's height. The estimate uses the same formula. The 10 pt gap was measured at tile size 54 only and is
+  assumed not to scale with the tile size (the probe measured no other size, and changing the tile size of a live
+  Dock to measure it is not read only). So the apex is the same for any slide curve, slide length and poll rate,
+  up to the error of that prediction on a first reveal at another tile size. A ride shows whatever the animator is
+  playing (walk, idle, a wave); it turns into `rising` only when the pet is more than 3 pt
   (`rideGap`) above the floor and has not been pushed for more than one tick, so a stuttered reading never flickers
   into `jump`. A floor that drops away, or that the pet walks off, leaves it in the air with the velocity it had.
 - **Falling.** A floor that drops away faster than gravity leaves the pet in the air, and it falls.
