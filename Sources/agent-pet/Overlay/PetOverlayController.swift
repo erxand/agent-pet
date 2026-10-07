@@ -572,10 +572,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         ) { participant, from, to in
             HighFiveDirector.levelPath(self.ground.profile, for: participant, from: from, to: to)
         }
+        let crowdedLabels = HighFiveDirector.hiddenLabels(
+            groundPets.map { presence in (key: presence.sessionId, x: groundCenter(of: presence)) },
+            normalGap: minimumGroundGap
+        )
         for presence in presencesBySessionId.values {
             presence.greetingChromeFade = HighFiveDirector.chromeFade(
                 presence.greetingChromeFade,
-                hidden: highFives.hidesLabels(of: presence.sessionId, normalGap: minimumGroundGap),
+                hidden: crowdedLabels.contains(presence.sessionId),
                 elapsedSeconds: elapsedSeconds
             )
         }
