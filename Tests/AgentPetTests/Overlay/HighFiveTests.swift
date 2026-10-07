@@ -16,10 +16,10 @@ private final class Greeter: HighFiveParticipant, LaneWalker {
     let windowWidth: CGFloat = 72
     var isInFlight: Bool { false }
 
-    init(petKey: String, home: CGFloat) {
+    init(petKey: String, home: CGFloat, random: @escaping () -> Double = { 0.99 }) {
         self.petKey = petKey
         homeHorizontalCenter = home
-        animator = PetAnimator(random: { 0.99 })
+        animator = PetAnimator(random: random)
     }
 
     var x: CGFloat { homeHorizontalCenter + animator.horizontalOffsetFromHome }
@@ -102,41 +102,118 @@ struct HighFiveTests {
         }
     }
 
-    @Test func facingNeighboursWalkToTheBorderMeetTouchAtOnceAndStepBack() {
-        let (left, right, gap) = pair()
+    private struct Arrivals {
+        var first: Int?
+        var second: Int?
+        var firstRaise: Int?
+        var contact: Int?
+    }
+
+    private func greet(leftOffset: CGFloat, rightOffset: CGFloat, coin: Double) -> (ticks: [Tick], arrivals: Arrivals, firstIsLeft: Bool, border: CGFloat, spacing: CGFloat, gap: CGFloat) {
+        let (left, right, gap) = pair(leftOffset: leftOffset, rightOffset: rightOffset)
         let border = (left.homeHorizontalCenter + right.homeHorizontalCenter) / 2
         let spacing = HighFiveDirector.meetSpacing(left: left, right: right)
-        let director = HighFiveDirector(random: { 0 })
+        var draws = [0, coin].makeIterator()
+        let director = HighFiveDirector(random: { draws.next() ?? coin })
         var ticks: [Tick] = []
-        run(left, right, director: director, gap: gap, seconds: 8) { tick in ticks.append(tick) }
+        var arrivals = Arrivals()
+        var firstIsLeft = true
+        var index = 0
+        run(left, right, director: director, gap: gap, seconds: 10) { tick in
+            if index == 0 { firstIsLeft = director.firstArriverKey == left.petKey }
+            let leftThere = abs(tick.leftX - (border - spacing / 2)) < 0.001
+            let rightThere = abs(tick.rightX - (border + spacing / 2)) < 0.001
+            let firstThere = firstIsLeft ? leftThere : rightThere
+            let secondThere = firstIsLeft ? rightThere : leftThere
+            if arrivals.first == nil && firstThere { arrivals.first = index }
+            if arrivals.second == nil && secondThere { arrivals.second = index }
+            let firstFrame = firstIsLeft ? tick.leftFrame : tick.rightFrame
+            if arrivals.firstRaise == nil && firstFrame != nil { arrivals.firstRaise = index }
+            if arrivals.contact == nil && tick.phase == .contact { arrivals.contact = index }
+            ticks.append(tick)
+            index += 1
+        }
+        return (ticks, arrivals, firstIsLeft, border, spacing, gap)
+    }
 
-        for tick in ticks {
-            #expect(tick.leftX < border)
-            #expect(tick.rightX > border)
-            #expect(tick.rightX - tick.leftX >= spacing - HighFiveDirector.spacingSlack - 0.001)
+    @Test func theFirstToArriveRaisesAndWaitsAndBothTouchOnTheSameTick() {
+        let layouts: [(CGFloat, CGFloat, Double)] = [(290, -290, 0), (290, -290, 0.9), (200, -300, 0), (310, -100, 0), (250, -250, 0.4)]
+        let staggerTicks = Int(HighFiveDirector.arrivalStaggerInSeconds / HighFiveTests.tick)
+        for (leftOffset, rightOffset, coin) in layouts {
+            let label = "\(leftOffset) \(rightOffset) \(coin)"
+            let greeting = greet(leftOffset: leftOffset, rightOffset: rightOffset, coin: coin)
+            guard let first = greeting.arrivals.first, let second = greeting.arrivals.second,
+                  let raise = greeting.arrivals.firstRaise, let contact = greeting.arrivals.contact else {
+                Issue.record("\(label): \(greeting.arrivals)")
+                continue
+            }
+            #expect(second - first >= staggerTicks - 1, "\(label): arrivals \(first) and \(second)")
+            #expect(raise <= first + 1 && raise < second, "\(label)")
+            for index in (raise + Int(HighFiveDirector.raiseFrameInSeconds / HighFiveTests.tick) + 1)..<contact {
+                let frame = greeting.firstIsLeft ? greeting.ticks[index].leftFrame : greeting.ticks[index].rightFrame
+                #expect(frame == HighFiveDirector.reachFrame, "\(label) tick \(index)")
+            }
+            for index in 0..<second {
+                let frame = greeting.firstIsLeft ? greeting.ticks[index].rightFrame : greeting.ticks[index].leftFrame
+                #expect(frame == nil, "\(label) tick \(index)")
+            }
+            for tick in greeting.ticks where tick.leftFrame == HighFiveDirector.contactFrame || tick.rightFrame == HighFiveDirector.contactFrame {
+                #expect(tick.leftFrame == HighFiveDirector.contactFrame && tick.rightFrame == HighFiveDirector.contactFrame, "\(label)")
+                #expect(tick.leftAnimation == .highfive && tick.rightAnimation == .highfive)
+            }
+            for tick in greeting.ticks {
+                #expect(tick.leftX < greeting.border && tick.rightX > greeting.border)
+                #expect(tick.rightX - tick.leftX >= greeting.spacing - HighFiveDirector.spacingSlack - 0.001)
+            }
+            let after = greeting.ticks.suffix(30)
+            #expect(after.allSatisfy { tick in tick.phase == nil }, "\(label)")
+            #expect(after.allSatisfy { tick in tick.rightX - tick.leftX >= greeting.gap - 0.001 }, "\(label)")
         }
-        let meeting = ticks.filter { tick in tick.phase == .greeting || tick.phase == .contact }
-        #expect(!meeting.isEmpty)
-        for tick in meeting {
-            #expect(abs(tick.leftX - (border - spacing / 2)) < 0.001)
-            #expect(abs(tick.rightX - (border + spacing / 2)) < 0.001)
+    }
+
+    @Test func aPairThatKeepsFacingEachOtherIsAskedOnlyOnce() {
+        let (left, right, gap) = pair(receiverStrolls: false)
+        left.homeHorizontalCenter = 660
+        right.homeHorizontalCenter = 780
+        for greeter in [left, right] {
+            greeter.animator.limitWander(to: 0)
+            greeter.animator.stand(atHorizontalOffsetFromHome: 0)
         }
-        let contactTicks = ticks.indices.filter { index in
-            ticks[index].leftFrame == HighFiveDirector.contactFrame || ticks[index].rightFrame == HighFiveDirector.contactFrame
+        left.animator.face(left: false)
+        right.animator.face(left: true)
+        var draws = 0
+        let director = HighFiveDirector(random: {
+            draws += 1
+            return draws == 1 ? HighFiveDirector.chancePerEncounter : 0
+        })
+        var started = false
+        run(left, right, director: director, gap: gap, seconds: 60) { tick in started = started || tick.phase != nil }
+        #expect(!started)
+        #expect(draws == 1)
+        #expect(!left.animator.facingLeft && right.animator.facingLeft)
+    }
+
+    @Test func overAnHourOfWanderingAPairHighFivesOnlyNowAndThen() {
+        var counts: [Int] = []
+        for seed in UInt64(1)...6 {
+            var generator = SeededGenerator(seed: seed)
+            let draw = { Double.random(in: 0..<1, using: &generator) }
+            let left = Greeter(petKey: "left", home: 0, random: draw)
+            let right = Greeter(petKey: "right", home: 0, random: draw)
+            _ = LaneRedivision.apply(to: [left, right], keepingStanding: [false, false], screenFrame: screen)
+            let gap = LaneLayout.minimumGroundGap(widestPet: 72, laneCount: 2, screenFrame: screen)
+            let director = HighFiveDirector(random: draw)
+            var starts = 0
+            var previous: HighFiveDirector.Phase?
+            run(left, right, director: director, gap: gap, seconds: 3600) { tick in
+                if previous == nil && tick.phase != nil { starts += 1 }
+                previous = tick.phase
+            }
+            counts.append(starts)
         }
-        #expect(!contactTicks.isEmpty)
-        for index in contactTicks {
-            #expect(ticks[index].leftFrame == HighFiveDirector.contactFrame)
-            #expect(ticks[index].rightFrame == HighFiveDirector.contactFrame)
-            #expect(ticks[index].leftAnimation == .highfive && ticks[index].rightAnimation == .highfive)
-        }
-        let firstLeftRaise = ticks.firstIndex { tick in tick.leftFrame != nil }
-        let firstRightRaise = ticks.firstIndex { tick in tick.rightFrame != nil }
-        let delay = Double((firstRightRaise ?? 0) - (firstLeftRaise ?? 0)) * HighFiveTests.tick
-        #expect(abs(delay - HighFiveDirector.answerDelayInSeconds) <= HighFiveTests.tick + 0.001)
-        let after = ticks.suffix(30)
-        #expect(after.allSatisfy { tick in tick.phase == nil })
-        #expect(after.allSatisfy { tick in tick.rightX - tick.leftX >= gap - 0.001 })
+        let mean = Double(counts.reduce(0, +)) / Double(counts.count)
+        #expect(counts.allSatisfy { count in count <= Int(3600 / HighFiveDirector.pairCooldownInSeconds) + 1 })
+        #expect(mean >= 0.5 && mean <= 6)
     }
 
     @Test func theReceiversPlanIsInterrupted() {
@@ -166,6 +243,11 @@ struct HighFiveTests {
         right.animator.face(left: true)
         run(left, right, director: director, gap: gap, seconds: 1, startingAt: 30, each: check)
         #expect(starts == 1)
+        left.animator.stand(atHorizontalOffsetFromHome: 290)
+        left.animator.face(left: false)
+        right.animator.stand(atHorizontalOffsetFromHome: -290)
+        right.animator.face(left: false)
+        run(left, right, director: director, gap: gap, seconds: HighFiveTests.tick, startingAt: HighFiveDirector.pairCooldownInSeconds, each: check)
         left.animator.stand(atHorizontalOffsetFromHome: 290)
         left.animator.face(left: false)
         right.animator.stand(atHorizontalOffsetFromHome: -290)

@@ -15,28 +15,34 @@ struct HighFiveCandidate {
 
 final class HighFiveDirector {
     static let greetingDistance: CGFloat = 320
-    static let triggerRatePerSecond: Double = 0.2
-    static let pairCooldownInSeconds: TimeInterval = 60
-    static let answerDelayInSeconds: Double = 0.4
+    static let chancePerEncounter: Double = 0.1
+    static let pairCooldownInSeconds: TimeInterval = 600
+    static let arrivalStaggerInSeconds: Double = 0.6
     static let raiseFrameInSeconds: Double = 0.15
     static let contactHoldInSeconds: Double = 0.4
     static let approachTimeoutInSeconds: Double = 10
     static let meetSpacingFraction: CGFloat = 0.85
+    static let spacingSlack: CGFloat = 0.5
     static let raiseFrame = 0
     static let reachFrame = 1
     static let contactFrame = 2
-    static let spacingSlack: CGFloat = 0.5
 
     enum Phase: Equatable {
         case approaching
-        case greeting
+        case waiting
         case contact
     }
 
     private struct Session {
         let left: HighFiveParticipant
         let right: HighFiveParticipant
-        let initiatorIsLeft: Bool
+        let first: HighFiveParticipant
+        let second: HighFiveParticipant
+        let secondTarget: CGFloat
+        let secondFacesLeft: Bool
+        var secondSetsOutIn: Double
+        var firstRaisedFor: Double?
+        var secondRaisedFor: Double?
         var phase: Phase
         var phaseSeconds: Double
     }
@@ -44,12 +50,14 @@ final class HighFiveDirector {
     private let random: () -> Double
     private var session: Session?
     private var lastGreetedAt: [String: TimeInterval] = [:]
+    private var facingPairs: Set<String> = []
 
     init(random: @escaping () -> Double = { Double.random(in: 0..<1) }) {
         self.random = random
     }
 
     var phase: Phase? { session?.phase }
+    var firstArriverKey: String? { session?.first.petKey }
 
     func isGreeting(_ petKey: String) -> Bool {
         guard let session else { return false }
@@ -58,8 +66,7 @@ final class HighFiveDirector {
 
     func isMeetingPair(_ first: String, _ second: String) -> Bool {
         guard let session else { return false }
-        let keys = Set([session.left.petKey, session.right.petKey])
-        return keys == Set([first, second])
+        return Set([session.left.petKey, session.right.petKey]) == Set([first, second])
     }
 
     static func isFree(animator: PetAnimator, mood: PetMood, inFlight: Bool, body: GroundBody?) -> Bool {
@@ -76,14 +83,14 @@ final class HighFiveDirector {
         (left.spriteSideLength + right.spriteSideLength) / 2 * meetSpacingFraction
     }
 
-    func cancel() {
-        guard let current = session else { return }
-        finish(current)
-    }
-
     func minimumGap(between first: String, and second: String, normally gap: CGFloat) -> CGFloat {
         guard let session, isMeetingPair(first, second) else { return gap }
         return min(gap, HighFiveDirector.meetSpacing(left: session.left, right: session.right) - HighFiveDirector.spacingSlack)
+    }
+
+    func cancel() {
+        guard let current = session else { return }
+        finish(current)
     }
 
     func tick(
@@ -105,6 +112,8 @@ final class HighFiveDirector {
             advance(&current, elapsedSeconds: elapsedSeconds)
             return
         }
+        var facingNow: Set<String> = []
+        var encounter: (HighFiveParticipant, HighFiveParticipant)?
         for (left, right) in zip(neighbours, neighbours.dropFirst()) {
             guard left.isFree, right.isFree else { continue }
             let leftPet = left.participant
@@ -116,46 +125,91 @@ final class HighFiveDirector {
             let border = (leftPet.homeHorizontalCenter + rightPet.homeHorizontalCenter) / 2
             guard isLevel(leftPet, leftX, border), isLevel(rightPet, rightX, border) else { continue }
             let pair = HighFiveDirector.pairKey(leftPet.petKey, rightPet.petKey)
+            facingNow.insert(pair)
+            guard !facingPairs.contains(pair), encounter == nil else { continue }
             if let last = lastGreetedAt[pair], now - last < HighFiveDirector.pairCooldownInSeconds { continue }
-            guard random() < HighFiveDirector.triggerRatePerSecond * elapsedSeconds else { continue }
-            start(left: leftPet, right: rightPet, initiatorIsLeft: random() < 0.5, now: now)
-            return
+            if random() < HighFiveDirector.chancePerEncounter { encounter = (leftPet, rightPet) }
         }
+        facingPairs = facingNow
+        if let (left, right) = encounter { start(left: left, right: right, now: now) }
     }
 
-    private func start(left: HighFiveParticipant, right: HighFiveParticipant, initiatorIsLeft: Bool, now: TimeInterval) {
+    private func start(left: HighFiveParticipant, right: HighFiveParticipant, now: TimeInterval) {
         let border = (left.homeHorizontalCenter + right.homeHorizontalCenter) / 2
         let halfSpacing = HighFiveDirector.meetSpacing(left: left, right: right) / 2
-        left.animator.beginMeeting(atOffset: border - halfSpacing - left.homeHorizontalCenter, facingLeft: false)
-        right.animator.beginMeeting(atOffset: border + halfSpacing - right.homeHorizontalCenter, facingLeft: true)
+        let leftTarget = border - halfSpacing - left.homeHorizontalCenter
+        let rightTarget = border + halfSpacing - right.homeHorizontalCenter
+        let leftDistance = abs(leftTarget - left.animator.horizontalOffsetFromHome)
+        let rightDistance = abs(rightTarget - right.animator.horizontalOffsetFromHome)
+        let leftFirst = leftDistance == rightDistance ? random() < 0.5 : leftDistance < rightDistance
+        let first = leftFirst ? left : right
+        let second = leftFirst ? right : left
+        let firstDistance = leftFirst ? leftDistance : rightDistance
+        let secondDistance = leftFirst ? rightDistance : leftDistance
+        let naturalLead = Double((secondDistance - firstDistance) / PetAnimator.walkSpeedInPointsPerSecond)
+        let secondTarget = leftFirst ? rightTarget : leftTarget
+        let secondSetsOutIn = max(0, HighFiveDirector.arrivalStaggerInSeconds - naturalLead)
+        first.animator.beginMeeting(atOffset: leftFirst ? leftTarget : rightTarget, facingLeft: !leftFirst)
+        second.animator.beginMeeting(
+            atOffset: secondSetsOutIn > 0 ? second.animator.horizontalOffsetFromHome : secondTarget,
+            facingLeft: leftFirst
+        )
         lastGreetedAt[HighFiveDirector.pairKey(left.petKey, right.petKey)] = now
-        session = Session(left: left, right: right, initiatorIsLeft: initiatorIsLeft, phase: .approaching, phaseSeconds: 0)
+        session = Session(
+            left: left,
+            right: right,
+            first: first,
+            second: second,
+            secondTarget: secondTarget,
+            secondFacesLeft: leftFirst,
+            secondSetsOutIn: secondSetsOutIn,
+            firstRaisedFor: nil,
+            secondRaisedFor: nil,
+            phase: .approaching,
+            phaseSeconds: 0
+        )
     }
 
     private func advance(_ current: inout Session, elapsedSeconds: Double) {
         current.phaseSeconds += elapsedSeconds
+        if current.secondSetsOutIn > 0 {
+            current.secondSetsOutIn -= elapsedSeconds
+            if current.secondSetsOutIn <= 0 {
+                current.second.animator.beginMeeting(atOffset: current.secondTarget, facingLeft: current.secondFacesLeft)
+            }
+        }
         switch current.phase {
-        case .approaching:
-            if current.left.animator.hasReachedMeeting && current.right.animator.hasReachedMeeting {
-                current.phase = .greeting
-                current.phaseSeconds = 0
-            } else if current.phaseSeconds >= HighFiveDirector.approachTimeoutInSeconds {
+        case .approaching, .waiting:
+            if current.phaseSeconds >= HighFiveDirector.approachTimeoutInSeconds {
                 finish(current)
                 return
             }
-        case .greeting:
-            let initiator = current.initiatorIsLeft ? current.left : current.right
-            let receiver = current.initiatorIsLeft ? current.right : current.left
-            initiator.animator.showHighFive(frame: raisedFrame(after: current.phaseSeconds))
-            let answeredFor = current.phaseSeconds - HighFiveDirector.answerDelayInSeconds
-            if answeredFor >= 0 {
-                receiver.animator.showHighFive(frame: raisedFrame(after: answeredFor))
+            if let raised = current.firstRaisedFor {
+                current.firstRaisedFor = raised + elapsedSeconds
+            } else if current.first.animator.hasReachedMeeting {
+                current.firstRaisedFor = 0
+                current.phase = .waiting
             }
-            if answeredFor >= HighFiveDirector.raiseFrameInSeconds {
-                current.phase = .contact
-                current.phaseSeconds = 0
-                current.left.animator.showHighFive(frame: HighFiveDirector.contactFrame)
-                current.right.animator.showHighFive(frame: HighFiveDirector.contactFrame)
+            if let raised = current.firstRaisedFor {
+                current.first.animator.showHighFive(frame: raisedFrame(after: raised))
+            }
+            let secondArrived = current.secondSetsOutIn <= 0
+                && current.second.animator.hasReachedMeeting
+                && current.firstRaisedFor != nil
+            if let raised = current.secondRaisedFor {
+                current.secondRaisedFor = raised + elapsedSeconds
+            } else if secondArrived {
+                current.secondRaisedFor = 0
+            }
+            if let raised = current.secondRaisedFor {
+                if raised >= HighFiveDirector.raiseFrameInSeconds {
+                    current.phase = .contact
+                    current.phaseSeconds = 0
+                    current.left.animator.showHighFive(frame: HighFiveDirector.contactFrame)
+                    current.right.animator.showHighFive(frame: HighFiveDirector.contactFrame)
+                } else {
+                    current.second.animator.showHighFive(frame: HighFiveDirector.raiseFrame)
+                }
             }
         case .contact:
             if current.phaseSeconds >= HighFiveDirector.contactHoldInSeconds {

@@ -508,17 +508,20 @@ crash left every later hook updating records that nothing drew.
   shorter pauses likelier, and one idle in five it turns to look the other way halfway through
   (`lookAroundProbability`). `sit` keeps meaning blocked.
 - High fives (`HighFiveDirector`, one at a time, all randomness from its own injectable source): two pets on the
-  ground in neighbouring lanes that face each other within 320 pt (`greetingDistance`) may start one, with a
-  chance of 0.2 a second (`triggerRatePerSecond`) and no more than once a minute per pair
-  (`pairCooldownInSeconds`). Both drop what they were doing (the receiver's stroll is interrupted) and walk to the
-  border between their lanes, stopping 85% of a sprite apart (`meetSpacingFraction`), closer than the usual
-  gap only for this moment and never across the border. There the initiator raises its hand (`highfive` frame 0,
-  then frame 1 after 0.15 s), the other answers 0.4 s later (`answerDelayInSeconds`) the same way, both show the
-  contact frame on the same tick, hold it 0.4 s (`contactHoldInSeconds`), then step back to the edges of their own
-  ranges and wander again. A pet takes part only while it is on the ground and standing (not floating, in the air,
-  diving or walking home), its session's mood is `ready` (a pet with a `!` or `?` bubble is never pulled away),
-  and the ground from it to the border is level (no Dock edge in between). If either stops qualifying, the lanes
-  are divided again, or the walk takes over 10 s, the greeting ends and both step back.
+  ground in neighbouring lanes that come to face each other within 320 pt (`greetingDistance`) are an encounter.
+  Each encounter is asked once, when it begins, and starts a high five one time in ten (`chancePerEncounter`), and
+  a pair high fives at most once every 10 minutes (`pairCooldownInSeconds`). Over an hour of normal wandering two
+  neighbouring pets on a 1440 pt screen high five about 2 times (1 to 4 in seeded runs). Both drop what they were
+  doing and head for the border between their lanes, stopping 85% of a sprite apart (`meetSpacingFraction`), closer
+  than the usual gap only for this moment and never across the border. They never arrive together: the pet with
+  the shorter walk goes first, and the other waits, facing it, until its own walk ends at least 0.6 s later
+  (`arrivalStaggerInSeconds`). The first to arrive raises its hand (`highfive` frame 0, then frame 1 after 0.15 s)
+  and holds it while it waits; the second arrives, raises (frame 0 for 0.15 s), and both show the contact frame on
+  the same tick, hold it 0.4 s (`contactHoldInSeconds`), then step back to the edges of their own ranges and wander
+  again. A pet takes part only while it is on the ground and standing (not floating, in the air, diving or walking
+  home), its session's mood is `ready` (a pet with a `!` or `?` bubble is never pulled away), and the ground from
+  it to the border is level (no Dock edge in between). If either stops qualifying, the lanes are divided again, or
+  the walk takes over 10 s, the greeting ends and both step back.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
 - Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
