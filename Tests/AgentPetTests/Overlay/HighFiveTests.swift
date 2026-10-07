@@ -333,6 +333,66 @@ struct HighFiveTests {
         #expect(starts >= 25 && starts <= 55, "\(starts) of \(encounters)")
     }
 
+    @Test func neighboursRestingExactlyAGapApartKeepTheirLabels() {
+        let gap: CGFloat = 104
+        let atTheGap = HighFiveDirector.hiddenLabels([(key: "a", x: 616), (key: "b", x: 616 + gap - 1e-9)], normalGap: gap)
+        #expect(atTheGap.isEmpty)
+        let meeting = HighFiveDirector.hiddenLabels([(key: "a", x: 616), (key: "b", x: 616 + 54)], normalGap: gap)
+        #expect(meeting == ["a", "b"])
+    }
+
+    @Test func aMeetingTargetKeepsAMovedHomeFromStartingAWalkHome() {
+        let (left, _, _) = pair()
+        left.animator.beginMeeting(atOffset: left.animator.wanderHalfWidth + 40, facingLeft: false)
+        left.animator.moveHome(by: 500)
+        #expect(!left.animator.isWalkingHome)
+        left.animator.limitWander(to: 10)
+        #expect(!left.animator.isWalkingHome)
+    }
+
+    @Test func endingAMeetingOutsideTheRangeWalksHomeAndInsideDoesNot() {
+        let (left, right, _) = pair()
+        left.animator.stand(atHorizontalOffsetFromHome: left.animator.wanderHalfWidth + 30)
+        left.animator.beginMeeting(atOffset: left.animator.horizontalOffsetFromHome, facingLeft: false)
+        left.animator.endMeeting(stepBackTo: left.animator.wanderHalfWidth)
+        #expect(left.animator.isWalkingHome)
+
+        right.animator.stand(atHorizontalOffsetFromHome: -100)
+        right.animator.walkHomeNow()
+        right.animator.beginMeeting(atOffset: -100, facingLeft: true)
+        right.animator.endMeeting(stepBackTo: -right.animator.wanderHalfWidth)
+        #expect(!right.animator.isWalkingHome)
+    }
+
+    @Test func aPetWhoseSessionAsksMidGreetingWalksBackIntoItsRange() {
+        let (left, right, gap) = pair()
+        let director = HighFiveDirector(random: { 0 })
+        run(left, right, director: director, gap: gap, seconds: 6) { tick in
+            if tick.phase == .contact { right.mood = .needsInput }
+        }
+        #expect(director.phase == nil)
+        #expect(abs(right.animator.horizontalOffsetFromHome) <= right.animator.wanderHalfWidth + 0.001)
+        #expect(!right.animator.isWalkingHome)
+    }
+
+    @Test func aReplanThatShiftsAHomeWhileWaitingEndsTheGreetingCleanly() {
+        let (left, right, gap) = pair()
+        let director = HighFiveDirector(random: { 0 })
+        var shifted = false
+        run(left, right, director: director, gap: gap, seconds: 8) { tick in
+            if !shifted && tick.phase == .waiting {
+                _ = LaneRedivision.apply(to: [left, right], keepingStanding: [true, true], screenFrame: CGRect(x: 0, y: 0, width: 1500, height: 900))
+                #expect(!left.animator.isWalkingHome && !right.animator.isWalkingHome)
+                shifted = true
+            }
+        }
+        #expect(shifted)
+        #expect(director.phase == nil)
+        #expect(right.x - left.x >= gap - 0.001)
+        #expect(abs(left.animator.horizontalOffsetFromHome) <= left.animator.wanderHalfWidth + 0.001)
+        #expect(abs(right.animator.horizontalOffsetFromHome) <= right.animator.wanderHalfWidth + 0.001)
+    }
+
     @Test func overAnHourOfWanderingAPairHighFivesOnlyNowAndThen() {
         var counts: [Int] = []
         for seed in UInt64(1)...6 {

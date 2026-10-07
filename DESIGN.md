@@ -521,10 +521,12 @@ crash left every later hook updating records that nothing drew.
   again. A pet takes part only while it is on the ground and standing (not floating, in the air, diving or walking
   home), its session's mood is `ready` (a pet with a `!` or `?` bubble is never pulled away), and the ground from
   it to the border is level (no Dock edge in between, `HighFiveDirector.levelPath`). Whenever two neighbouring pets
-  on the ground stand closer than the usual gap (a greeting pair while it meets and while it steps back) both
+  on the ground stand closer than the usual gap less half a point (so two pets resting exactly a gap apart keep
+  them) (a greeting pair while it meets and while it steps back) both
   labels fade out over 0.15 s (`labelFadeInSeconds`, `HighFiveDirector.hiddenLabels`) and come back once they are
   apart again, so two labels never overlap. A pet at a meeting point is outside its own range by design, so a lane
-  replan does not send it walking home, and a greeting survives a replan that moves neither home. If either stops qualifying, stops being the other's neighbour, its home or range changes, or the
+  replan does not send it walking home; when the greeting ends, a pet left outside its range (say its session
+  asked a question meanwhile) walks back into it, and a greeting survives a replan that moves neither home. If either stops qualifying, stops being the other's neighbour, its home or range changes, or the
   walk takes over 10 s, the greeting ends: a pet still on the ground steps back and wanders again, and one that
   is diving or in the air just drops the greeting. Re-planning lanes that moves neither pet does not end it. The
   cooldown runs on the system uptime clock, and expired entries are dropped.
