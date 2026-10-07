@@ -16,13 +16,12 @@ final class PetAnimator {
     private static let diveChromeFadeOutDurationInSeconds: Double = 0.1
     private static let diveDescentDurationInSeconds: Double = 0.35
     static let maximumGroundStepInSeconds: Double = 1.0 / 15.0
-    private static let minimumPauseInSeconds: Double = 1
-    private static let maximumPauseInSeconds: Double = 3
-    private static let minimumWalkInSeconds: Double = 1.5
-    private static let maximumWalkInSeconds: Double = 5
+    static let minimumPauseInSeconds: Double = 0.6
+    static let maximumPauseInSeconds: Double = 4
+    static let lookAroundProbability: Double = 0.2
+    static let strollGiveUpInSeconds: Double = 1
     private static let waveDurationInSeconds: Double = 1.5
     private static let waveProbability: Double = 0.35
-    static let meanderProbability: Double = 0.35
     private static let fullyUnderground: Double = 1
     private static let fullyAboveGround: Double = 0
     private static let opaqueChrome: Double = 1
@@ -45,6 +44,9 @@ final class PetAnimator {
     private var bubblePhaseInSeconds: Double = 0
     private var phaseElapsedSeconds: Double = 0
     private var walkDirection: CGFloat = 1
+    private(set) var strollDestination: CGFloat?
+    private var blockedSeconds: Double = 0
+    private var looksAroundAt: Double?
     private(set) var walkWasBlocked = false
     private var diveStartGroundOffsetFraction: Double = PetAnimator.fullyAboveGround
     private var diveStartChromeOpacity: Double = PetAnimator.opaqueChrome
@@ -148,6 +150,7 @@ final class PetAnimator {
 
     func forgetBlockedWalk() {
         walkWasBlocked = false
+        blockedSeconds = 0
     }
 
     func walkHomeNow() {
@@ -297,9 +300,12 @@ final class PetAnimator {
         remainingActivityInSeconds -= elapsedSeconds
         switch animationName {
         case .walk:
-            walk(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
-            if remainingActivityInSeconds <= 0 { beginResting() }
+            stroll(elapsedSeconds: elapsedSeconds, canMoveTo: canMoveTo)
         case .idle, .wave:
+            if let looksAroundAt, remainingActivityInSeconds <= looksAroundAt {
+                self.looksAroundAt = nil
+                facingLeft.toggle()
+            }
             if remainingActivityInSeconds <= 0 { beginWalking() }
         case .sit, .emerge, .dive, .jump, .fall:
             beginWalking()
@@ -315,56 +321,63 @@ final class PetAnimator {
     }
 
     private func beginWalking() {
-        if walkWasBlocked {
-            walkWasBlocked = false
-            turnAround()
-        } else if random() < PetAnimator.meanderProbability {
-            turnAround()
+        let blockedHeading: CGFloat? = walkWasBlocked ? walkDirection : nil
+        walkWasBlocked = false
+        blockedSeconds = 0
+        let destination = Stroll.destination(
+            from: horizontalOffsetFromHome,
+            halfWidth: wanderHalfWidth,
+            heading: walkDirection,
+            blockedHeading: blockedHeading,
+            random: random
+        )
+        guard abs(destination - horizontalOffsetFromHome) >= Stroll.shortestStroll else {
+            strollDestination = nil
+            beginResting()
+            return
         }
+        strollDestination = destination
+        walkDirection = destination < horizontalOffsetFromHome ? -1 : 1
+        facingLeft = walkDirection < 0
         animationName = .walk
         frameTick = 0
-        remainingActivityInSeconds = randomValue(
-            in: PetAnimator.minimumWalkInSeconds...PetAnimator.maximumWalkInSeconds
-        )
     }
 
     private func beginResting() {
         frameTick = 0
+        strollDestination = nil
+        looksAroundAt = nil
         if random() < PetAnimator.waveProbability {
             animationName = .wave
             remainingActivityInSeconds = PetAnimator.waveDurationInSeconds
             return
         }
         animationName = .idle
-        remainingActivityInSeconds = randomValue(
-            in: PetAnimator.minimumPauseInSeconds...PetAnimator.maximumPauseInSeconds
-        )
+        let spread = random()
+        remainingActivityInSeconds = PetAnimator.minimumPauseInSeconds
+            + (PetAnimator.maximumPauseInSeconds - PetAnimator.minimumPauseInSeconds) * spread * spread
+        if random() < PetAnimator.lookAroundProbability {
+            looksAroundAt = remainingActivityInSeconds / 2
+        }
     }
 
-    private func walk(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
-        var next = horizontalOffsetFromHome + walkDirection
-            * PetAnimator.walkSpeedInPointsPerSecond
-            * CGFloat(elapsedSeconds)
-        var turns = false
-        if next > wanderHalfWidth {
-            next = wanderHalfWidth
-            turns = true
-        } else if next < -wanderHalfWidth {
-            next = -wanderHalfWidth
-            turns = true
-        }
+    private func stroll(elapsedSeconds: Double, canMoveTo: (CGFloat) -> Bool) {
+        let destination = min(max(strollDestination ?? horizontalOffsetFromHome, -wanderHalfWidth), wanderHalfWidth)
+        let remaining = destination - horizontalOffsetFromHome
+        let step = PetAnimator.walkSpeedInPointsPerSecond * CGFloat(elapsedSeconds)
+        let arrives = abs(remaining) <= step
+        let next = arrives ? destination : horizontalOffsetFromHome + (remaining < 0 ? -step : step)
         guard canMoveTo(next) else {
             walkWasBlocked = true
+            blockedSeconds += elapsedSeconds
+            if blockedSeconds >= PetAnimator.strollGiveUpInSeconds { beginResting() }
             return
         }
+        blockedSeconds = 0
         horizontalOffsetFromHome = next
-        if turns { turnAround() }
+        if arrives { beginResting() }
     }
 
-    private func turnAround() {
-        walkDirection *= -1
-        facingLeft = walkDirection < 0
-    }
 
     private static func clampedUnitValue(_ value: Double) -> Double {
         min(max(value, 0), 1)
@@ -389,5 +402,50 @@ final class PetAnimator {
         let elapsedSinceFadeInStart = phaseElapsedSeconds - fadeInStartInSeconds
         guard elapsedSinceFadeInStart > 0 else { return transparentChrome }
         return clampedUnitValue(elapsedSinceFadeInStart / emergeChromeFadeInDurationInSeconds)
+    }
+}
+
+enum Stroll {
+    static let unitInPoints: CGFloat = 40
+    static let shortestStroll: CGFloat = 8
+    static let longTripProbability: Double = 0.15
+    static let shortStrollUnits: ClosedRange<CGFloat> = 1...4
+    static let longTripFractionOfRange: ClosedRange<CGFloat> = 0.4...1
+    static let keepHeadingProbability: Double = 0.7
+
+    static func destination(
+        from position: CGFloat,
+        halfWidth: CGFloat,
+        heading: CGFloat,
+        blockedHeading: CGFloat?,
+        random: () -> Double
+    ) -> CGFloat {
+        guard halfWidth > 0 else { return 0 }
+        let isLong = random() < longTripProbability
+        let spread = CGFloat(random())
+        let distance: CGFloat
+        if isLong {
+            let fraction = longTripFractionOfRange.lowerBound
+                + (longTripFractionOfRange.upperBound - longTripFractionOfRange.lowerBound) * spread
+            distance = 2 * halfWidth * fraction
+        } else {
+            distance = unitInPoints
+                * (shortStrollUnits.lowerBound + (shortStrollUnits.upperBound - shortStrollUnits.lowerBound) * spread * spread)
+        }
+        let direction: CGFloat
+        if let blockedHeading {
+            direction = -blockedHeading
+        } else {
+            let outward: CGFloat = position == 0 ? heading : (position > 0 ? 1 : -1)
+            let edgeness = Double(min(abs(position) / halfWidth, 1))
+            let baseOutward = heading == outward ? keepHeadingProbability : 1 - keepHeadingProbability
+            direction = random() < baseOutward * (1 - edgeness) ? outward : -outward
+        }
+        let wanted = position + direction * distance
+        let clamped = min(max(wanted, -halfWidth), halfWidth)
+        if abs(clamped - position) < shortestStroll {
+            return min(max(position - direction * distance, -halfWidth), halfWidth)
+        }
+        return clamped
     }
 }

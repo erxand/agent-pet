@@ -188,9 +188,7 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: half the slice less half the gap, so it
    walks the whole slice except half a gap at each end, and two neighbours at the ends of their ranges
    still keep the gap. Lanes are divided again as pets come and go, and a pet left outside its new range
-   walks there. Each new walk turns round at random about one time in three (`PetAnimator.meanderProbability`,
-   on the animator's own random source, which tests seed), so a lone pet meanders over the whole width
-   instead of pacing from edge to edge. The gap is the widest pet on the
+   walks there. Inside its range a pet wanders like a simple game character (`Stroll`, see "Wandering"). The gap is the widest pet on the
    ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the slice
    width so every lane stays reachable. So the names of two pets side by side never overlap: a label or
    bubble caption wider than that cap less 8 px, or longer than 28 characters, is shortened with an
@@ -493,8 +491,19 @@ crash left every later hook updating records that nothing drew.
   (`LaneRedivision.carry`), and the lanes are divided again for the new width. Only the window frame moves, so no animation restarts, and
   no pet stays on a display that went away. The `focused` default ignores the notification, as
   upstream does.
-- Animation: sprite frames at 8 fps, walk speed 40 px/s, a lane change walked, never jumped, turn around at lane bounds (renderer flips horizontally for
-  leftward travel), random idle pauses of 1 to 3 s.
+- Animation: sprite frames at 8 fps, walk speed 40 px/s, a lane change walked, never jumped (renderer flips
+  horizontally for leftward travel).
+- Wandering: a `ready` pet strolls to a destination, pauses, and picks the next one (`Stroll.destination`, all
+  randomness from the animator's own source, which tests seed). A stroll is short to medium most of the time,
+  1 to 4 units of 40 pt with the shorter ones likelier (`unitInPoints`, `shortStrollUnits`), and a long trip of
+  40% to 100% of the range one time in seven (`longTripProbability` 0.15, `longTripFractionOfRange`). It keeps its
+  heading 70% of the time in the middle of its range (`keepHeadingProbability`), and the chance of heading further
+  out falls in proportion to how close it is to the end it faces, so near an edge the next stroll almost always
+  heads back in. A destination is always inside the range; a stroll shorter than 8 pt (`shortestStroll`) is turned
+  round, or skipped for a pause. A stroll a neighbour blocks for a second (`strollGiveUpInSeconds`) ends, and the
+  next one heads the other way. Between strolls the pet waves (35%, as before) or idles for 0.6 to 4 s with the
+  shorter pauses likelier, and one idle in five it turns to look the other way halfway through
+  (`lookAroundProbability`). `sit` keeps meaning blocked.
 - Mood: `ready` walks and occasionally plays `wave`; `needsInput` stands on `idle` with a bobbing `!` bubble;
   `blocked` plays `sit` with a `?` bubble.
 - Left click: focus the session, then hide. Right click: hide only. Focus is the configured Focuser,
