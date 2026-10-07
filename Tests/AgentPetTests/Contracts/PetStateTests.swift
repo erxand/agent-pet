@@ -254,38 +254,50 @@ struct RescanTests {
         }
     }
 
+    private func awaitChange(
+        to fileName: String,
+        from monitor: DirectoryChangeMonitor,
+        collecting changes: inout [DirectoryChange]
+    ) async throws {
+        let hangBound = Date().addingTimeInterval(30)
+        while !changes.contains(where: { change in change.path.hasSuffix("/golem/" + fileName) }) && Date() < hangBound {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            changes += monitor.consumeChanges()
+        }
+    }
+
     @Test func theMonitorReportsAFileWrittenInAWatchedFolderBeforeALaterOne() async throws {
         let directory = try TemporaryDirectory()
         let packs = try directory.makeDirectory("sprites/golem")
         let monitor = DirectoryChangeMonitor(recordsPaths: true)
         monitor.watch(directories: [directory.url.appendingPathComponent("sprites", isDirectory: true)])
         #expect(monitor.isWatching)
-        let written = packs.appendingPathComponent("pack.json")
-        let sentinel = packs.appendingPathComponent("sentinel")
-        try "{}".write(to: written, atomically: false, encoding: .utf8)
-        try "".write(to: sentinel, atomically: false, encoding: .utf8)
-        var paths: [String] = []
-        let hangBound = Date().addingTimeInterval(30)
-        while !paths.contains(where: { path in path.hasSuffix("/golem/sentinel") }) && Date() < hangBound {
-            try await Task.sleep(nanoseconds: 20_000_000)
-            paths += monitor.consumeChangedPaths()
-        }
-        let writtenIndex = paths.firstIndex { path in path.hasSuffix("/golem/pack.json") }
-        let sentinelIndex = paths.firstIndex { path in path.hasSuffix("/golem/sentinel") }
-        #expect(writtenIndex != nil, "\(paths)")
-        #expect(sentinelIndex != nil, "\(paths)")
-        if let writtenIndex, let sentinelIndex { #expect(writtenIndex < sentinelIndex) }
+        var changes: [DirectoryChange] = []
+        try "".write(to: packs.appendingPathComponent("ready"), atomically: false, encoding: .utf8)
+        try await awaitChange(to: "ready", from: monitor, collecting: &changes)
+        #expect(changes.contains { change in change.path.hasSuffix("/golem/ready") })
+        changes = []
+        _ = monitor.consumeChange()
+
+        try "{}".write(to: packs.appendingPathComponent("pack.json"), atomically: false, encoding: .utf8)
+        try "".write(to: packs.appendingPathComponent("sentinel"), atomically: false, encoding: .utf8)
+        try await awaitChange(to: "sentinel", from: monitor, collecting: &changes)
+        let sentinelIndex = changes.firstIndex { change in change.path.hasSuffix("/golem/sentinel") }
+        #expect(sentinelIndex != nil, "\(changes)")
+        let beforeSentinel = changes.prefix(sentinelIndex ?? changes.count)
+        let covered = beforeSentinel.contains { change in change.path.hasSuffix("/golem/pack.json") || change.requiresRescan }
+        #expect(covered, "\(changes)")
         #expect(monitor.consumeChange())
     }
 
     @Test func aReportedChangeIsConsumedExactlyOnce() {
         let monitor = DirectoryChangeMonitor()
         #expect(!monitor.consumeChange())
-        monitor.noteChange(paths: ["/watched/a"])
-        monitor.noteChange(paths: ["/watched/a"])
+        monitor.noteChange([DirectoryChange(path: "/watched/a", requiresRescan: false)])
+        monitor.noteChange([DirectoryChange(path: "/watched/a", requiresRescan: false)])
         #expect(monitor.consumeChange())
         #expect(!monitor.consumeChange())
-        #expect(monitor.consumeChangedPaths().isEmpty)
+        #expect(monitor.consumeChanges().isEmpty)
     }
 
     @Test func watchingTheSameFoldersAgainKeepsTheStreamAndNoFoldersStopsIt() throws {
@@ -313,7 +325,8 @@ struct InertPetTests {
         let registry = RunningFocusCommands()
         let reports = ReportRecorder()
         let focuser = CommandFocuser(
-            arguments: ["/bin/sleep", "5"],
+            arguments: ["/bin/sleep", "1000"],
+            timeoutInSeconds: 120,
             waitsForCompletion: false,
             report: { line in reports.append(line) },
             runningCommands: registry

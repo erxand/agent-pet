@@ -16,6 +16,7 @@ package struct CommandFocuser: Focuser {
     private let arguments: [String]
     private let timeoutInSeconds: TimeInterval
     private let terminationGraceInSeconds: TimeInterval
+    private let beforeTimeout: () -> Void
     private let waitsForCompletion: Bool
     private let report: (String) -> Void
     private let runningCommands: RunningFocusCommands
@@ -24,6 +25,7 @@ package struct CommandFocuser: Focuser {
         arguments: [String],
         timeoutInSeconds: TimeInterval = CommandFocuser.defaultTimeoutInSeconds,
         terminationGraceInSeconds: TimeInterval = CommandFocuser.defaultTerminationGraceInSeconds,
+        beforeTimeout: @escaping () -> Void = {},
         waitsForCompletion: Bool,
         report: @escaping (String) -> Void = CommandFeedback.writeToStandardError,
         runningCommands: RunningFocusCommands = .shared
@@ -32,6 +34,7 @@ package struct CommandFocuser: Focuser {
         self.arguments = arguments
         self.timeoutInSeconds = timeoutInSeconds
         self.terminationGraceInSeconds = terminationGraceInSeconds
+        self.beforeTimeout = beforeTimeout
         self.waitsForCompletion = waitsForCompletion
         self.report = report
     }
@@ -70,6 +73,7 @@ package struct CommandFocuser: Focuser {
         runningCommands.add(process)
         let timeoutInSeconds = timeoutInSeconds
         let terminationGraceInSeconds = terminationGraceInSeconds
+        let beforeTimeout = beforeTimeout
         let report = report
         let runningCommands = runningCommands
         let supervise = {
@@ -79,6 +83,7 @@ package struct CommandFocuser: Focuser {
                 executablePath: executablePath,
                 timeoutInSeconds: timeoutInSeconds,
                 terminationGraceInSeconds: terminationGraceInSeconds,
+                beforeTimeout: beforeTimeout,
                 report: report
             )
         }
@@ -95,8 +100,10 @@ package struct CommandFocuser: Focuser {
         executablePath: String,
         timeoutInSeconds: TimeInterval,
         terminationGraceInSeconds: TimeInterval,
+        beforeTimeout: () -> Void,
         report: (String) -> Void
     ) {
+        beforeTimeout()
         waitForExit(of: process, upTo: timeoutInSeconds)
         defer { runningCommands.remove(process) }
         guard !runningCommands.wasCancelled(process) else { return }

@@ -1,12 +1,22 @@
 import CoreServices
 import Foundation
 
+package struct DirectoryChange: Equatable {
+    package let path: String
+    package let requiresRescan: Bool
+
+    package init(path: String, requiresRescan: Bool) {
+        self.path = path
+        self.requiresRescan = requiresRescan
+    }
+}
+
 package final class DirectoryChangeMonitor {
     package static let defaultLatencyInSeconds: TimeInterval = 0.05
 
     private let latencyInSeconds: TimeInterval
     private let recordsPaths: Bool
-    private var changedPaths: [String] = []
+    private var changes: [DirectoryChange] = []
     private let queue = DispatchQueue(label: "agent-pet.directory-changes")
     private let lock = NSLock()
     private var changeReported = false
@@ -41,18 +51,18 @@ package final class DirectoryChangeMonitor {
         return reported
     }
 
-    package func consumeChangedPaths() -> [String] {
+    package func consumeChanges() -> [DirectoryChange] {
         lock.lock()
         defer { lock.unlock() }
-        let paths = changedPaths
-        changedPaths = []
-        return paths
+        let consumed = changes
+        changes = []
+        return consumed
     }
 
-    package func noteChange(paths: [String]) {
+    package func noteChange(_ noted: [DirectoryChange]) {
         lock.lock()
         changeReported = true
-        if recordsPaths { changedPaths += paths }
+        if recordsPaths { changes += noted }
         lock.unlock()
     }
 
@@ -107,11 +117,16 @@ private func directoryChangeCallback(
     guard let clientInfo, eventCount > 0 else { return }
     let monitor = Unmanaged<DirectoryChangeMonitor>.fromOpaque(clientInfo).takeUnretainedValue()
     guard monitor.wantsPaths else {
-        monitor.noteChange(paths: [])
+        monitor.noteChange([])
         return
     }
     let pathPointers = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
-    monitor.noteChange(paths: (0..<eventCount).map { index in String(cString: pathPointers[index]) })
+    let rescanFlags = FSEventStreamEventFlags(
+        kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped
+    )
+    monitor.noteChange((0..<eventCount).map { index in
+        DirectoryChange(path: String(cString: pathPointers[index]), requiresRescan: eventFlags[index] & rescanFlags != 0)
+    })
 }
 
 package struct RescanGate {
