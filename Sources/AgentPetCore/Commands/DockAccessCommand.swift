@@ -76,10 +76,12 @@ package struct DockAccessFiles {
     }
 
     package func consumeRequest() -> String? {
-        guard FileManager.default.fileExists(atPath: requestFile.path) else { return nil }
-        let nonce = pendingRequestNonce() ?? ""
-        try? FileManager.default.removeItem(at: requestFile)
-        return nonce
+        let claimed = requestFile.deletingLastPathComponent()
+            .appendingPathComponent(".\(requestFile.lastPathComponent).claimed-\(UUID().uuidString)", isDirectory: false)
+        guard rename(requestFile.path, claimed.path) == 0 else { return nil }
+        defer { try? FileManager.default.removeItem(at: claimed) }
+        guard let payload = try? Data(contentsOf: claimed) else { return "" }
+        return String(decoding: payload, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -162,6 +164,7 @@ enum DockAccessCommand {
         var makeNonce: () -> String
         var now: () -> TimeInterval
         var sleep: (TimeInterval) -> Void
+        var writeError: (String) -> Void = CommandFeedback.writeToStandardError
 
         static var live: Environment {
             Environment(
@@ -189,10 +192,10 @@ enum DockAccessCommand {
               report.processIdentifier == daemon
         else {
             print(unknownWord)
-            CommandFeedback.writeToStandardError("the daemon is not running or has not checked yet; the daemon's own access is what counts.")
+            environment.writeError("the daemon is not running or has not checked yet; the daemon's own access is what counts.")
             return ExitCode.failure
         }
-        return answer(report.granted, asked: false)
+        return answer(report.granted, asked: false, environment: environment)
     }
 
     private static func ask(environment: Environment) -> Int32 {
@@ -201,7 +204,7 @@ enum DockAccessCommand {
         case .launchAgent, .spawnedOnItsOwn:
             break
         case .alreadyRunningWithoutLaunchAgent, .spawnedByThisCommand:
-            CommandFeedback.writeToStandardError(
+            environment.writeError(
                 "no launch agent runs the daemon, so macOS may show and record this grant for the app that started it."
             )
         }
@@ -211,7 +214,7 @@ enum DockAccessCommand {
         } else {
             nonce = environment.makeNonce()
             guard environment.files.writeRequest(nonce: nonce) else {
-                CommandFeedback.writeToStandardError("cannot write \(environment.files.requestFile.path).")
+                environment.writeError("cannot write \(environment.files.requestFile.path).")
                 return ExitCode.failure
             }
         }
@@ -221,20 +224,20 @@ enum DockAccessCommand {
                let report = environment.files.loadReport(),
                report.processIdentifier == daemon,
                report.askNonce == nonce {
-                return answer(report.granted, asked: true)
+                return answer(report.granted, asked: true, environment: environment)
             }
             environment.sleep(answerPollInSeconds)
         }
         print(unknownWord)
-        CommandFeedback.writeToStandardError("the daemon did not answer; it asks macOS the next time it starts.")
+        environment.writeError("the daemon did not answer; it asks macOS the next time it starts.")
         return ExitCode.failure
     }
 
-    private static func answer(_ granted: Bool, asked: Bool) -> Int32 {
+    private static func answer(_ granted: Bool, asked: Bool, environment: Environment) -> Int32 {
         print(granted ? grantedWord : notGrantedWord)
         guard !granted else { return ExitCode.success }
         if asked {
-            CommandFeedback.writeToStandardError("turn on agent-pet in \(settingsHint); the daemon notices within 5 seconds.")
+            environment.writeError("turn on agent-pet in \(settingsHint); the daemon notices within 5 seconds.")
         }
         return ExitCode.failure
     }

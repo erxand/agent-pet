@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -449,22 +450,25 @@ struct DockGeometrySourceTests {
     @Test func magnificationNeverRaisesOrWidensTheGroundPastTheRestingDock() {
         let sensing = FakeDockSensing()
         sensing.dockPreferences.magnifies = true
-        sensing.listFrame = shownListFrame
+        sensing.dockPreferences.tileSize = 64
+        sensing.listFrame = CGRect(x: 70, y: 1117 - 10 - 90, width: 1580, height: 90)
         var tracker = DockTracker()
         let resting = tracker.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        sensing.listFrame = CGRect(x: 30, y: 1033 - 60, width: 1668, height: 134)
+        sensing.pointer = CGPoint(x: 800, y: 20)
+        sensing.listFrame = CGRect(x: 30, y: 1117 - 10 - 150, width: 1668, height: 150)
         let magnified = tracker.update(now: 0.31, elapsedSeconds: tick, screens: screens, sensing: sensing)
         #expect(magnified == resting)
 
         var neverResting = DockTracker()
         let estimatedSpan = neverResting.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)
-        #expect(estimatedSpan?.maxY == 79)
-        #expect((estimatedSpan?.width ?? 0) < 1668 + 52)
+        let inset64 = DockBarInset.scaled(forTileSize: 64)
+        #expect(estimatedSpan?.height == inset64.restingHeight(tileSize: 64))
+        #expect((estimatedSpan?.width ?? 0) < 1668)
         #expect(abs((estimatedSpan?.midX ?? 0) - (30 + 1668 / 2)) < 0.5)
 
         sensing.dockPreferences.magnifies = false
         var plain = DockTracker()
-        #expect((plain.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)?.maxY ?? 0) > 79)
+        #expect(plain.update(now: 0, elapsedSeconds: tick, screens: screens, sensing: sensing)?.height == 150 - inset64.top - inset64.bottom)
     }
 
     @Test func theDocksDisplayComesFromItsBottomCentreSoStackedDisplaysAreToldApart() {
@@ -631,6 +635,8 @@ struct PetGroundTests {
     }
 }
 
+private let runningApplicationsKey = "runningApplications"
+
 final class FakeDockSystem: DockSystem {
     var processChanges = 0
     var clock: TimeInterval = 0
@@ -732,6 +738,15 @@ struct SystemDockSensingTests {
         system.clock = 0.1
         #expect(sensing.dockWindow()?.isOnScreen == false)
         #expect(system.windowSearches == 2)
+    }
+
+    @Test func theRunningApplicationsObserverCountsAChange() {
+        let system = LiveDockSystem()
+        let before = system.processChanges
+        let workspace = NSWorkspace.shared
+        workspace.willChangeValue(forKey: runningApplicationsKey)
+        workspace.didChangeValue(forKey: runningApplicationsKey)
+        #expect(system.processChanges > before)
     }
 
     @Test func withoutTheGrantTheAccessibilityApiIsNeverCalled() {

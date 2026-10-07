@@ -17,6 +17,7 @@ final class PetGround {
         visibleFrame = screenFrames.visibleFrame
         let dockBar: CGRect?
         if !standsOnDock {
+            dockGround = nil
             dockBar = nil
         } else if let elapsedSeconds {
             let watched = dockGround ?? makeDockGround()

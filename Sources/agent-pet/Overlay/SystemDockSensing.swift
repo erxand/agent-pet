@@ -115,7 +115,7 @@ final class LiveDockSystem: DockSystem {
     private var dockList: AXUIElement?
 
     init() {
-        runningApplicationsObservation = NSWorkspace.shared.observe(\.runningApplications, options: [.new, .old]) { [weak self] _, _ in
+        runningApplicationsObservation = NSWorkspace.shared.observe(\.runningApplications, options: []) { [weak self] _, _ in
             self?.processChanges += 1
         }
     }

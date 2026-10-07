@@ -9,6 +9,7 @@ enum LaunchAgent {
     static let label = "com.agent-pet.daemon"
 
     private static let launchctlExecutablePath = "/bin/launchctl"
+    private static let launchctlTimeoutInSeconds: TimeInterval = 5
     private static let libraryDirectoryName = "Library"
     private static let launchAgentsDirectoryName = "LaunchAgents"
     private static let propertyListFileExtension = "plist"
@@ -48,12 +49,17 @@ enum LaunchAgent {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
         do {
             try process.run()
         } catch {
             return false
         }
-        process.waitUntilExit()
+        guard finished.wait(timeout: .now() + launchctlTimeoutInSeconds) == .success else {
+            process.terminate()
+            return false
+        }
         return process.terminationStatus == ExitCode.success
     }
 }

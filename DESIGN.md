@@ -463,7 +463,9 @@ crash left every later hook updating records that nothing drew.
   service", so a failed kickstart is followed by `launchctl bootstrap gui/<uid> <plist>`, which
   loads the agent and starts it through `RunAtLoad`. When the plist is missing, fall back to the
   old detached spawn, guarded by the liveness check on `daemon.pid`. The spawn disclaims responsibility
-  where macOS allows it, so the daemon is not judged by the terminal that ran the command (see "Who is asked").
+  where macOS allows it, so the daemon is not judged by the terminal that ran the command (see "Who is asked"), and
+  sets `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the daemon inherits only its standard streams and never holds a caller's
+  pipe or lock. `launchctl` calls are cut off after 5 s.
 - Every path that shows a pet ensures the daemon: `on`, `show`, `preview`, and the `hook` command
   on `Stop` and on a `Notification` of type `permission_prompt` or `agent_needs_input`. The hook
   ensures only after `PetTurnState.show` reports that the record exists and is enabled, so a
@@ -726,16 +728,18 @@ pure, driven by a `DockSensing`) decides when to read and turns readings into th
   is estimated from `com.apple.dock` preferences: tile size, pinned apps, running apps that are not pinned, recents
   and other items, plus Finder and Trash, centered on that display. `DockSlide` eases it in over 0.23 s and out over
   0.2 s. Minimized windows and folder stacks are not counted, so the estimate can be shorter than the real bar.
-- With `magnification` on, a bar taller than the resting height for the tile size is cut back to that height and to
-  the last resting span (or, before one was seen, the estimated width centred on it), so hovering the icons never
-  lifts or widens the ground.
+- With `magnification` on, a bar read while the pointer is in the band over the Dock (the only time it can be
+  magnified) and taller than the last bar read with the pointer away is cut back to that bar's height and span, so
+  hovering the icons never lifts or widens the ground. Before any resting bar was seen, the height for the tile size
+  and the estimated width centred on the bar stand in.
 - Preferences are read every 5 s. The Dock is read every 0.3 s while idle, and every tick (30 Hz) while the pointer
   is in the band over the Dock (its span plus 40 pt each side, tile size plus 50 pt deep, on the Dock's display),
   for 0.6 s after a change, and while an estimate slides.
 - A left or right Dock gives no ground (the profile stays flat). The Accessibility frame is wherever the Dock really
   is: its display is the one under the list's bottom centre, on both axes, so displays stacked above each other are
   told apart; the profile then checks the bar against the pets' display.
-- With `dockGround` off, the overlay builds no Dock sensing at all: no observers, no reads. Only the access reporter
+- With `dockGround` off, the overlay builds no Dock sensing at all, and drops it when the key is turned off: no
+  observers, no reads. Only the access reporter
   below runs, at one file check per 0.3 s poll and one trust check every 5 s, so `dock-access` still answers.
 
 **Who is asked.** macOS judges Accessibility by the process that asks and, for a process a terminal started, by that
@@ -746,10 +750,13 @@ it only when its pid is the running daemon's. `agent-pet dock-access --ask` is t
 
 - It starts the daemon through `launchctl` when the launch agent is installed. Otherwise it spawns it with
   `posix_spawn` and its responsibility disclaimed (`responsibility_spawnattrs_setdisclaim`, looked up at run time),
-  so macOS judges the daemon by its own signature; when that is not available, or a daemon is already running
-  without the launch agent, it says on stderr that the grant shown may be the launching app's.
+  so macOS judges the daemon by its own signature. When that is not available, or a daemon is already running
+  whose parent is not launchd (pid 1) or with no launch agent installed, it says on stderr that the grant shown may
+  be the launching app's. A daemon spawned by a command that has since exited is also a child of launchd, so this
+  test catches a daemon whose launcher is still running, not every one.
 - It writes a random nonce to `control/dock-access-ask`, or joins a nonce already waiting there, and waits up to 3 s
-  for a report that echoes it. The daemon, on its next 0.3 s poll, consumes the request, calls
+  for a report that echoes it. The daemon, on its next 0.3 s poll, claims the request by renaming it to a unique
+  name (so a request written after the claim is left for the next poll), reads and deletes that copy, calls
   `AXIsProcessTrustedWithOptions` with the prompt, stamps `askedAt` after that call returns and writes the report
   with the nonce. A request within 10 s of the last prompt is answered from `AXIsProcessTrusted` with no second
   prompt.

@@ -185,18 +185,105 @@ struct DockGroundContractTests {
         #expect(access.asks == 1)
     }
 
-    @Test func aDaemonStartedByTheCommandItselfIsNamedAsAnotherAppsGrant() throws {
+    @Test func onlyADaemonLaunchdDidNotStartIsNamedAsAnotherAppsGrant() throws {
         let (files, folder) = try temporaryFiles()
         defer { try? FileManager.default.removeItem(at: folder) }
         let clock = ClockBox()
         let access = FakeDockAccess(granted: false)
         let reporter = DockAccessReporter(files: files, access: access, processIdentifier: 4242, clock: { clock.now })
+        let warned: Set<DaemonStart> = [.spawnedByThisCommand, .alreadyRunningWithoutLaunchAgent]
         for start in [DaemonStart.spawnedByThisCommand, .alreadyRunningWithoutLaunchAgent, .spawnedOnItsOwn, .launchAgent] {
             clock.now += 60
-            let asking = environment(files: files, daemon: 4242, clock: clock, start: start, nonce: "\(start)") { reporter.tick() }
+            var errors: [String] = []
+            var asking = environment(files: files, daemon: 4242, clock: clock, start: start, nonce: "\(start)") { reporter.tick() }
+            asking.writeError = { line in errors.append(line) }
             #expect(DockAccessCommand.run(flags: ParsedFlags(arguments: ["--ask"]), environment: asking) == ExitCode.failure)
+            let namesTheLauncher = errors.contains { line in line.contains("the app that started it") }
+            #expect(namesTheLauncher == warned.contains(start), "\(start)")
+            #expect(errors.contains { line in line.contains(DockAccessCommand.settingsHint) })
         }
         #expect(access.asks == 4)
+    }
+
+    @Test func theDaemonClaimsARequestSoALaterOneSurvives() throws {
+        let (files, folder) = try temporaryFiles()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        files.writeRequest(nonce: "first")
+        #expect(files.consumeRequest() == "first")
+        #expect(files.consumeRequest() == nil)
+        files.writeRequest(nonce: "second")
+        #expect(files.pendingRequestNonce() == "second")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: files.requestFile.deletingLastPathComponent().path)
+        #expect(leftovers == [files.requestFile.lastPathComponent])
+    }
+
+    private final class StarterLog {
+        var started = 0
+        var spawned = 0
+    }
+
+    private func starter(
+        running: Int32?,
+        parent: Int32?,
+        agent: Bool,
+        disclaims: Bool,
+        log: StarterLog
+    ) -> DaemonCommand.Starter {
+        DaemonCommand.Starter(
+            launchAgentIsInstalled: { agent },
+            startLaunchAgent: { log.started += 1 },
+            runningDaemon: { running },
+            parentOf: { _ in parent },
+            spawnDetached: {
+                log.spawned += 1
+                return disclaims
+            }
+        )
+    }
+
+    @Test func theDaemonIsStartedByLaunchdWhenItCanBeAndOtherwiseOnItsOwn() {
+        let cases: [(Int32?, Int32?, Bool, Bool, DaemonStart, Int, Int)] = [
+            (7, 1, true, true, .launchAgent, 1, 0),
+            (7, 55, true, true, .alreadyRunningWithoutLaunchAgent, 0, 0),
+            (7, 1, false, true, .alreadyRunningWithoutLaunchAgent, 0, 0),
+            (nil, nil, true, true, .launchAgent, 1, 0),
+            (nil, nil, false, true, .spawnedOnItsOwn, 0, 1),
+            (nil, nil, false, false, .spawnedByThisCommand, 0, 1)
+        ]
+        for (running, parent, agent, disclaims, expected, starts, spawns) in cases {
+            let log = StarterLog()
+            let start = DaemonCommand.ensureRunningOnItsOwn(
+                using: starter(running: running, parent: parent, agent: agent, disclaims: disclaims, log: log)
+            )
+            #expect(start == expected)
+            #expect(log.started == starts)
+            #expect(log.spawned == spawns)
+        }
+        #expect(ProcessParent.of(getpid()) == getppid())
+    }
+
+    @Test func aSpawnedDaemonInheritsNoDescriptorButItsStandardStreams() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("spawn-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var descriptors: [Int32] = [0, 0]
+        #expect(pipe(&descriptors) == 0)
+        defer {
+            close(descriptors[0])
+            close(descriptors[1])
+        }
+        let logPath = folder.appendingPathComponent("log").path
+        let spawned = try #require(ResponsibilityDisclaimingSpawn.spawn(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "for descriptor in 0 1 2 \(descriptors[0]) \(descriptors[1]); do [ -e /dev/fd/$descriptor ] && echo open $descriptor; done"],
+            logPath: logPath
+        ))
+        var status: Int32 = 0
+        waitpid(spawned.processIdentifier, &status, 0)
+        let lines = try String(contentsOfFile: logPath, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(lines.contains("open 0") && lines.contains("open 1") && lines.contains("open 2"))
+        #expect(!lines.contains("open \(descriptors[0])"))
+        #expect(!lines.contains("open \(descriptors[1])"))
     }
 
     @Test func jumpAndFallAreOptionalAndStandInForWalkAndIdle() {
