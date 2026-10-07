@@ -77,6 +77,58 @@ enum PetGeometry {
     }
 }
 
+protocol LaneWalker: AnyObject {
+    var homeHorizontalCenter: CGFloat { get set }
+    var animator: PetAnimator { get }
+    var laneWidth: CGFloat { get }
+    var windowWidth: CGFloat { get }
+    var isInFlight: Bool { get }
+}
+
+enum LaneRedivision {
+    static func apply(
+        to everyWalker: [LaneWalker],
+        keepingStanding everyStanding: [Bool],
+        screenFrame: CGRect
+    ) -> CGFloat {
+        let grounded = zip(everyWalker, everyStanding).filter { walker, _ in !walker.isInFlight }
+        let walkers = grounded.map { walker, _ in walker }
+        let standing = grounded.map { _, keeps in keeps }
+        let laneCenters = LaneLayout.laneCenters(count: walkers.count, screenFrame: screenFrame)
+        let lanes = LaneLayout.assignedLanes(
+            currentCenters: zip(walkers, standing).map { walker, keeps in
+                keeps ? walker.homeHorizontalCenter + walker.animator.horizontalOffsetFromHome : nil
+            },
+            laneCenters: laneCenters
+        )
+        let widestPet = walkers.map { walker in walker.laneWidth }.max() ?? 0
+        let minimumGap = LaneLayout.minimumGroundGap(widestPet: widestPet, laneCount: walkers.count, screenFrame: screenFrame)
+        let wanderHalfWidth = LaneLayout.wanderHalfWidth(laneCount: walkers.count, screenFrame: screenFrame, minimumGap: minimumGap)
+        for ((walker, keeps), lane) in zip(zip(walkers, standing), lanes) {
+            let home = laneCenters[lane]
+            if keeps { walker.animator.moveHome(by: home - walker.homeHorizontalCenter) }
+            walker.homeHorizontalCenter = home
+            walker.animator.limitWander(to: wanderHalfWidth)
+        }
+        return minimumGap
+    }
+
+    static func carry(_ walker: LaneWalker, from oldFrame: CGRect, to newFrame: CGRect) {
+        guard !walker.isInFlight else {
+            walker.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(walker.homeHorizontalCenter, from: oldFrame, to: newFrame)
+            return
+        }
+        let standing = LaneLayout.carriedStandingCenter(
+            walker.homeHorizontalCenter + walker.animator.horizontalOffsetFromHome,
+            from: oldFrame,
+            to: newFrame,
+            windowWidth: walker.windowWidth
+        )
+        walker.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(walker.homeHorizontalCenter, from: oldFrame, to: newFrame)
+        walker.animator.stand(atHorizontalOffsetFromHome: standing - walker.homeHorizontalCenter)
+    }
+}
+
 struct LabelLayout: Equatable {
     let placement: LabelPlacement
     let feetFlush: Bool
@@ -204,8 +256,19 @@ enum LaneLayout {
 
     static func homeHorizontalCenter(laneIndex: Int, laneCount: Int, screenFrame: CGRect) -> CGFloat {
         guard laneCount > 0 else { return screenFrame.midX }
-        let fraction = (CGFloat(laneIndex) + 0.5) / CGFloat(laneCount)
-        return screenFrame.minX + screenFrame.width * fraction
+        let slice = lane(index: laneIndex, laneCount: laneCount, screenFrame: screenFrame)
+        return (slice.lowerBound + slice.upperBound) / 2
+    }
+
+    static func carriedStandingCenter(
+        _ standingCenter: CGFloat,
+        from oldFrame: CGRect,
+        to newFrame: CGRect,
+        windowWidth: CGFloat
+    ) -> CGFloat {
+        let carried = carriedHorizontalCenter(standingCenter, from: oldFrame, to: newFrame)
+        let halfWindow = min(windowWidth, newFrame.width) / 2
+        return min(max(carried, newFrame.minX + halfWindow), newFrame.maxX - halfWindow)
     }
 
     static func carriedHorizontalCenter(_ horizontalCenter: CGFloat, from oldFrame: CGRect, to newFrame: CGRect) -> CGFloat {

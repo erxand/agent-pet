@@ -1,11 +1,11 @@
 import AgentPetCore
 import AppKit
 
-final class PetPresence {
+final class PetPresence: LaneWalker {
     let sessionId: String
     let window: PetWindow
     let view: PetView
-    let animator = PetAnimator()
+    let animator: PetAnimator
 
     var homeHorizontalCenter: CGFloat = 0
     var focusRequest: FocusRequest?
@@ -18,6 +18,10 @@ final class PetPresence {
     var groundIndex = -1
     var groundBody: GroundBody?
     var waitsOnJump = false
+
+    var laneWidth: CGFloat { view.contentSize.width }
+    var windowWidth: CGFloat { view.preferredSize.width }
+    var isInFlight: Bool { spaceMotion != nil }
 
     var shownAnimationName: SpriteAnimationName {
         spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName
@@ -42,8 +46,10 @@ final class PetPresence {
         window: PetWindow,
         view: PetView,
         spritePackName: String,
-        spriteSheet: SpriteSheet
+        spriteSheet: SpriteSheet,
+        animator: PetAnimator = PetAnimator()
     ) {
+        self.animator = animator
         self.sessionId = sessionId
         self.window = window
         self.view = view

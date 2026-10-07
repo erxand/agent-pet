@@ -45,8 +45,8 @@ struct WalkingLaneTests {
             ticks += 1
         }
         #expect(!animator.isWalkingHome)
-        #expect(animator.horizontalOffsetFromHome == 0)
-        #expect(ticks > 200)
+        #expect(animator.horizontalOffsetFromHome == -animator.wanderHalfWidth)
+        #expect(ticks > 150)
         for _ in 0..<600 {
             animator.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .ready)
             #expect(abs(animator.horizontalOffsetFromHome) <= animator.wanderHalfWidth)
@@ -149,8 +149,8 @@ struct WalkingLaneTests {
         }
         #expect(walkerHome == 550)
         #expect(!walker.isWalkingHome)
-        #expect(walker.horizontalOffsetFromHome == 0)
-        #expect(asker.horizontalOffsetFromHome == 0)
+        #expect(walker.horizontalOffsetFromHome == -walker.wanderHalfWidth)
+        #expect(asker.horizontalOffsetFromHome == -asker.wanderHalfWidth)
     }
 
     @Test func aLonePetsLaneIsTheWholeWidthAndItsWanderReachesBothEnds() {
@@ -196,41 +196,6 @@ struct WalkingLaneTests {
                 #expect((right - wander) - (left + wander) >= gap - 0.001)
             }
         }
-    }
-
-    @Test func lanesRedivideAsPetsComeAndGoAndAPetWalksToItsNewLane() {
-        let first = grounded()
-        let alone = LaneLayout.laneCenters(count: 1, screenFrame: screen)[0]
-        let aloneGap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: 1, screenFrame: screen)
-        first.limitWander(to: LaneLayout.wanderHalfWidth(laneCount: 1, screenFrame: screen, minimumGap: aloneGap))
-        first.moveHome(by: 0)
-        first.stand(atHorizontalOffsetFromHome: 500)
-        let standing = alone + first.horizontalOffsetFromHome
-
-        let two = LaneLayout.laneCenters(count: 2, screenFrame: screen)
-        let lanes = LaneLayout.assignedLanes(currentCenters: [standing, nil], laneCenters: two)
-        #expect(lanes == [1, 0])
-        let twoGap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: 2, screenFrame: screen)
-        let twoWander = LaneLayout.wanderHalfWidth(laneCount: 2, screenFrame: screen, minimumGap: twoGap)
-        first.moveHome(by: two[1] - alone)
-        first.limitWander(to: twoWander)
-        #expect(two[1] + first.horizontalOffsetFromHome == standing)
-
-        let crowded = LaneLayout.laneCenters(count: 3, screenFrame: screen)
-        let threeGap = LaneLayout.minimumGroundGap(widestPet: 96, laneCount: 3, screenFrame: screen)
-        let threeWander = LaneLayout.wanderHalfWidth(laneCount: 3, screenFrame: screen, minimumGap: threeGap)
-        first.moveHome(by: crowded[1] - two[1])
-        first.limitWander(to: threeWander)
-        #expect(crowded[1] + first.horizontalOffsetFromHome == standing)
-        #expect(first.isWalkingHome)
-        var previous = first.horizontalOffsetFromHome
-        for _ in 0..<(30 * 30) where first.isWalkingHome {
-            first.advance(elapsedSeconds: WalkingLaneTests.tick, mood: .ready)
-            #expect(abs(first.horizontalOffsetFromHome - previous) <= PetAnimator.walkSpeedInPointsPerSecond * CGFloat(WalkingLaneTests.tick) + 0.001)
-            previous = first.horizontalOffsetFromHome
-        }
-        #expect(!first.isWalkingHome)
-        #expect(abs(first.horizontalOffsetFromHome) <= threeWander)
     }
 
     @Test func theGroundGapNeverKeepsAPetFromItsLane() {

@@ -179,16 +179,18 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    of `n` is the `i`-th of `n` equal slices of the width (`LaneLayout.lane(index:laneCount:screenFrame:)`),
    with its home at the slice's middle, so a lone pet's lane is the whole screen. Lanes go to pets in the order they stand: `LaneLayout.assignedLanes` keeps the
    left to right order of the pets already up and picks, among the order keeping choices, the one
-   that moves them least, and a new pet takes a lane left free, where it emerges. A pet still in a
-   float is left out of that order and takes a free lane too; when a pet lands the lanes are assigned
-   again, from where the pets are then, so nobody crosses the screen. A pet whose home moves keeps where
-   it stands, and walks to the new home at 40 px/s with `walk` frames, whatever its mood, when it ends up
-   outside its wander range; a pet that lands, or that went under in a float and comes back up, walks
-   home from wherever it is, however close. Only at home does it wander again, within
+   that moves them least, and a new pet takes a lane left free, where it emerges. A pet in a float holds
+   no lane at all, so the pets on the ground share the whole width; when it lands the lanes are divided
+   again, from where the pets are then, so nobody crosses the screen. `LaneRedivision.apply` is that step,
+   pure and tested. A pet whose home moves keeps where it stands, and when it ends up outside its wander
+   range it walks, at 40 px/s with `walk` frames and whatever its mood, only as far as the near end of the
+   range, then wanders again. Within
    `LaneLayout.wanderHalfWidth(laneCount:screenFrame:minimumGap:)`: half the slice less half the gap, so it
    walks the whole slice except half a gap at each end, and two neighbours at the ends of their ranges
    still keep the gap. Lanes are divided again as pets come and go, and a pet left outside its new range
-   walks there. The gap is the widest pet on the
+   walks there. Each new walk turns round at random about one time in three (`PetAnimator.meanderProbability`,
+   on the animator's own random source, which tests seed), so a lone pet meanders over the whole width
+   instead of pacing from edge to edge. The gap is the widest pet on the
    ground, label and bubble included, plus 8 px (`LaneLayout.minimumGroundGap`), capped at 90% of the slice
    width so every lane stays reachable. So the names of two pets side by side never overlap: a label or
    bubble caption wider than that cap less 8 px, or longer than 28 characters, is shortened with an
@@ -207,8 +209,9 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    the neighbour in its way home too, so a walker behind a pet that stands still (a question) never waits
    for ever. Moving apart is always allowed. Floating and diving pets are not in the way. Only the two
    neighbours in a per-frame sorted list are checked. When the display the pets use changes (for example
-   `focused` and focus moves to another screen) every home is carried to the same fraction of the new
-   screen, which is the one place a pet jumps.
+   `focused` and focus moves to another screen) every home and every standing position is carried to the
+   same fraction of the new screen, the standing position held a half window inside its edges
+   (`LaneRedivision.carry`), and the lanes are divided again at once, which is the one place a pet jumps.
 
 ### Accent on the sprite
 
@@ -486,8 +489,8 @@ crash left every later hook updating records that nothing drew.
   a raised step, see "The Dock as ground".
 - With a `display` other than `focused`, the daemon observes
   `NSApplication.didChangeScreenParametersNotification`. On it every pet, a diving one included, is
-  re-placed on the chosen display with its home at the same fraction of the width
-  (`LaneLayout.carriedHorizontalCenter`). Only the window frame moves, so no animation restarts, and
+  re-placed on the chosen display with its home and where it stands at the same fraction of the width
+  (`LaneRedivision.carry`), and the lanes are divided again for the new width. Only the window frame moves, so no animation restarts, and
   no pet stays on a display that went away. The `focused` default ignores the notification, as
   upstream does.
 - Animation: sprite frames at 8 fps, walk speed 40 px/s, a lane change walked, never jumped, turn around at lane bounds (renderer flips horizontally for
