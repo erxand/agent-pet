@@ -607,7 +607,7 @@ sprites/<pack-name>/
 - `accent` is optional and holds one `AccentColor` name. It becomes the accent of every session that gets the
   pack, see "Sprite assignment". An unknown name is ignored: the daemon logs one line and the pack falls back to
   its dominant color.
-- The repo ships eight packs (`claude` is the same art as `claude8Bit` exported to text):
+- The repo ships 22 packs (`claude` is the same art as `claude8Bit` exported to text):
 
   | pack      | accent | accentInks                      |
   |-----------|--------|---------------------------------|
@@ -619,6 +619,23 @@ sprites/<pack-name>/
   | seon      | yellow | `A`/`a`, the face mark          |
   | tinowl    | purple | `A`/`a`, the bow tie            |
   | walle     | yellow | none                            |
+  | astrocat  | blue   | `A`/`a`                         |
+  | bookwyrm  | red    | `A`/`a`                         |
+  | bopkin    | blue   | `A`/`a`                         |
+  | bumble    | purple | `A`/`a`                         |
+  | cactling  | pink   | `A`/`a`                         |
+  | dapperfox | purple | `A`/`a`                         |
+  | docturtle | blue   | `A`/`a`                         |
+  | gecklet   | purple | `A`/`a`                         |
+  | hermy     | green  | `A`/`a`                         |
+  | rangermot | orange | `A`/`a`                         |
+  | raven     | purple | `A`/`a`                         |
+  | scruff    | green  | `A`/`a`                         |
+  | skyhop    | blue   | `A`/`a`                         |
+  | tapeling  | orange | `A`/`a`                         |
+
+  `docs/sprite-sheet.png` shows every shipped pack, one per row, and `scripts/sprite-sheet/sheet.py` redraws it
+  (no arguments: every pack in `sprites/`, the first eight in the order above, then the rest by name).
 
 - `install.sh` copies each shipped pack directory into `~/.agent-pet/sprites/` on every install. An installed pack
   with a shipped name is deleted and copied fresh, and an installed pack whose name is not shipped is left alone.
