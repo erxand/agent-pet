@@ -82,9 +82,9 @@ enum SessionCommands {
         }
         let grace = flags.value(for: .grace).flatMap { rawValue in TimeInterval(rawValue) }
         var anyVisible = false
-        for sessionId in sessionIds {
+        for sessionId in sessionIds where !LeadGroupFocusHold.focusStaysInGroup(of: sessionId) {
             if PetTurnState.release(sessionId: sessionId, grace: grace).visible { anyVisible = true }
-            if LeadGroupFocusHold.releaseHeldMembers(ofLead: sessionId, grace: grace) { anyVisible = true }
+            if LeadGroupFocusHold.releaseHeldMembers(ofMember: sessionId, grace: grace) { anyVisible = true }
         }
         if anyVisible { DaemonCommand.ensureRunning() }
         return ExitCode.success
