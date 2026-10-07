@@ -420,8 +420,9 @@ color.
 across its whole lane, so a lone pet roams the full width and two pets never overlap. When pets come
 or go the lanes are divided again and each pet walks to its new one.
 
-**High five**: now and then two neighbouring pets that face each other walk up to the border
-between their lanes, meet, and high five, then go back to wandering. A pet with a question or
+**High five**: once in a while (a couple of times an hour for a pair) two neighbouring pets
+that face each other walk up to the border between their lanes. The first to arrive raises its
+hand and waits, the other arrives and they high five, then go back to wandering. A pet with a question or
 a request for you never joins in.
 
 ## Customizing the pet

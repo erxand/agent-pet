@@ -340,6 +340,23 @@ struct DockGroundContractTests {
         #expect(SpriteAnimationName.fall.shown(in: with.sheet) == .fall)
     }
 
+    @Test func everyShippedPackHasThreeHighFiveFrames() throws {
+        let packs = try FileManager.default.contentsOfDirectory(atPath: Sandbox.packageRoot.appendingPathComponent("sprites").path)
+            .filter { name in !name.hasPrefix(".") && !name.hasSuffix(".md") }
+        #expect(packs.count >= 8)
+        for pack in packs {
+            let folder = Sandbox.packageRoot.appendingPathComponent("sprites/\(pack)", isDirectory: true)
+            guard case .loaded(let loaded) = SpritePackLoader().load(packDirectory: folder) else {
+                Issue.record("\(pack) did not load")
+                continue
+            }
+            #expect(loaded.sheet.highfive.count == 3, "\(pack)")
+            #expect(SpriteAnimationName.highfive.shown(in: loaded.sheet) == .highfive, "\(pack)")
+        }
+        #expect(SpriteAnimationName.highfive.standIn == .wave)
+        #expect(SpriteAnimationName.highfive.shown(in: SpriteSheet.claude8Bit) == .wave)
+    }
+
     @Test func aFloatingPetThatFallsPlaysFall() {
         var motion = SpaceMotion(launchingFrom: CGPoint(x: 400, y: 300), seed: 7)
         #expect(motion.animationName == .idle)
