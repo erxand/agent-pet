@@ -54,7 +54,7 @@ package struct PetDisplayPlanner {
             .sorted { leftGroup, rightGroup in
                 (leftGroup.waitingMembers.first?.updatedAt ?? 0) < (rightGroup.waitingMembers.first?.updatedAt ?? 0)
             }
-        let items = waitingGroups.flatMap { group in items(for: group, claudeSessions: claudeSessions) }
+        let items = waitingGroups.flatMap { group in self.items(for: group, claudeSessions: claudeSessions) }
         return disambiguatesLabels ? PetDisplayPlanner.disambiguated(items) : items
     }
 
