@@ -67,3 +67,17 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 | seon         | yellow | `A`/`a`, the face mark       |
 | tinowl       | purple | `A`/`a`, the bow tie         |
 | walle        | yellow | none                         |
+| astrocat     | blue   | `A`/`a`                      |
+| bookwyrm     | red    | `A`/`a`                      |
+| bopkin       | blue   | `A`/`a`                      |
+| bumble       | purple | `A`/`a`                      |
+| cactling     | pink   | `A`/`a`                      |
+| dapperfox    | purple | `A`/`a`                      |
+| docturtle    | blue   | `A`/`a`                      |
+| gecklet      | purple | `A`/`a`                      |
+| hermy        | green  | `A`/`a`                      |
+| rangermot    | orange | `A`/`a`                      |
+| raven        | purple | `A`/`a`                      |
+| scruff       | green  | `A`/`a`                      |
+| skyhop       | blue   | `A`/`a`                      |
+| tapeling     | orange | `A`/`a`                      |
