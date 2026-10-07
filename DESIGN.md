@@ -107,7 +107,8 @@ file on every write (temp file in the same dir, then rename).
   when the session first gets a `group`, and orders members for the owner fallback. See "Groups".
 - `groupMode` is optional and absent unless `--group-mode lead` was passed; `--group-mode shared` or an empty
   `--group-mode ""` removes it.
-  A group with any member whose `groupMode` is `lead` follows the lead rules, see "Lead groups".
+  A group follows the lead rules when its flagged owner's own `groupMode` is `lead`, see "Lead groups".
+  An unknown `groupMode` value reads as absent, so a record a newer build wrote stays readable.
 - `disambiguator` and `disambiguationScope` are optional and absent unless `--disambiguator TEXT` and
   `--disambiguation-scope KEY` were passed, and an empty value removes each. They change a label only on a
   clash, see "Session differentiation".
