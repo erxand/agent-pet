@@ -72,4 +72,23 @@ struct StateCommandTests {
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: commandsFile(sandbox).deletingLastPathComponent().path)
         #expect(leftovers == ["states.json"])
     }
+
+    @Test func commandsRunAtTheSameInstantAllLandAndTheFileHasSortedKeys() throws {
+        let sandbox = try Sandbox()
+        let commands = [["physics", "float"], ["input", "off"], ["visibility", "hidden"], ["level", "above", "com.example.app"]]
+        for _ in 0..<10 {
+            try? FileManager.default.removeItem(at: commandsFile(sandbox))
+            DispatchQueue.concurrentPerform(iterations: commands.count) { index in
+                _ = try? sandbox.run(commands[index])
+            }
+            let reported = try states(sandbox)
+            #expect(reported["physics"]?["value"] == "float")
+            #expect(reported["input"]?["value"] == "off")
+            #expect(reported["visibility"]?["value"] == "hidden")
+            #expect(reported["level"]?["value"] == "above com.example.app")
+        }
+        let text = try String(contentsOf: commandsFile(sandbox), encoding: .utf8)
+        let keyOrder = ["input", "level", "physics", "visibility"].compactMap { key in text.range(of: "\"\(key)\"")?.lowerBound }
+        #expect(keyOrder.count == 4 && keyOrder == keyOrder.sorted())
+    }
 }
