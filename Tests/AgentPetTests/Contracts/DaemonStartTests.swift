@@ -351,5 +351,9 @@ struct DaemonStartTests {
         #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: nil, invokedPath: link.path) == real)
         #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: executable.path, invokedPath: link.path) == real)
         #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: nil, invokedPath: nil) == nil)
+        #expect(DaemonCommand.ownExecutablePath(mainBundleExecutablePath: link.path, invokedPath: nil) == real)
+        #expect(DaemonCommand.ownExecutablePath(mainBundleExecutablePath: nil, invokedPath: link.path) == real)
+        let live = try #require(DaemonCommand.ownExecutablePath())
+        #expect(live == URL(fileURLWithPath: live).resolvingSymlinksInPath().path)
     }
 }

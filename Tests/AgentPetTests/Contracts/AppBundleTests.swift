@@ -144,6 +144,14 @@ struct AppBundleTests {
         #expect(!fileManager.fileExists(atPath: app.path))
         #expect(try fileManager.contentsOfDirectory(atPath: output.path).isEmpty)
 
+        let unreadable = base.appendingPathComponent("unreadable-agent-pet", isDirectory: false)
+        try fileManager.copyItem(at: try Sandbox.binaryURL(), to: unreadable)
+        try fileManager.setAttributes([.posixPermissions: 0o111], ofItemAtPath: unreadable.path)
+        let copyFails = try run(AppBundleTests.script.path, ["--executable", unreadable.path, "--output", output.path])
+        #expect(copyFails.exitStatus != 0)
+        #expect(!fileManager.fileExists(atPath: app.path))
+        #expect(try fileManager.contentsOfDirectory(atPath: output.path).isEmpty)
+
         let badVersion = try run(AppBundleTests.script.path, [
             "--executable", try Sandbox.binaryURL().path, "--output", output.path, "--version", "1.0-beta"
         ])

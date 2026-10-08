@@ -65,6 +65,11 @@ OUTPUT_DIRECTORY="$(cd "${OUTPUT_DIRECTORY}" && pwd)"
 APP_PATH="${OUTPUT_DIRECTORY}/${APP_NAME}.app"
 STAGING_PATH="${OUTPUT_DIRECTORY}/.${APP_NAME}.app.assembling"
 
+remove_staging() {
+    rm -rf "${STAGING_PATH:?}"
+}
+trap remove_staging EXIT
+
 rm -rf "${STAGING_PATH:?}"
 mkdir -p "${STAGING_PATH}/Contents/MacOS" "${STAGING_PATH}/Contents/Resources"
 
@@ -72,7 +77,6 @@ cp "${EXECUTABLE_PATH}" "${STAGING_PATH}/Contents/MacOS/${EXECUTABLE_NAME}"
 chmod 755 "${STAGING_PATH}/Contents/MacOS/${EXECUTABLE_NAME}"
 
 if ! iconutil --convert icns --output "${STAGING_PATH}/Contents/Resources/${ICON_NAME}.icns" "${ICON_SET_DIRECTORY}"; then
-    rm -rf "${STAGING_PATH:?}"
     fail "iconutil could not make an icon from ${ICON_SET_DIRECTORY}"
 fi
 
@@ -117,10 +121,10 @@ printf 'APPL????' > "${STAGING_PATH}/Contents/PkgInfo"
 # Signing the bundle signs its main executable as part of it and binds the Info.plist and the
 # icon, so there is no nested code to sign first and no --deep.
 if ! codesign --force --sign "${SIGNING_IDENTITY}" "${STAGING_PATH}"; then
-    rm -rf "${STAGING_PATH:?}"
     fail "could not sign ${APP_NAME}.app with ${SIGNING_IDENTITY}"
 fi
 
 rm -rf "${APP_PATH:?}"
 mv "${STAGING_PATH}" "${APP_PATH}"
+trap - EXIT
 echo "${APP_PATH}"

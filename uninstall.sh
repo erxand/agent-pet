@@ -3,7 +3,9 @@
 set -euo pipefail
 
 BINARY_LINK_PATH="${HOME}/.local/bin/agent-pet"
-APP_INSTALL_PATH="${AGENT_PET_APPLICATIONS_DIRECTORY:-${HOME}/Applications}/AgentPet.app"
+APP_NAME="AgentPet.app"
+APP_EXECUTABLE_SUFFIX="/${APP_NAME}/Contents/MacOS/agent-pet"
+APP_INSTALL_PATH="${AGENT_PET_APPLICATIONS_DIRECTORY:-${HOME}/Applications}/${APP_NAME}"
 SKILL_LINK_PATH="${HOME}/.claude/skills/pet"
 PI_EXTENSION_LINK_PATH="${HOME}/.pi/agent/extensions/agent-pet.ts"
 STATE_DIRECTORY="${HOME}/.agent-pet"
@@ -11,6 +13,16 @@ DAEMON_PID_FILE="${STATE_DIRECTORY}/daemon.pid"
 LAUNCH_AGENT_LABEL="com.agent-pet.daemon"
 LAUNCH_AGENT_PLIST_PATH="${HOME}/Library/LaunchAgents/${LAUNCH_AGENT_LABEL}.plist"
 LAUNCH_AGENT_SERVICE_TARGET="gui/$(id -u)/${LAUNCH_AGENT_LABEL}"
+
+# The plist names the app the install put in place, wherever AGENT_PET_APPLICATIONS_DIRECTORY
+# pointed then.
+if [[ -f "${LAUNCH_AGENT_PLIST_PATH}" ]]; then
+    INSTALLED_EXECUTABLE_PATH="$(/usr/libexec/PlistBuddy -c "Print :ProgramArguments:0" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null || true)"
+    if [[ "${INSTALLED_EXECUTABLE_PATH}" == *"${APP_EXECUTABLE_SUFFIX}" ]]; then
+        APP_INSTALL_PATH="${INSTALLED_EXECUTABLE_PATH%"${APP_EXECUTABLE_SUFFIX}"}/${APP_NAME}"
+    fi
+fi
+APPLICATIONS_DIRECTORY="$(dirname "${APP_INSTALL_PATH}")"
 
 launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
 rm -f "${LAUNCH_AGENT_PLIST_PATH}"
@@ -25,6 +37,7 @@ fi
 
 rm -f "${BINARY_LINK_PATH}"
 rm -rf "${APP_INSTALL_PATH:?}"
+rm -rf "${APPLICATIONS_DIRECTORY:?}/.${APP_NAME}.installing" "${APPLICATIONS_DIRECTORY:?}/.${APP_NAME}.previous"
 rm -f "${SKILL_LINK_PATH}"
 rm -f "${PI_EXTENSION_LINK_PATH}"
 

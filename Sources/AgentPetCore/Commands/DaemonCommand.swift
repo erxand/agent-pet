@@ -165,11 +165,11 @@ enum DaemonCommand {
         return logURL.path
     }
 
-    private static func ownExecutablePath() -> String? {
-        OwnExecutable.resolvedPath(
-            mainBundleExecutablePath: Bundle.main.executablePath,
-            invokedPath: ProcessInfo.processInfo.arguments.first
-        )
+    static func ownExecutablePath(
+        mainBundleExecutablePath: String? = Bundle.main.executablePath,
+        invokedPath: String? = ProcessInfo.processInfo.arguments.first
+    ) -> String? {
+        OwnExecutable.resolvedPath(mainBundleExecutablePath: mainBundleExecutablePath, invokedPath: invokedPath)
     }
 
     private static func openDaemonLogForAppending() -> FileHandle? {

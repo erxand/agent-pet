@@ -480,9 +480,17 @@ AgentPet.app/Contents/
 - `LSUIElement` keeps the app out of the Dock and the app switcher, which is also what the overlay's
   `.accessory` activation policy asks for, so the two agree from the first moment.
 - `install.sh` builds, assembles the app in `.build/release/AgentPet.app` (signed with `AGENT_PET_SIGN_IDENTITY`
-  when it is set), boots the launch agent out, copies the app with `ditto` to a hidden staging folder in the
-  applications folder and moves it over the old one, so no daemon ever starts from a half copied bundle. It then
-  links `~/.local/bin/agent-pet` to `AgentPet.app/Contents/MacOS/agent-pet`.
+  when it is set) and copies it with `ditto` to a hidden staging folder in the applications folder. Then, in this
+  order: it writes the new plist (so a hook that starts the daemon from here on loads the new plist, never the
+  old one), boots the launch agent out, stops a daemon the CLI spawned outside launchd (`daemon.pid`, only when
+  that process is `agent-pet`; a bootout does not reach it, and left running on the old executable it would make
+  the new daemon see it and leave), moves the old app aside, moves the new one in, links
+  `~/.local/bin/agent-pet` to `AgentPet.app/Contents/MacOS/agent-pet`, and only then deletes the old app. A failure
+  before that point puts the previous app, plist and link back and bootstraps the previous plist. No daemon ever
+  starts from a half copied bundle. Every bootstrap attempt is preceded by a bootout, since a hook may have loaded
+  the agent in the meantime, and the last step is `launchctl kickstart -k`, so the daemon that runs is the new one.
+- `uninstall.sh` removes the app the plist's `ProgramArguments` names, wherever `AGENT_PET_APPLICATIONS_DIRECTORY`
+  pointed at install time, and any staging or previous copy beside it.
 - `~/Applications`, not `/Applications`: it needs no administrator password, and it is not a folder macOS guards
   per app (see the list under "Daemon lifecycle"), so a daemon started from it by launchd is never stopped by a
   privacy question. Its path is the same for every build.
@@ -506,9 +514,9 @@ crash left every later hook updating records that nothing drew.
   `RunAtLoad` true and `KeepAlive` `{SuccessfulExit: false}`, `ProcessType` `Interactive`, `LimitLoadToSessionType` `Aqua`,
   `EnvironmentVariables` with `PATH` of
   `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, and both
-  `StandardOutPath` and `StandardErrorPath` set to `~/.agent-pet/daemon.log`. It has already run
-  `launchctl bootout gui/<uid>/com.agent-pet.daemon`, ignoring failure, before it replaced the app (see "The app"),
-  and now runs `launchctl bootstrap gui/<uid> <plist>`. `uninstall.sh` does the bootout and removes the plist and the app.
+  `StandardOutPath` and `StandardErrorPath` set to `~/.agent-pet/daemon.log`. It writes the plist before it
+  replaces the app and finishes with `launchctl bootout gui/<uid>/com.agent-pet.daemon` (failure ignored),
+  `launchctl bootstrap gui/<uid> <plist>` and `launchctl kickstart -k` (see "The app"). `uninstall.sh` does the bootout and removes the plist and the app.
 - `KeepAlive` means a crashed daemon is back within seconds, with no CLI call needed. Only a failed exit is
   relaunched: a daemon that leaves on purpose (another daemon already runs, a refused home, a signal) exits 0
   and stays down until something ensures it again, instead of coming back every 10 s.
@@ -1448,7 +1456,7 @@ through `PetWindowing`, the window watcher through `AppWindowWatching`, both fak
 takes its running-applications observer as a parameter. The three
 tests that run a real `focus` with a client switch skip themselves while iTerm2, Terminal or Ghostty is
 running, so they can never move a real terminal. `AppBundleTests` run `make-app.sh` on the built binary in a
-temporary folder and read the result (Info.plist keys, icon, signature, determinism, failures that leave nothing
+temporary folder and read the result (Info.plist keys, icon, signature, determinism, failures, a failed copy included, that leave nothing
 behind); they never start the app or install it. The contract tests drive the protocols in process with
 recording fakes. They were written against the code before the split into `AgentPetCore` and passed there
 first.
