@@ -30,7 +30,9 @@ agent-pet/
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
   sprites/<pack>/              shipped sprite packs, see "Sprite packs"
-  install.sh, uninstall.sh     build, symlink binary, skill and extension, install packs
+  scripts/app-bundle/          make-app.sh; AppIcon.iconset and Assets.car, the committed icon; make-icon.sh, make-iconset.swift and AppIcon-art.png that remake them, see "The app"
+  VERSION                      the app's version, CFBundleShortVersionString
+  install.sh, uninstall.sh     build, install AgentPet.app, symlink the command, skill and extension, install packs
 ```
 
 ## Runtime state, `~/.agent-pet/`
@@ -441,6 +443,96 @@ the event's line: `SubagentExpired <session> <agent_id> startedAt=<ISO timestamp
 `TranscriptReadTruncated <session> - skippedBytes=<count>` when the 64 MiB cap applied. The log is truncated before the append once it passes 1 MiB, the same rule
 `daemon.log` follows, and both share `LogFileTruncation`. The hook never writes to stdout.
 
+## The app
+
+agent-pet is installed as `~/Applications/AgentPet.app` (or `$AGENT_PET_APPLICATIONS_DIRECTORY/AgentPet.app`),
+so macOS has one bundle identifier, one name and one icon to show for it in Privacy & Security, Activity Monitor,
+Login Items and crash reports, instead of a generic entry per build path.
+
+```
+AgentPet.app/Contents/
+  Info.plist                   CFBundleIdentifier com.agent-pet, CFBundleName and CFBundleDisplayName AgentPet,
+                               CFBundleExecutable agent-pet, CFBundleIconFile and CFBundleIconName AppIcon, CFBundlePackageType APPL,
+                               CFBundleShortVersionString from VERSION, CFBundleVersion the build number,
+                               LSMinimumSystemVersion 14.0, LSUIElement true, NSAppleEventsUsageDescription,
+                               NSHighResolutionCapable true
+  PkgInfo                      APPL????
+  MacOS/agent-pet              the release executable, unchanged: the daemon and every command
+  Resources/AppIcon.icns       made by iconutil from an .iconset folder
+  Resources/Assets.car         the same icon as a compiled asset catalog, see the icon below
+  _CodeSignature/              the bundle's signature
+```
+
+- `scripts/app-bundle/make-app.sh --executable PATH --output DIR [--icon-set DIR] [--version X.Y.Z] [--build N]
+  [--sign IDENTITY]` assembles `DIR/AgentPet.app` in a hidden staging folder beside it and moves it into place only
+  once it is complete, so a failure leaves no app and no staging folder. It uses only tools that ship with macOS
+  (`iconutil`, `codesign`), and the same inputs give byte-identical `Info.plist`, executable and icon. The icon set
+  defaults to `scripts/app-bundle/AppIcon.iconset`.
+- **The icon.** `scripts/app-bundle/make-iconset.swift --art SQUARE.png --output DIR.iconset [--small-crop X,Y,SIZE]`
+  makes the ten PNGs from one square picture, with CoreGraphics only. Each is Apple's macOS app icon grid: an 824 px
+  body centred on a 1024 px canvas, clipped to the continuous corner rounded rectangle (corner radius 185.4, the
+  straight edges starting 1.528665 radii from each corner), a transparent outside and a drop shadow (black at 30 %,
+  20 px blur, 10 px down). The smaller sizes come from halving the 1024 px icon step by step. The 16 and 32 px PNGs
+  are made from `--small-crop`, a square of the picture, so the pet's face and scarf still read, with a 900 px body.
+  The same picture and crop give byte-identical PNGs.
+- What macOS 26 and later do with it, measured on macOS 27 through `NSWorkspace.icon(forFile:)`: an icon that is not
+  in this shape is drawn small inside a grey rounded square at every size. A legacy `.icns` in this shape is shown as
+  it is at every size on a 2x screen, but at 16 and 32 pt on a 1x screen it still gets the grey square, as every
+  `.icns`-only app does (Slack, Linear and Visual Studio Code too). With an asset catalog (`Assets.car`, and
+  `CFBundleIconName` naming its icon) those sizes are shown as they are too, provided the 16 and 32 px body is
+  larger than the 824 px grid: at 824 the 16 pt icon is still framed, at 900 it is not. So the app carries both.
+- `scripts/app-bundle/make-icon.sh [--art SQUARE.png] [--small-crop X,Y,SIZE]` remakes both committed files: the
+  icon set with `make-iconset.swift` and `Assets.car` with Xcode's `actool` (the same input gives the same file).
+  `make-app.sh` only copies `Assets.car`, so a Mac with the Command Line Tools alone builds the full app. It adds the
+  catalog and `CFBundleIconName` when the icon set is the default one or `--asset-catalog` names one, so a custom
+  icon set is never paired with the shipped catalog.
+- It always signs the bundle, ad hoc unless `--sign` names an identity, so the Info.plist and the icon are bound to
+  the signature and `codesign --verify --strict` passes. Signing the bundle signs its main executable as part of
+  it; there is no nested code, so there is nothing to sign first and no `--deep`. The signing identifier is the
+  bundle identifier, `com.agent-pet`.
+- `LSUIElement` keeps the app out of the Dock and the app switcher, which is also what the overlay's
+  `.accessory` activation policy asks for, so the two agree from the first moment.
+- `install.sh` builds, assembles the app in `.build/release/AgentPet.app` (signed with `AGENT_PET_SIGN_IDENTITY`
+  when it is set) and copies it with `ditto` to a hidden staging folder in the applications folder. Then, in this
+  order: it writes the new plist (so a hook that starts the daemon from here on loads the new plist, never the
+  old one), boots the launch agent out, stops a daemon that runs outside launchd, moves the old app aside to
+  `.AgentPet.app.previous`, moves the new one in, links `~/.local/bin/agent-pet` to
+  `AgentPet.app/Contents/MacOS/agent-pet` and refreshes the sprite packs. It stops a stray daemon again, bootstraps
+  (every attempt is preceded by a bootout, since a hook may have loaded the agent in the meantime), runs
+  `launchctl kickstart -k` so the daemon that runs is the new one, and stops a stray daemon once more, kicking the
+  agent again when it did, because a new daemon that finds another one running leaves with exit 0 and launchd does
+  not relaunch it. Only then is the old app deleted. No daemon ever starts from a half copied bundle.
+- **Rollback.** Any failure before that last step, a failed bootstrap or sprite copy included, puts back what was
+  there: the new app is moved aside and removed and the previous app moved back (on a first install the new app
+  is simply removed), the previous plist and link are restored (on a first install they are removed), and the
+  agent is always booted out and the previous plist, if any, bootstrapped. A previous copy is moved back only into an
+  empty place, so it can never land inside the new app. INT, TERM and HUP exit through the same rollback (bash 3.2
+  runs no EXIT trap when a signal ends it, so each has a trap that exits instead). A run killed outright leaves
+  `.AgentPet.app.previous` behind, with or without the new app in place; the next run finishes that rollback before
+  anything else (it sets the new app aside and moves the previous copy back), so `.previous` is never deleted while
+  it may be the only good copy.
+- **A stray daemon** is one the CLI spawned itself with no launch agent: a bootout does not reach it, and left
+  running on the old executable it would make the new daemon leave. It is stopped only when the pid in
+  `daemon.pid` is alive, its executable is named `agent-pet`, its command line ends in ` daemon` (a reused pid of a
+  short `agent-pet hook` has the same name) and it is not the pid `launchctl print` gives for the agent (asked up to three times, 0.2 s apart, while it gives
+  none, since a daemon launchd has just started may not be listed yet). TERM, up to
+  5 s, then KILL.
+- **Only the account's own home.** launchd has one `gui/<uid>` domain whatever `HOME` says, so `install.sh` and
+  `uninstall.sh` refuse to run when `HOME` is not the account's home (from `dscl`), unless `AGENT_PET_LAUNCHCTL`
+  names a stand-in for `/bin/launchctl`, which both then use for every launchd call. That is how they are tested.
+- `uninstall.sh` removes the app the plist's `ProgramArguments` names, wherever `AGENT_PET_APPLICATIONS_DIRECTORY`
+  pointed at install time, and any staging or previous copy beside it.
+- `~/Applications`, not `/Applications`: it needs no administrator password, and it is not a folder macOS guards
+  per app (see the list under "Daemon lifecycle"), so a daemon started from it by launchd is never stopped by a
+  privacy question. Its path is the same for every build.
+- **The main bundle.** macOS finds an app's main bundle from the executable's real path. Run as
+  `AgentPet.app/Contents/MacOS/agent-pet`, which is how the launch agent runs it, the main bundle is the app, with
+  identifier `com.agent-pet` and its executable URL, so AppKit, Accessibility (granted to the bundle identifier)
+  and the main bundle check under "Daemon lifecycle" all see the app. Run through the link on `PATH`, the main
+  bundle is the folder holding the link, with no identifier. Commands and hooks do not need one. The one place
+  this matters is the detached spawn when no launch agent is installed: `OwnExecutable.resolvedPath` resolves the
+  link first, so that daemon too runs from inside the app.
+
 ## Daemon lifecycle
 
 The daemon runs under launchd, not as a child of whatever process asked for it. A daemon spawned
@@ -448,13 +540,14 @@ from a Claude Code Bash tool call is reparented to launchd anyway and dies with 
 crash left every later hook updating records that nothing drew.
 
 - `install.sh` writes `~/Library/LaunchAgents/com.agent-pet.daemon.plist` with label
-  `com.agent-pet.daemon`, `ProgramArguments` of the absolute binary path plus `daemon`,
+  `com.agent-pet.daemon`, `ProgramArguments` of the absolute path of `AgentPet.app/Contents/MacOS/agent-pet` plus
+  `daemon`, `AssociatedBundleIdentifiers` `[com.agent-pet]` so Login Items shows the job under the app,
   `RunAtLoad` true and `KeepAlive` `{SuccessfulExit: false}`, `ProcessType` `Interactive`, `LimitLoadToSessionType` `Aqua`,
   `EnvironmentVariables` with `PATH` of
   `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, and both
-  `StandardOutPath` and `StandardErrorPath` set to `~/.agent-pet/daemon.log`. It then runs
-  `launchctl bootout gui/<uid>/com.agent-pet.daemon`, ignoring failure, and
-  `launchctl bootstrap gui/<uid> <plist>`. `uninstall.sh` does the bootout and removes the plist.
+  `StandardOutPath` and `StandardErrorPath` set to `~/.agent-pet/daemon.log`. It writes the plist before it
+  replaces the app and finishes with `launchctl bootout gui/<uid>/com.agent-pet.daemon` (failure ignored),
+  `launchctl bootstrap gui/<uid> <plist>` and `launchctl kickstart -k` (see "The app"). `uninstall.sh` does the bootout and removes the plist and the app.
 - `KeepAlive` means a crashed daemon is back within seconds, with no CLI call needed. Only a failed exit is
   relaunched: a daemon that leaves on purpose (another daemon already runs, a refused home, a signal) exits 0
   and stays down until something ensures it again, instead of coming back every 10 s.
@@ -814,9 +907,9 @@ it only when its pid is the running daemon's. `agent-pet dock-access --ask` is t
 
 Claimed requests a crashed daemon left behind are all deleted at the next daemon start, since only one daemon runs.
 
-A grant belongs to the daemon binary's code signature, so a binary that is re-signed on every build loses it. `install.sh`
-signs the release binary with the identifier `com.agent-pet` when `AGENT_PET_SIGN_IDENTITY` names a code signing
-identity (default: no signing, as before), which keeps the designated requirement, and so the grant, the same
+A grant belongs to AgentPet.app's code signature, so an app that is signed ad hoc on every build loses it. `install.sh`
+signs the whole app, whose identifier is `com.agent-pet`, when `AGENT_PET_SIGN_IDENTITY` names a code signing
+identity (default: ad hoc), which keeps the designated requirement, and so the grant, the same
 across rebuilds; README "Letting pets stand on the Dock exactly" has the steps.
 
 **Animations.** A pet in the air plays `jump` while it rises (a jump, or the spring) and `fall` while it comes
@@ -1345,7 +1438,9 @@ test opens a window, observes `NSWorkspace` or otherwise connects to the window 
 through `PetWindowing`, the window watcher through `AppWindowWatching`, both faked in tests, and the Dock sensing
 takes its running-applications observer as a parameter. The three
 tests that run a real `focus` with a client switch skip themselves while iTerm2, Terminal or Ghostty is
-running, so they can never move a real terminal. The contract tests drive the protocols in process with
+running, so they can never move a real terminal. `AppBundleTests` run `make-app.sh` on the built binary in a
+temporary folder and read the result (Info.plist keys, icon, signature, determinism, failures, a failed copy included, that leave nothing
+behind); they never start the app or install it. The contract tests drive the protocols in process with
 recording fakes. They were written against the code before the split into `AgentPetCore` and passed there
 first.
 
