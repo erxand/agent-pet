@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 @Suite("make-app.sh assembles AgentPet.app around the built executable")
@@ -60,6 +62,7 @@ struct AppBundleTests {
         #expect(plist["CFBundleDisplayName"] as? String == "AgentPet")
         #expect(plist["CFBundleExecutable"] as? String == "agent-pet")
         #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
+        #expect(plist["CFBundleIconName"] as? String == "AppIcon")
         #expect(plist["CFBundlePackageType"] as? String == "APPL")
         #expect(plist["CFBundleShortVersionString"] as? String == "2.3.4")
         #expect(plist["CFBundleVersion"] as? String == "57")
@@ -70,6 +73,8 @@ struct AppBundleTests {
         #expect(fileManager.isExecutableFile(atPath: executable.path))
         let icon = try contents(app, "Resources/AppIcon.icns")
         #expect(icon.prefix(4) == Data("icns".utf8))
+        let shippedCatalog = try Data(contentsOf: AppBundleTests.defaultIconSet.deletingLastPathComponent().appendingPathComponent("Assets.car"))
+        #expect(try contents(app, "Resources/Assets.car") == shippedCatalog)
         #expect(try contents(app, "PkgInfo") == Data("APPL????".utf8))
 
         let bundle = try #require(Bundle(url: app))
@@ -104,7 +109,7 @@ struct AppBundleTests {
         let (first, firstApp) = try makeApp(into: "first")
         let (second, secondApp) = try makeApp(into: "second")
         #expect(first.exitStatus == 0 && second.exitStatus == 0)
-        for path in ["Info.plist", "PkgInfo", "MacOS/agent-pet", "Resources/AppIcon.icns"] {
+        for path in ["Info.plist", "PkgInfo", "MacOS/agent-pet", "Resources/AppIcon.icns", "Resources/Assets.car"] {
             #expect(try contents(firstApp, path) == contents(secondApp, path), "\(path)")
         }
 
@@ -126,6 +131,46 @@ struct AppBundleTests {
         let (standard, standardApp) = try makeApp(into: "standard")
         #expect(custom.exitStatus == 0 && standard.exitStatus == 0)
         #expect(try contents(customApp, "Resources/AppIcon.icns") != contents(standardApp, "Resources/AppIcon.icns"))
+        #expect(!fileManager.fileExists(atPath: customApp.appendingPathComponent("Contents/Resources/Assets.car").path))
+        let customPlist = try #require(
+            try PropertyListSerialization.propertyList(from: contents(customApp, "Info.plist"), format: nil) as? [String: Any]
+        )
+        #expect(customPlist["CFBundleIconName"] == nil)
+        #expect(customPlist["CFBundleIconFile"] as? String == "AppIcon")
+
+        let catalog = base.appendingPathComponent("Other.car", isDirectory: false)
+        try Data("catalog".utf8).write(to: catalog)
+        let (both, bothApp) = try makeApp(into: "both", extra: ["--icon-set", iconSet.path, "--asset-catalog", catalog.path])
+        #expect(both.exitStatus == 0)
+        #expect(try contents(bothApp, "Resources/Assets.car") == Data("catalog".utf8))
+    }
+
+    @Test func theShippedIconSetHasEverySizeInTheAppIconShape() throws {
+        let expected: [String: Int] = [
+            "icon_16x16": 16, "icon_16x16@2x": 32, "icon_32x32": 32, "icon_32x32@2x": 64,
+            "icon_128x128": 128, "icon_128x128@2x": 256, "icon_256x256": 256, "icon_256x256@2x": 512,
+            "icon_512x512": 512, "icon_512x512@2x": 1024,
+        ]
+        let names = try fileManager.contentsOfDirectory(atPath: AppBundleTests.defaultIconSet.path)
+        #expect(Set(names) == Set(expected.keys.map { name in "\(name).png" }))
+        for (name, pixels) in expected {
+            let url = AppBundleTests.defaultIconSet.appendingPathComponent("\(name).png")
+            let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+            let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            #expect(image.width == pixels && image.height == pixels, "\(name)")
+            #expect(try alpha(of: image, x: 0, y: 0) == 0, "\(name) corner is transparent")
+            #expect(try alpha(of: image, x: pixels / 2, y: pixels / 2) == 255, "\(name) body is opaque")
+        }
+    }
+
+    private func alpha(of image: CGImage, x: Int, y: Int) throws -> UInt8 {
+        var pixel: [UInt8] = [0, 0, 0, 0]
+        let context = try #require(CGContext(
+            data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y), width: image.width, height: image.height))
+        return pixel[3]
     }
 
     @Test func badInputLeavesNothingBehind() throws {
@@ -151,6 +196,13 @@ struct AppBundleTests {
         #expect(copyFails.exitStatus != 0)
         #expect(!fileManager.fileExists(atPath: app.path))
         #expect(try fileManager.contentsOfDirectory(atPath: output.path).isEmpty)
+
+        let missingCatalog = try run(AppBundleTests.script.path, [
+            "--executable", try Sandbox.binaryURL().path, "--output", output.path,
+            "--asset-catalog", base.appendingPathComponent("nope.car").path,
+        ])
+        #expect(missingCatalog.exitStatus == 1)
+        #expect(!fileManager.fileExists(atPath: app.path))
 
         let badVersion = try run(AppBundleTests.script.path, [
             "--executable", try Sandbox.binaryURL().path, "--output", output.path, "--version", "1.0-beta"

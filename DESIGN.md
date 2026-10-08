@@ -30,7 +30,7 @@ agent-pet/
   skill/pet/SKILL.md           symlinked to ~/.claude/skills/pet/SKILL.md
   pi-extension/agent-pet.ts    symlinked to ~/.pi/agent/extensions/agent-pet.ts
   sprites/<pack>/              shipped sprite packs, see "Sprite packs"
-  scripts/app-bundle/          make-app.sh and the AppIcon.iconset it makes the icon from, see "The app"
+  scripts/app-bundle/          make-app.sh; AppIcon.iconset and Assets.car, the committed icon; make-icon.sh, make-iconset.swift and AppIcon-art.png that remake them, see "The app"
   VERSION                      the app's version, CFBundleShortVersionString
   install.sh, uninstall.sh     build, install AgentPet.app, symlink the command, skill and extension, install packs
 ```
@@ -458,13 +458,14 @@ Login Items and crash reports, instead of a generic entry per build path.
 ```
 AgentPet.app/Contents/
   Info.plist                   CFBundleIdentifier com.agent-pet, CFBundleName and CFBundleDisplayName AgentPet,
-                               CFBundleExecutable agent-pet, CFBundleIconFile AppIcon, CFBundlePackageType APPL,
+                               CFBundleExecutable agent-pet, CFBundleIconFile and CFBundleIconName AppIcon, CFBundlePackageType APPL,
                                CFBundleShortVersionString from VERSION, CFBundleVersion the build number,
                                LSMinimumSystemVersion 14.0, LSUIElement true, NSAppleEventsUsageDescription,
                                NSHighResolutionCapable true
   PkgInfo                      APPL????
   MacOS/agent-pet              the release executable, unchanged: the daemon and every command
   Resources/AppIcon.icns       made by iconutil from an .iconset folder
+  Resources/Assets.car         the same icon as a compiled asset catalog, see the icon below
   _CodeSignature/              the bundle's signature
 ```
 
@@ -473,6 +474,24 @@ AgentPet.app/Contents/
   once it is complete, so a failure leaves no app and no staging folder. It uses only tools that ship with macOS
   (`iconutil`, `codesign`), and the same inputs give byte-identical `Info.plist`, executable and icon. The icon set
   defaults to `scripts/app-bundle/AppIcon.iconset`.
+- **The icon.** `scripts/app-bundle/make-iconset.swift --art SQUARE.png --output DIR.iconset [--small-crop X,Y,SIZE]`
+  makes the ten PNGs from one square picture, with CoreGraphics only. Each is Apple's macOS app icon grid: an 824 px
+  body centred on a 1024 px canvas, clipped to the continuous corner rounded rectangle (corner radius 185.4, the
+  straight edges starting 1.528665 radii from each corner), a transparent outside and a drop shadow (black at 30 %,
+  20 px blur, 10 px down). The smaller sizes come from halving the 1024 px icon step by step. The 16 and 32 px PNGs
+  are made from `--small-crop`, a square of the picture, so the pet's face and scarf still read, with a 900 px body.
+  The same picture and crop give byte-identical PNGs.
+- What macOS 26 and later do with it, measured on macOS 27 through `NSWorkspace.icon(forFile:)`: an icon that is not
+  in this shape is drawn small inside a grey rounded square at every size. A legacy `.icns` in this shape is shown as
+  it is at every size on a 2x screen, but at 16 and 32 pt on a 1x screen it still gets the grey square, as every
+  `.icns`-only app does (Slack, Linear and Visual Studio Code too). With an asset catalog (`Assets.car`, and
+  `CFBundleIconName` naming its icon) those sizes are shown as they are too, provided the 16 and 32 px body is
+  larger than the 824 px grid: at 824 the 16 pt icon is still framed, at 900 it is not. So the app carries both.
+- `scripts/app-bundle/make-icon.sh [--art SQUARE.png] [--small-crop X,Y,SIZE]` remakes both committed files: the
+  icon set with `make-iconset.swift` and `Assets.car` with Xcode's `actool` (the same input gives the same file).
+  `make-app.sh` only copies `Assets.car`, so a Mac with the Command Line Tools alone builds the full app. It adds the
+  catalog and `CFBundleIconName` when the icon set is the default one or `--asset-catalog` names one, so a custom
+  icon set is never paired with the shipped catalog.
 - It always signs the bundle, ad hoc unless `--sign` names an identity, so the Info.plist and the icon are bound to
   the signature and `codesign --verify --strict` passes. Signing the bundle signs its main executable as part of
   it; there is no nested code, so there is nothing to sign first and no `--deep`. The signing identifier is the

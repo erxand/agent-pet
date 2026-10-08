@@ -52,6 +52,20 @@ never changes between builds. Set `AGENT_PET_APPLICATIONS_DIRECTORY` when you ru
 (`scripts/app-bundle/AppIcon.iconset` by default). The version is the `VERSION` file. It uses only
 tools that ship with macOS, and the same inputs give the same app.
 
+The icon is made from one square picture, `scripts/app-bundle/AppIcon-art.png`, into two committed
+files: `AppIcon.iconset` (the PNGs for `AppIcon.icns`) and `Assets.car` (the same icon as a compiled
+asset catalog, which macOS 26 and later read first). To change the icon, replace that picture and run
+
+```
+scripts/app-bundle/make-icon.sh --small-crop X,Y,SIZE
+```
+
+It cuts the picture to the rounded square of Apple's app icon grid, with a transparent outside and a
+soft shadow, so macOS shows the icon as it is rather than inside a grey frame. `--small-crop` is the
+square of the picture, in its own pixels from the top left, that the 16 and 32 px icons show, so a busy
+picture still reads at that size (`230,250,560` for the shipped picture); pass `--small-crop ""` to use
+the whole picture. Remaking `Assets.car` needs Xcode's `actool`; building the app does not.
+
 ## Letting pets stand on the Dock exactly
 
 Pets treat a Dock at the bottom of the screen as ground. To know exactly where the Dock is, the

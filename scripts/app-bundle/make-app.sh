@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # Usage: scripts/app-bundle/make-app.sh --executable PATH --output DIRECTORY [--icon-set DIRECTORY]
-#        [--version X.Y.Z] [--build N] [--sign IDENTITY]
+#        [--asset-catalog Assets.car] [--version X.Y.Z] [--build N] [--sign IDENTITY]
 #
 # Assembles DIRECTORY/AgentPet.app around a built agent-pet executable:
 #
 #   AgentPet.app/Contents/Info.plist
 #   AgentPet.app/Contents/MacOS/agent-pet
 #   AgentPet.app/Contents/Resources/AppIcon.icns
+#   AgentPet.app/Contents/Resources/Assets.car
 #
 # The icon is made from an .iconset directory with iconutil (default: AppIcon.iconset beside this
-# script). The version defaults to the VERSION file at the top of the repository and the build
+# script). Assets.car is the same icon as a compiled asset catalog, which macOS 26 and later read
+# first: without it they draw the 16 and 32 px icon inside a grey frame on a 1x screen. It defaults to
+# the Assets.car beside this script when the icon set is the default one too, so the two always
+# match; make-icon.sh remakes both. The version defaults to the VERSION file at the top of the repository and the build
 # number to 1. The bundle is signed with IDENTITY when --sign is given, and ad hoc otherwise, so the
 # Info.plist is always bound to the signature. Only tools that ship with macOS are used, and the same
 # inputs give the same Info.plist, executable and icon every time.
@@ -28,6 +32,8 @@ APPLE_EVENTS_USAGE="AgentPet brings the terminal tab of the session whose pet yo
 EXECUTABLE_PATH=""
 OUTPUT_DIRECTORY=""
 ICON_SET_DIRECTORY="${SCRIPT_DIRECTORY}/${ICON_NAME}.iconset"
+ICON_SET_GIVEN=0
+ASSET_CATALOG_PATH=""
 VERSION=""
 BUILD_NUMBER="1"
 SIGNING_IDENTITY="-"
@@ -41,7 +47,8 @@ while (( $# > 0 )); do
     case "$1" in
         --executable) EXECUTABLE_PATH="${2:-}"; shift 2 ;;
         --output) OUTPUT_DIRECTORY="${2:-}"; shift 2 ;;
-        --icon-set) ICON_SET_DIRECTORY="${2:-}"; shift 2 ;;
+        --icon-set) ICON_SET_DIRECTORY="${2:-}"; ICON_SET_GIVEN=1; shift 2 ;;
+        --asset-catalog) ASSET_CATALOG_PATH="${2:-}"; [[ -n "${ASSET_CATALOG_PATH}" ]] || fail "--asset-catalog needs a path"; shift 2 ;;
         --version) VERSION="${2:-}"; shift 2 ;;
         --build) BUILD_NUMBER="${2:-}"; shift 2 ;;
         --sign) SIGNING_IDENTITY="${2:-}"; shift 2 ;;
@@ -54,6 +61,10 @@ done
 [[ -f "${EXECUTABLE_PATH}" && -x "${EXECUTABLE_PATH}" ]] || fail "${EXECUTABLE_PATH} is not an executable file"
 [[ -d "${ICON_SET_DIRECTORY}" ]] || fail "${ICON_SET_DIRECTORY} is not an icon set directory"
 [[ -n "${SIGNING_IDENTITY}" ]] || fail "--sign needs an identity"
+if [[ -z "${ASSET_CATALOG_PATH}" && "${ICON_SET_GIVEN}" == 0 && -f "${SCRIPT_DIRECTORY}/Assets.car" ]]; then
+    ASSET_CATALOG_PATH="${SCRIPT_DIRECTORY}/Assets.car"
+fi
+[[ -z "${ASSET_CATALOG_PATH}" || -f "${ASSET_CATALOG_PATH}" ]] || fail "${ASSET_CATALOG_PATH} is not a file"
 if [[ -z "${VERSION}" ]]; then
     VERSION="$(tr -d '[:space:]' < "${REPOSITORY_DIRECTORY}/VERSION")"
 fi
@@ -80,6 +91,14 @@ if ! iconutil --convert icns --output "${STAGING_PATH}/Contents/Resources/${ICON
     fail "iconutil could not make an icon from ${ICON_SET_DIRECTORY}"
 fi
 
+ICON_NAME_ENTRY=""
+if [[ -n "${ASSET_CATALOG_PATH}" ]]; then
+    cp "${ASSET_CATALOG_PATH}" "${STAGING_PATH}/Contents/Resources/Assets.car"
+    ICON_NAME_ENTRY="    <key>CFBundleIconName</key>
+    <string>${ICON_NAME}</string>
+"
+fi
+
 cat > "${STAGING_PATH}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -93,7 +112,7 @@ cat > "${STAGING_PATH}/Contents/Info.plist" <<PLIST
     <string>${EXECUTABLE_NAME}</string>
     <key>CFBundleIconFile</key>
     <string>${ICON_NAME}</string>
-    <key>CFBundleIdentifier</key>
+${ICON_NAME_ENTRY}    <key>CFBundleIdentifier</key>
     <string>${BUNDLE_IDENTIFIER}</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
