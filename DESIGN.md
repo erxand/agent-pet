@@ -482,13 +482,26 @@ AgentPet.app/Contents/
 - `install.sh` builds, assembles the app in `.build/release/AgentPet.app` (signed with `AGENT_PET_SIGN_IDENTITY`
   when it is set) and copies it with `ditto` to a hidden staging folder in the applications folder. Then, in this
   order: it writes the new plist (so a hook that starts the daemon from here on loads the new plist, never the
-  old one), boots the launch agent out, stops a daemon the CLI spawned outside launchd (`daemon.pid`, only when
-  that process is `agent-pet`; a bootout does not reach it, and left running on the old executable it would make
-  the new daemon see it and leave), moves the old app aside, moves the new one in, links
-  `~/.local/bin/agent-pet` to `AgentPet.app/Contents/MacOS/agent-pet`, and only then deletes the old app. A failure
-  before that point puts the previous app, plist and link back and bootstraps the previous plist. No daemon ever
-  starts from a half copied bundle. Every bootstrap attempt is preceded by a bootout, since a hook may have loaded
-  the agent in the meantime, and the last step is `launchctl kickstart -k`, so the daemon that runs is the new one.
+  old one), boots the launch agent out, stops a daemon that runs outside launchd, moves the old app aside to
+  `.AgentPet.app.previous`, moves the new one in, links `~/.local/bin/agent-pet` to
+  `AgentPet.app/Contents/MacOS/agent-pet` and refreshes the sprite packs. It stops a stray daemon again, bootstraps
+  (every attempt is preceded by a bootout, since a hook may have loaded the agent in the meantime), runs
+  `launchctl kickstart -k` so the daemon that runs is the new one, and stops a stray daemon once more, kicking the
+  agent again when it did, because a new daemon that finds another one running leaves with exit 0 and launchd does
+  not relaunch it. Only then is the old app deleted. No daemon ever starts from a half copied bundle.
+- **Rollback.** Any failure before that last step, a failed bootstrap or sprite copy included, puts back what was
+  there: the new app is moved aside and removed and the previous app moved back (on a first install the new app
+  is simply removed), the previous plist and link are restored (on a first install they are removed), and the
+  previous plist, if any, is booted out and bootstrapped. A run killed between moving the old app aside and moving
+  the new one in leaves only `.AgentPet.app.previous`; the next run moves it back before anything else.
+- **A stray daemon** is one the CLI spawned itself with no launch agent: a bootout does not reach it, and left
+  running on the old executable it would make the new daemon leave. It is stopped only when the pid in
+  `daemon.pid` is alive, its executable is named `agent-pet`, its command line ends in ` daemon` (a reused pid of a
+  short `agent-pet hook` has the same name) and it is not the pid `launchctl print` gives for the agent. TERM, up to
+  5 s, then KILL.
+- **Only the account's own home.** launchd has one `gui/<uid>` domain whatever `HOME` says, so `install.sh` and
+  `uninstall.sh` refuse to run when `HOME` is not the account's home (from `dscl`), unless `AGENT_PET_LAUNCHCTL`
+  names a stand-in for `/bin/launchctl`, which both then use for every launchd call. That is how they are tested.
 - `uninstall.sh` removes the app the plist's `ProgramArguments` names, wherever `AGENT_PET_APPLICATIONS_DIRECTORY`
   pointed at install time, and any staging or previous copy beside it.
 - `~/Applications`, not `/Applications`: it needs no administrator password, and it is not a folder macOS guards

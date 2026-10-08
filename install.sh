@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Usage: ./install.sh - build agent-pet, install AgentPet.app, its skill and sprite packs, and start the daemon.
 # AGENT_PET_SIGN_IDENTITY signs the app with that code signing identity, AGENT_PET_APPLICATIONS_DIRECTORY
-# moves the app out of ~/Applications.
+# moves the app out of ~/Applications, and AGENT_PET_LAUNCHCTL names a stand-in launchctl (needed when HOME
+# is not the account's own home).
 set -euo pipefail
 
 TOOL_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,6 +35,19 @@ LAUNCH_AGENT_SERVICE_TARGET="${LAUNCH_AGENT_DOMAIN_TARGET}/${LAUNCH_AGENT_LABEL}
 LAUNCH_AGENT_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 BUNDLE_IDENTIFIER="com.agent-pet"
 SIGNING_IDENTITY="${AGENT_PET_SIGN_IDENTITY:-}"
+LAUNCHCTL="${AGENT_PET_LAUNCHCTL:-/bin/launchctl}"
+
+run_launchctl() {
+    "${LAUNCHCTL}" "$@"
+}
+
+# launchd has one gui/<uid> domain whatever HOME says, so an install into another HOME would
+# replace the account's real agent. Such an install needs a stand-in launchctl.
+ACCOUNT_HOME="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')"
+if [[ -z "${AGENT_PET_LAUNCHCTL:-}" ]] && { [[ -z "${ACCOUNT_HOME}" ]] || [[ "$(cd "${HOME}" && pwd -P)" != "$(cd "${ACCOUNT_HOME}" 2>/dev/null && pwd -P)" ]]; }; then
+    echo "error: HOME (${HOME}) is not this account's home (${ACCOUNT_HOME:-unknown}); set AGENT_PET_LAUNCHCTL to a stand-in launchctl to install there" >&2
+    exit 1
+fi
 
 mkdir -p "${HOME}/.local/bin"
 mkdir -p "${SESSIONS_DIRECTORY}"
@@ -42,6 +56,14 @@ mkdir -p "${HOME}/.claude/skills"
 mkdir -p "${HOME}/.pi/agent/extensions"
 mkdir -p "${LAUNCH_AGENTS_DIRECTORY}"
 mkdir -p "${APPLICATIONS_DIRECTORY}"
+
+# An earlier run killed between moving the old app aside and moving the new one in left only the
+# previous copy; it goes back first.
+if [[ ! -e "${APP_INSTALL_PATH}" && -d "${APP_PREVIOUS_PATH}" ]]; then
+    mv "${APP_PREVIOUS_PATH}" "${APP_INSTALL_PATH}"
+    echo "put back ${APP_INSTALL_PATH} from an install that did not finish"
+fi
+rm -rf "${APP_STAGING_PATH:?}" "${APP_PREVIOUS_PATH:?}"
 
 if ! swift build --package-path "${TOOL_DIRECTORY}" -c release; then
     echo "error: swift build failed, agent-pet was not installed" >&2
@@ -61,16 +83,18 @@ if [[ -n "${SIGNING_IDENTITY}" ]]; then
     echo "signed ${APP_NAME} as ${BUNDLE_IDENTIFIER} with ${SIGNING_IDENTITY}"
 fi
 
-rm -rf "${APP_STAGING_PATH:?}" "${APP_PREVIOUS_PATH:?}"
+rm -rf "${APP_STAGING_PATH:?}"
 ditto "${APP_BUILD_DIRECTORY}/${APP_NAME}" "${APP_STAGING_PATH}"
 
-# What the install replaces is kept until the new app is in place, so a failure on the way
-# puts the previous app, plist and link back and starts the previous daemon again.
+# What the install replaces is kept until the new daemon is running, so a failure anywhere before
+# that puts the previous app, plist and link back and starts the previous daemon again.
 SAVED_DIRECTORY="$(mktemp -d)"
 PREVIOUS_LINK_TARGET="$(readlink "${BINARY_LINK_PATH}" 2>/dev/null || true)"
 if [[ -f "${LAUNCH_AGENT_PLIST_PATH}" ]]; then
     cp "${LAUNCH_AGENT_PLIST_PATH}" "${SAVED_DIRECTORY}/previous.plist"
 fi
+HAD_PREVIOUS_APP=0
+SWAPPED=0
 INSTALL_COMMITTED=0
 
 restore_previous_install() {
@@ -79,42 +103,58 @@ restore_previous_install() {
         return
     fi
     echo "error: the install failed, putting the previous one back" >&2
-    if [[ ! -e "${APP_INSTALL_PATH}" && -d "${APP_PREVIOUS_PATH}" ]]; then
+    if (( SWAPPED == 1 )); then
+        rm -rf "${APP_STAGING_PATH:?}"
+        mv "${APP_INSTALL_PATH}" "${APP_STAGING_PATH}" || true
+        if (( HAD_PREVIOUS_APP == 1 )); then
+            mv "${APP_PREVIOUS_PATH}" "${APP_INSTALL_PATH}" || true
+        fi
+    elif [[ ! -e "${APP_INSTALL_PATH}" && -d "${APP_PREVIOUS_PATH}" ]]; then
         mv "${APP_PREVIOUS_PATH}" "${APP_INSTALL_PATH}" || true
     fi
-    rm -rf "${APP_STAGING_PATH:?}"
-    rm -f "${LAUNCH_AGENT_PLIST_PATH:?}.new"
+    rm -rf "${APP_STAGING_PATH:?}" || true
+    rm -f "${LAUNCH_AGENT_PLIST_PATH:?}.new" || true
     if [[ -f "${SAVED_DIRECTORY}/previous.plist" ]]; then
         cp "${SAVED_DIRECTORY}/previous.plist" "${LAUNCH_AGENT_PLIST_PATH}" || true
     else
-        rm -f "${LAUNCH_AGENT_PLIST_PATH:?}"
+        rm -f "${LAUNCH_AGENT_PLIST_PATH:?}" || true
     fi
     if [[ -n "${PREVIOUS_LINK_TARGET}" ]]; then
         ln -sfn "${PREVIOUS_LINK_TARGET}" "${BINARY_LINK_PATH}" || true
+    elif [[ "$(readlink "${BINARY_LINK_PATH}" 2>/dev/null || true)" == "${APP_EXECUTABLE_PATH}" && ! -e "${APP_EXECUTABLE_PATH}" ]]; then
+        rm -f "${BINARY_LINK_PATH:?}" || true
     fi
     if [[ -f "${LAUNCH_AGENT_PLIST_PATH}" ]]; then
-        launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null || true
+        run_launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
+        run_launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null || true
     fi
-    rm -rf "${SAVED_DIRECTORY:?}"
+    rm -rf "${SAVED_DIRECTORY:?}" || true
 }
 trap restore_previous_install EXIT
 
 # A daemon that the CLI spawned itself, with no launch agent, is not stopped by a bootout. Left
-# running on the old executable, it would make the new daemon see it and leave.
+# running on the old executable, it would make the new daemon see it and leave. The daemon
+# launchd runs is never stopped here, and neither is a pid reused by anything but an agent-pet daemon.
 stop_daemon_outside_launchd() {
-    local daemon_pid
-    [[ -f "${DAEMON_PID_FILE}" ]] || return 0
-    daemon_pid="$(cat "${DAEMON_PID_FILE}")"
-    [[ "${daemon_pid}" =~ ^[0-9]+$ ]] || return 0
-    kill -0 "${daemon_pid}" 2>/dev/null || return 0
-    [[ "$(basename "$(ps -p "${daemon_pid}" -o comm= 2>/dev/null)")" == "agent-pet" ]] || return 0
-    kill "${daemon_pid}" 2>/dev/null || return 0
+    local daemon_pid launchd_pid
+    [[ -f "${DAEMON_PID_FILE}" ]] || return 1
+    daemon_pid="$(cat "${DAEMON_PID_FILE}" 2>/dev/null || true)"
+    [[ "${daemon_pid}" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "${daemon_pid}" 2>/dev/null || return 1
+    [[ "$(basename "$(ps -p "${daemon_pid}" -o comm= 2>/dev/null || true)")" == "agent-pet" ]] || return 1
+    [[ "$(ps -p "${daemon_pid}" -o command= 2>/dev/null || true)" == *" daemon" ]] || return 1
+    launchd_pid="$(run_launchctl print "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+    [[ "${daemon_pid}" != "${launchd_pid}" ]] || return 1
+    kill "${daemon_pid}" 2>/dev/null || return 1
     for ((STOP_WAIT = 0; STOP_WAIT < DAEMON_STOP_WAIT_TENTHS; STOP_WAIT++)); do
-        kill -0 "${daemon_pid}" 2>/dev/null || return 0
+        if ! kill -0 "${daemon_pid}" 2>/dev/null; then
+            echo "stopped daemon pid ${daemon_pid}, which ran outside launchd"
+            return 0
+        fi
         sleep 0.1
     done
     kill -KILL "${daemon_pid}" 2>/dev/null || true
-    echo "stopped daemon pid ${daemon_pid}"
+    echo "stopped daemon pid ${daemon_pid}, which ran outside launchd"
 }
 
 # The new plist is in place before the daemon is stopped, so a hook that starts the daemon while
@@ -160,18 +200,17 @@ cat > "${LAUNCH_AGENT_PLIST_PATH}.new" <<PLIST
 PLIST
 mv "${LAUNCH_AGENT_PLIST_PATH}.new" "${LAUNCH_AGENT_PLIST_PATH}"
 
-launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
-stop_daemon_outside_launchd
+run_launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
+stop_daemon_outside_launchd || true
 
 if [[ -e "${APP_INSTALL_PATH}" ]]; then
+    rm -rf "${APP_PREVIOUS_PATH:?}"
     mv "${APP_INSTALL_PATH}" "${APP_PREVIOUS_PATH}"
+    HAD_PREVIOUS_APP=1
 fi
 mv "${APP_STAGING_PATH}" "${APP_INSTALL_PATH}"
+SWAPPED=1
 ln -sfn "${APP_EXECUTABLE_PATH}" "${BINARY_LINK_PATH}"
-INSTALL_COMMITTED=1
-trap - EXIT
-rm -rf "${APP_PREVIOUS_PATH:?}" "${SAVED_DIRECTORY:?}"
-
 ln -sfn "${SKILL_SOURCE_DIRECTORY}" "${SKILL_LINK_PATH}"
 ln -sfn "${PI_EXTENSION_SOURCE_PATH}" "${PI_EXTENSION_LINK_PATH}"
 
@@ -187,24 +226,35 @@ for PACK_SOURCE_DIRECTORY in "${REPOSITORY_SPRITES_DIRECTORY}"/*/; do
     echo "${PACK_INSTALL_ACTION} sprite pack ${PACK_TARGET_DIRECTORY}"
 done
 
-# A hook may have loaded the agent while the app was being replaced, so every attempt boots it out
-# first. bootout returns before the service is fully gone, so a bootstrap right after it can fail
-# with "Input/output error" while the old job is still tearing down. The kickstart makes sure the
+# A hook may have loaded the agent, or spawned a daemon of its own, while the app was being
+# replaced, so a stray daemon is stopped again and every attempt boots the agent out first.
+# bootout returns before the service is fully gone, so a bootstrap right after it can fail with
+# "Input/output error" while the old job is still tearing down. The kickstart makes sure the
 # daemon that runs is the one from the new app.
+stop_daemon_outside_launchd || true
 BOOTSTRAP_ATTEMPTS=10
 for ((BOOTSTRAP_ATTEMPT = 1; BOOTSTRAP_ATTEMPT <= BOOTSTRAP_ATTEMPTS; BOOTSTRAP_ATTEMPT++)); do
-    launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
-    if launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null; then
+    run_launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
+    if run_launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null; then
         break
     fi
     if (( BOOTSTRAP_ATTEMPT == BOOTSTRAP_ATTEMPTS )); then
         echo "error: could not bootstrap ${LAUNCH_AGENT_SERVICE_TARGET}" >&2
-        launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}"
+        run_launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" || true
         exit 1
     fi
     sleep 0.5
 done
-launchctl kickstart -k "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
+run_launchctl kickstart -k "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
+# A daemon from the old executable that is still up makes the new one leave with exit 0, which
+# launchd does not relaunch, so once it is stopped the agent is started again.
+if stop_daemon_outside_launchd; then
+    run_launchctl kickstart "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
+fi
+
+INSTALL_COMMITTED=1
+trap - EXIT
+rm -rf "${APP_PREVIOUS_PATH:?}" "${SAVED_DIRECTORY:?}"
 
 echo "installed ${APP_INSTALL_PATH}"
 echo "linked ${BINARY_LINK_PATH} -> ${APP_EXECUTABLE_PATH}"
