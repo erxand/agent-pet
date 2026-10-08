@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Usage: ./uninstall.sh - remove agent-pet's installed binary and skill symlinks.
+# Usage: ./uninstall.sh - remove AgentPet.app, the launch agent and agent-pet's symlinks.
 set -euo pipefail
 
 BINARY_LINK_PATH="${HOME}/.local/bin/agent-pet"
+APP_INSTALL_PATH="${AGENT_PET_APPLICATIONS_DIRECTORY:-${HOME}/Applications}/AgentPet.app"
 SKILL_LINK_PATH="${HOME}/.claude/skills/pet"
 PI_EXTENSION_LINK_PATH="${HOME}/.pi/agent/extensions/agent-pet.ts"
 STATE_DIRECTORY="${HOME}/.agent-pet"
@@ -23,10 +24,12 @@ if [[ -f "${DAEMON_PID_FILE}" ]]; then
 fi
 
 rm -f "${BINARY_LINK_PATH}"
+rm -rf "${APP_INSTALL_PATH:?}"
 rm -f "${SKILL_LINK_PATH}"
 rm -f "${PI_EXTENSION_LINK_PATH}"
 
 echo "removed ${BINARY_LINK_PATH}"
+echo "removed ${APP_INSTALL_PATH}"
 echo "removed ${SKILL_LINK_PATH}"
 echo "removed ${PI_EXTENSION_LINK_PATH}"
 echo "removed ${LAUNCH_AGENT_PLIST_PATH}"
