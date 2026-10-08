@@ -511,12 +511,17 @@ AgentPet.app/Contents/
 - **Rollback.** Any failure before that last step, a failed bootstrap or sprite copy included, puts back what was
   there: the new app is moved aside and removed and the previous app moved back (on a first install the new app
   is simply removed), the previous plist and link are restored (on a first install they are removed), and the
-  previous plist, if any, is booted out and bootstrapped. A run killed between moving the old app aside and moving
-  the new one in leaves only `.AgentPet.app.previous`; the next run moves it back before anything else.
+  agent is always booted out and the previous plist, if any, bootstrapped. A previous copy is moved back only into an
+  empty place, so it can never land inside the new app. INT, TERM and HUP exit through the same rollback (bash 3.2
+  runs no EXIT trap when a signal ends it, so each has a trap that exits instead). A run killed outright leaves
+  `.AgentPet.app.previous` behind, with or without the new app in place; the next run finishes that rollback before
+  anything else (it sets the new app aside and moves the previous copy back), so `.previous` is never deleted while
+  it may be the only good copy.
 - **A stray daemon** is one the CLI spawned itself with no launch agent: a bootout does not reach it, and left
   running on the old executable it would make the new daemon leave. It is stopped only when the pid in
   `daemon.pid` is alive, its executable is named `agent-pet`, its command line ends in ` daemon` (a reused pid of a
-  short `agent-pet hook` has the same name) and it is not the pid `launchctl print` gives for the agent. TERM, up to
+  short `agent-pet hook` has the same name) and it is not the pid `launchctl print` gives for the agent (asked up to three times, 0.2 s apart, while it gives
+  none, since a daemon launchd has just started may not be listed yet). TERM, up to
   5 s, then KILL.
 - **Only the account's own home.** launchd has one `gui/<uid>` domain whatever `HOME` says, so `install.sh` and
   `uninstall.sh` refuse to run when `HOME` is not the account's home (from `dscl`), unless `AGENT_PET_LAUNCHCTL`

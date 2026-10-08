@@ -27,6 +27,7 @@ REPOSITORY_SPRITES_DIRECTORY="${TOOL_DIRECTORY}/sprites"
 DAEMON_LOG_PATH="${STATE_DIRECTORY}/daemon.log"
 DAEMON_PID_FILE="${STATE_DIRECTORY}/daemon.pid"
 DAEMON_STOP_WAIT_TENTHS=50
+LAUNCHD_PID_ATTEMPTS=3
 LAUNCH_AGENTS_DIRECTORY="${HOME}/Library/LaunchAgents"
 LAUNCH_AGENT_LABEL="com.agent-pet.daemon"
 LAUNCH_AGENT_PLIST_PATH="${LAUNCH_AGENTS_DIRECTORY}/${LAUNCH_AGENT_LABEL}.plist"
@@ -57,13 +58,18 @@ mkdir -p "${HOME}/.pi/agent/extensions"
 mkdir -p "${LAUNCH_AGENTS_DIRECTORY}"
 mkdir -p "${APPLICATIONS_DIRECTORY}"
 
-# An earlier run killed between moving the old app aside and moving the new one in left only the
-# previous copy; it goes back first.
-if [[ ! -e "${APP_INSTALL_PATH}" && -d "${APP_PREVIOUS_PATH}" ]]; then
+# A previous copy left beside the app means an earlier run was killed before it finished. Its
+# rollback is finished here: the app it may have moved in is set aside, and the previous copy goes
+# back, so what this run replaces is what was installed before that run.
+if [[ -d "${APP_PREVIOUS_PATH}" ]]; then
+    rm -rf "${APP_STAGING_PATH:?}"
+    if [[ -e "${APP_INSTALL_PATH}" ]]; then
+        mv "${APP_INSTALL_PATH}" "${APP_STAGING_PATH}"
+    fi
     mv "${APP_PREVIOUS_PATH}" "${APP_INSTALL_PATH}"
     echo "put back ${APP_INSTALL_PATH} from an install that did not finish"
 fi
-rm -rf "${APP_STAGING_PATH:?}" "${APP_PREVIOUS_PATH:?}"
+rm -rf "${APP_STAGING_PATH:?}"
 
 if ! swift build --package-path "${TOOL_DIRECTORY}" -c release; then
     echo "error: swift build failed, agent-pet was not installed" >&2
@@ -97,16 +103,20 @@ HAD_PREVIOUS_APP=0
 SWAPPED=0
 INSTALL_COMMITTED=0
 
+# A signal can arrive while a command runs with its errors sent to /dev/null, and its trap then runs
+# inside that redirection, so the rollback reports on a copy of the real standard error.
+exec 3>&2
+
 restore_previous_install() {
     local exit_status=$?
     if (( INSTALL_COMMITTED == 1 || exit_status == 0 )); then
         return
     fi
-    echo "error: the install failed, putting the previous one back" >&2
+    echo "error: the install failed, putting the previous one back" >&3
     if (( SWAPPED == 1 )); then
         rm -rf "${APP_STAGING_PATH:?}"
         mv "${APP_INSTALL_PATH}" "${APP_STAGING_PATH}" || true
-        if (( HAD_PREVIOUS_APP == 1 )); then
+        if (( HAD_PREVIOUS_APP == 1 )) && [[ ! -e "${APP_INSTALL_PATH}" ]]; then
             mv "${APP_PREVIOUS_PATH}" "${APP_INSTALL_PATH}" || true
         fi
     elif [[ ! -e "${APP_INSTALL_PATH}" && -d "${APP_PREVIOUS_PATH}" ]]; then
@@ -124,13 +134,16 @@ restore_previous_install() {
     elif [[ "$(readlink "${BINARY_LINK_PATH}" 2>/dev/null || true)" == "${APP_EXECUTABLE_PATH}" && ! -e "${APP_EXECUTABLE_PATH}" ]]; then
         rm -f "${BINARY_LINK_PATH:?}" || true
     fi
+    run_launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
     if [[ -f "${LAUNCH_AGENT_PLIST_PATH}" ]]; then
-        run_launchctl bootout "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null || true
         run_launchctl bootstrap "${LAUNCH_AGENT_DOMAIN_TARGET}" "${LAUNCH_AGENT_PLIST_PATH}" 2>/dev/null || true
     fi
     rm -rf "${SAVED_DIRECTORY:?}" || true
 }
 trap restore_previous_install EXIT
+# bash 3.2 runs no EXIT trap when a signal ends it, so a signal exits through the trap instead.
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 # A daemon that the CLI spawned itself, with no launch agent, is not stopped by a bootout. Left
 # running on the old executable, it would make the new daemon see it and leave. The daemon
@@ -143,7 +156,12 @@ stop_daemon_outside_launchd() {
     kill -0 "${daemon_pid}" 2>/dev/null || return 1
     [[ "$(basename "$(ps -p "${daemon_pid}" -o comm= 2>/dev/null || true)")" == "agent-pet" ]] || return 1
     [[ "$(ps -p "${daemon_pid}" -o command= 2>/dev/null || true)" == *" daemon" ]] || return 1
-    launchd_pid="$(run_launchctl print "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+    # A daemon launchd has only just started may not be in print yet, so an empty answer is asked again.
+    for ((PRINT_ATTEMPT = 1; PRINT_ATTEMPT <= LAUNCHD_PID_ATTEMPTS; PRINT_ATTEMPT++)); do
+        launchd_pid="$(run_launchctl print "${LAUNCH_AGENT_SERVICE_TARGET}" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+        [[ -z "${launchd_pid}" ]] || break
+        (( PRINT_ATTEMPT == LAUNCHD_PID_ATTEMPTS )) || sleep 0.2
+    done
     [[ "${daemon_pid}" != "${launchd_pid}" ]] || return 1
     kill "${daemon_pid}" 2>/dev/null || return 1
     for ((STOP_WAIT = 0; STOP_WAIT < DAEMON_STOP_WAIT_TENTHS; STOP_WAIT++)); do
