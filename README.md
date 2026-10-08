@@ -26,12 +26,45 @@ The sheet shows every shipped pack; `python3 scripts/sprite-sheet/sheet.py` redr
 ## Quick start
 
 1. `git clone https://github.com/erxand/agent-pet.git` and enter the directory.
-2. Run `./install.sh`. It builds the binary and installs the skill, the pi extension and the
-   overlay daemon.
+2. Run `./install.sh`. It builds agent-pet, installs it as `~/Applications/AgentPet.app`, and
+   installs the skill, the pi extension and the overlay daemon.
 3. Open a new Claude Code session. An already-open session does not see the skill.
 4. Type `/pet`, then let a turn finish. The pet climbs out along the bottom of the screen.
 
-`~/.local/bin` must be on your `PATH`, because that is where `install.sh` links the binary.
+`~/.local/bin` must be on your `PATH`, because that is where `install.sh` links the `agent-pet`
+command.
+
+## The app
+
+agent-pet installs as one small app, `~/Applications/AgentPet.app`, with its own icon and the bundle
+identifier `com.agent-pet`. macOS shows that one entry, with that icon, in Privacy & Security, Activity
+Monitor, Login Items and crash reports. It has no Dock icon and no menu bar: the pets are its only
+windows. The launch agent runs the daemon from inside the app, and `~/.local/bin/agent-pet` is a link
+to the same executable, so hooks and the command line work as before.
+
+The app lives in `~/Applications` because you can write there without an administrator password, and
+because macOS does not guard that folder per app the way it guards `~/Documents`, `~/Desktop` and
+`~/Downloads`, so the daemon can start from it under launchd without a privacy question. Its path also
+never changes between builds. Set `AGENT_PET_APPLICATIONS_DIRECTORY` when you run `install.sh` and
+`uninstall.sh` to put it somewhere else.
+
+`scripts/app-bundle/make-app.sh` assembles the app from a built executable and an `.iconset` folder
+(`scripts/app-bundle/AppIcon.iconset` by default). The version is the `VERSION` file. It uses only
+tools that ship with macOS, and the same inputs give the same app.
+
+The icon is made from one square picture, `scripts/app-bundle/AppIcon-art.png`, into two committed
+files: `AppIcon.iconset` (the PNGs for `AppIcon.icns`) and `Assets.car` (the same icon as a compiled
+asset catalog, which macOS 26 and later read first). To change the icon, replace that picture and run
+
+```
+scripts/app-bundle/make-icon.sh --small-crop X,Y,SIZE
+```
+
+It cuts the picture to the rounded square of Apple's app icon grid, with a transparent outside and a
+soft shadow, so macOS shows the icon as it is rather than inside a grey frame. `--small-crop` is the
+square of the picture, in its own pixels from the top left, that the 16 and 32 px icons show, so a busy
+picture still reads at that size (`230,250,560` for the shipped picture); pass `--small-crop ""` to use
+the whole picture. Remaking `Assets.car` needs Xcode's `actool`; building the app does not.
 
 ## Letting pets stand on the Dock exactly
 
@@ -39,9 +72,10 @@ Pets treat a Dock at the bottom of the screen as ground. To know exactly where t
 daemon needs Accessibility access. Without it, pets still work, but they follow an estimate of
 the Dock's size and position.
 
-macOS ties that access to the binary's code signature. A plain `./install.sh` build is signed
-ad hoc, so every rebuild gets a new signature and macOS forgets the access. Sign the binary with
-a certificate and a fixed identifier, and the access survives every rebuild.
+macOS ties that access to the app's code signature. A plain `./install.sh` build is signed
+ad hoc, so every rebuild gets a new signature and macOS forgets the access. Sign the app with
+a certificate, and the access survives every rebuild, because the identity and the bundle identifier
+stay the same.
 
 1. Get a signing certificate. A free Apple Development certificate is enough: in Xcode, open
    Settings > Accounts, add your Apple ID, then Manage Certificates > + > Apple Development.
@@ -52,17 +86,18 @@ a certificate and a fixed identifier, and the access survives every rebuild.
    ```
 
    Copy the name in quotes, for example `Apple Development: Your Name (TEAMID1234)`.
-2. Install with that identity. `install.sh` signs the binary with the fixed identifier
-   `com.agent-pet` when `AGENT_PET_SIGN_IDENTITY` is set, and restarts the daemon:
+2. Install with that identity. `install.sh` signs the whole of AgentPet.app with it when
+   `AGENT_PET_SIGN_IDENTITY` is set, and restarts the daemon:
 
    ```
    AGENT_PET_SIGN_IDENTITY="Apple Development: Your Name (TEAMID1234)" ./install.sh
    ```
 
-   To sign a binary you built another way, run
-   `codesign --force --sign "Apple Development: Your Name (TEAMID1234)" --identifier com.agent-pet <path to agent-pet>`
+   To sign an app you assembled another way, pass the identity to the assembly script,
+   `scripts/app-bundle/make-app.sh --executable <path to agent-pet> --output <folder> --sign "Apple Development: Your Name (TEAMID1234)"`,
+   or run `codesign --force --sign "Apple Development: Your Name (TEAMID1234)" <path to AgentPet.app>`,
    and restart the daemon.
-3. Grant access once. Run `agent-pet dock-access --ask`, then turn on agent-pet in
+3. Grant access once. Run `agent-pet dock-access --ask`, then turn on AgentPet in
    System Settings > Privacy & Security > Accessibility. `agent-pet dock-access` prints
    `granted` once the daemon has it.
 4. Sign every rebuild the same way (keep `AGENT_PET_SIGN_IDENTITY` set when you run
@@ -113,9 +148,9 @@ Nine commands are useful from any shell, plus `agent-pet demo`, described under 
 - `agent-pet dock-access` prints `granted`, `not granted` or `unknown`: whether the running daemon
   may read the Dock's exact frame (macOS Accessibility). It reports the daemon's own access, not
   the terminal's, and never prompts; `unknown` means no running daemon has written a report.
-  `agent-pet dock-access --ask` has the daemon ask macOS once; turn agent-pet on in
+  `agent-pet dock-access --ask` has the daemon ask macOS once; turn AgentPet on in
   System Settings > Privacy & Security > Accessibility and the daemon notices within 5 seconds.
-  Sign the binary first so the access survives rebuilds, see "Letting pets stand on the Dock exactly".
+  Sign the app first so the access survives rebuilds, see "Letting pets stand on the Dock exactly".
 
 ## Demo
 
@@ -204,7 +239,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
 | `whenFullScreen` | `[]` | rules that set pet states while an app shows a window covering a display, see "Scripting the pets" |
 | `hideLabelsWhileFloating` | `false` | `true` hides each pet's label and bubble while it floats or falls, and shows them again when it lands |
-| `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give the agent-pet daemon Accessibility access (`agent-pet dock-access --ask`) and sign the binary so the access sticks, see "Letting pets stand on the Dock exactly"; without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
+| `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give AgentPet Accessibility access (`agent-pet dock-access --ask`) and sign the app so the access sticks, see "Letting pets stand on the Dock exactly"; without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
 | `groundGap` | absent | a number from 0 to 200: points between a pet's feet and the ground, on the screen bottom and on the Dock alike. Absent keeps today's look (a small lift, with the label pill under the feet). `0` stands pets right on the edge; the pill then sits over the head |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
@@ -502,13 +537,13 @@ a pack with the same name, `~/.agent-pet/sprites/` wins, then the folders in the
   `launchctl print gui/$(id -u)/com.agent-pet.daemon` shows the state and pid.
 - Hooks live in the Claude Code process that ran `/pet`. A session you reopen with
   `claude --resume` is a new process with no hooks, so run `/pet` again in it.
-- The first click that reaches iTerm2 makes macOS ask whether agent-pet may control it. Allow
+- The first click that reaches iTerm2 makes macOS ask whether AgentPet may control it. Allow
   it to get the exact tab. Deny it and you keep everything else. agent-pet still selects the
   tmux window and the pane, and the terminal still comes to the front.
 
 ## Uninstall
 
-Run `./uninstall.sh`. It unloads the launch agent, deletes its plist and the three symlinks,
+Run `./uninstall.sh`. It unloads the launch agent, deletes its plist, AgentPet.app and the three symlinks,
 and stops the daemon if it is still running. It leaves `~/.agent-pet` in place and prints the
 `rm -rf` command for it.
 

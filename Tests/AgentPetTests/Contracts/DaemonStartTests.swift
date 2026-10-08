@@ -332,4 +332,28 @@ struct DaemonStartTests {
         #expect(OwnExecutable.isFoundThroughMainBundle(mainBundle: { bundle }, executableURL: { _ in anyURL }))
         #expect(OwnExecutable.isFoundThroughMainBundle())
     }
+
+    @Test func aDaemonIsSpawnedFromTheRealFileBehindTheLinkOnPath() throws {
+        let fileManager = FileManager.default
+        let base = fileManager.temporaryDirectory
+            .appendingPathComponent("agent-pet-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fileManager.removeItem(at: base) }
+        let executable = base.appendingPathComponent("AgentPet.app/Contents/MacOS/agent-pet", isDirectory: false)
+        let link = base.appendingPathComponent("bin/agent-pet", isDirectory: false)
+        try fileManager.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: executable)
+        try fileManager.createSymbolicLink(at: link, withDestinationURL: executable)
+        let real = executable.resolvingSymlinksInPath().path
+
+        #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: link.path, invokedPath: nil) == real)
+        #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: nil, invokedPath: link.path) == real)
+        #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: executable.path, invokedPath: link.path) == real)
+        #expect(OwnExecutable.resolvedPath(mainBundleExecutablePath: nil, invokedPath: nil) == nil)
+        #expect(DaemonCommand.ownExecutablePath(mainBundleExecutablePath: link.path, invokedPath: nil) == real)
+        #expect(DaemonCommand.ownExecutablePath(mainBundleExecutablePath: nil, invokedPath: link.path) == real)
+        let live = try #require(DaemonCommand.ownExecutablePath())
+        #expect(live == URL(fileURLWithPath: live).resolvingSymlinksInPath().path)
+    }
 }

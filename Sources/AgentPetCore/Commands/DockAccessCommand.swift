@@ -255,7 +255,7 @@ enum DockAccessCommand {
         print(granted ? grantedWord : notGrantedWord)
         guard !granted else { return ExitCode.success }
         if asked {
-            environment.writeError("turn on agent-pet in \(settingsHint); the daemon notices within \(Int(DockAccessReporter.checkIntervalInSeconds)) seconds.")
+            environment.writeError("turn on AgentPet in \(settingsHint); the daemon notices within \(Int(DockAccessReporter.checkIntervalInSeconds)) seconds.")
         }
         return ExitCode.failure
     }

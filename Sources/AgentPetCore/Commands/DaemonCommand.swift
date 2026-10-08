@@ -165,10 +165,11 @@ enum DaemonCommand {
         return logURL.path
     }
 
-    private static func ownExecutablePath() -> String? {
-        if let bundleExecutablePath = Bundle.main.executablePath { return bundleExecutablePath }
-        guard let invokedPath = ProcessInfo.processInfo.arguments.first else { return nil }
-        return URL(fileURLWithPath: invokedPath).standardizedFileURL.path
+    static func ownExecutablePath(
+        mainBundleExecutablePath: String? = Bundle.main.executablePath,
+        invokedPath: String? = ProcessInfo.processInfo.arguments.first
+    ) -> String? {
+        OwnExecutable.resolvedPath(mainBundleExecutablePath: mainBundleExecutablePath, invokedPath: invokedPath)
     }
 
     private static func openDaemonLogForAppending() -> FileHandle? {
@@ -410,6 +411,14 @@ enum OwnExecutable {
     ) -> Bool {
         guard let bundle = mainBundle() else { return false }
         return executableURL(bundle) != nil
+    }
+
+    // The real file behind this process, with symlinks resolved. The command on PATH is usually a
+    // link to the executable inside AgentPet.app, and macOS finds an app's main bundle only from the
+    // real path, so a daemon spawned through the link would run without the app's identity.
+    static func resolvedPath(mainBundleExecutablePath: String?, invokedPath: String?) -> String? {
+        guard let path = mainBundleExecutablePath ?? invokedPath else { return nil }
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 }
 
