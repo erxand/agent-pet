@@ -624,6 +624,13 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         finishShutdownIfEveryPetIsUnder()
     }
 
+    private func showStateAfterBodyStep(_ presence: PetPresence, screenFrames: OverlayScreenFrames, elapsedSeconds: Double) {
+        if !presence.animator.isDiving {
+            applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
+        }
+        renderSprite(for: presence)
+    }
+
     private func renderSprite(for presence: PetPresence) {
         guard let spriteImage = spriteFrames.image(for: presence) else { return }
         presence.view.update(

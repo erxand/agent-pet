@@ -8,6 +8,8 @@ jumps you back to the session it belongs to.
 
 ![agent-pet sprite sheet](docs/sprite-sheet.png)
 
+The sheet shows every shipped pack; `python3 scripts/sprite-sheet/sheet.py` redraws it after a pack changes.
+
 <!-- TODO: add docs/screenshot.png, a real capture of pets along the bottom of the desktop. -->
 ![agent-pet on the desktop](docs/screenshot.png)
 
@@ -82,7 +84,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Eight commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
+Nine commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
   enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
@@ -97,7 +99,8 @@ Eight commands are useful from any shell, plus `agent-pet demo`, described under
   running and prints how many it dropped. It exits 2 when the session has no record.
 - `agent-pet render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` draws a sprite in the
   terminal with truecolor half blocks, two pixel rows per line, so a picker can show the pets without
-  the overlay. `--accent` shows the pet as a session that chose that color would see it.
+  the overlay. `--accent` shows the pet as a session that chose that color would see it. `--animation`
+  is one of `idle`, `walk`, `wave`, `sit`, `emerge`, `dive`, `jump`, `fall` and `highfive`.
 - `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
   them, and how many live pets use each.
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
@@ -368,14 +371,17 @@ Sessions differ in four ways.
 agent-pet picks one of the installed packs at random among the packs that the fewest other live
 sessions are using, so no two sessions share a pet until there are more sessions than packs.
 The pick is stored in the session's record, so it stays put for the life of the session.
-`sprite:<name>` chooses one explicitly. The repo ships eight: `claude` (the original orange
-critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl` and `walle`.
+`sprite:<name>` chooses one explicitly. The repo ships 22: `claude` (the original orange
+critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl`, `walle`, `astrocat`,
+`bookwyrm`, `bopkin`, `bumble`, `cactling`, `dapperfox`, `docturtle`, `gecklet`, `hermy`,
+`rangermot`, `raven`, `scruff`, `skyhop` and `tapeling`.
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
 yours. `/pet <nickname> <color>` overrides it. With `"accentInks": true` in the config, a color you
 choose this way also paints the pet: every shipped pack but `claude` and `walle` hands one part of the creature to the accent (golem's chest gem,
-hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie), so
+hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie, and one
+part of each of the newer packs), so
 sessions that share a creature still look different. A session that only took its pack's color
 keeps the pack's own look.
 
@@ -389,6 +395,20 @@ keeps the pack's own look.
 | seon      | yellow |
 | tinowl    | purple |
 | walle     | yellow |
+| astrocat  | blue   |
+| bookwyrm  | red    |
+| bopkin    | blue   |
+| bumble    | purple |
+| cactling  | pink   |
+| dapperfox | purple |
+| docturtle | blue   |
+| gecklet   | purple |
+| hermy     | green  |
+| rangermot | orange |
+| raven     | purple |
+| scruff    | green  |
+| skyhop    | blue   |
+| tapeling  | orange |
 
 A pack of your own sets its color with the `accent` field in `pack.json`. Without that field,
 agent-pet uses the pack's most common color, leaving out the two darkest ones (the outline and
@@ -445,8 +465,8 @@ its accent, those pixels are painted in it and in a darker shade of it. The opti
 session that gets the pack uses it for the label dot, the mood bubble and the prompt bar.
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on
-each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling`, `nimbus`,
-`seon`, `tinowl` or `walle` are overwritten. To customize a shipped pack, copy it under a new name and
+each install, so edits to a pack with the name of any pack in the repo's `sprites/` folder are
+overwritten. To customize a shipped pack, copy it under a new name and
 edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
 random pool, so dropping a new directory in is all it takes to add a pet.
 
