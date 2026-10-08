@@ -20,8 +20,7 @@ public enum AgentPetCommandLine {
         case .daemon:
             return DaemonCommand.runInForeground(runOverlay: runOverlay)
         case .ensureDaemon:
-            DaemonCommand.ensureRunning()
-            return ExitCode.success
+            return DaemonCommand.ensureRunningAndSay() == .refusedForeignHome ? ExitCode.failure : ExitCode.success
         case .on:
             return SessionCommands.turnOn(flags: flags)
         case .off:
@@ -48,8 +47,20 @@ public enum AgentPetCommandLine {
             return RenderCommand.run(flags: flags)
         case .packs:
             return PacksCommand.run(flags: flags)
+        case .capabilities:
+            return CapabilitiesCommand.run()
+        case .dockAccess:
+            return DockAccessCommand.run(flags: flags)
         case .demo:
             return DemoCommand.run(flags: flags, runDemo: runDemo)
+        case .physics:
+            return StateCommand.run(kind: .physics, arguments: Array(arguments.dropFirst()))
+        case .input:
+            return StateCommand.run(kind: .input, arguments: Array(arguments.dropFirst()))
+        case .visibility:
+            return StateCommand.run(kind: .visibility, arguments: Array(arguments.dropFirst()))
+        case .level:
+            return StateCommand.run(kind: .level, arguments: Array(arguments.dropFirst()))
         }
     }
 }

@@ -8,6 +8,7 @@ package protocol DemoStage: AnyObject {
     func present(states: [DemoStateMark])
     func present(cursor: DemoCursorCue?)
     func present(terminal: DemoTerminalCard?)
+    func present(screensaver isUp: Bool)
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement)
     func advance(elapsedSeconds: Double, sceneProgress: Double)
     func tearDown()
@@ -126,6 +127,7 @@ package final class DemoRunner {
         stage.present(title: nil)
         stage.present(cursor: nil)
         stage.present(terminal: nil)
+        stage.present(screensaver: false)
         stage.present(states: stateMarks(for: scene))
         stage.present(caption: scene.caption.map { text in
             DemoCaption(text: text, sceneNumber: index + 1, sceneCount: scenes.count, accent: accent(of: scene))
@@ -142,6 +144,7 @@ package final class DemoRunner {
         stage.present(title: nil)
         stage.present(cursor: nil)
         stage.present(terminal: nil)
+        stage.present(screensaver: false)
         stage.present(states: [])
         stage.present(caption: nil)
         stage.present(pets: [], labelPlacement: scenes.last?.labelPlacement ?? .pill)
@@ -189,6 +192,12 @@ package final class DemoRunner {
             return false
         case .hideTerminal:
             stage.present(terminal: nil)
+            return false
+        case .showScreensaver:
+            stage.present(screensaver: true)
+            return false
+        case .hideScreensaver:
+            stage.present(screensaver: false)
             return false
         case .click(let actorId):
             stage.present(cursor: DemoCursorCue(targetSessionId: actorId, pressed: true))

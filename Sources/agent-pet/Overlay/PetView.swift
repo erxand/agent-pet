@@ -1,7 +1,7 @@
 import AgentPetCore
 import AppKit
 
-struct PetAppearance {
+struct PetAppearance: Equatable {
     let label: String
     let accent: AccentColor
     let mood: PetMood
@@ -9,17 +9,116 @@ struct PetAppearance {
     let bubbleCaption: String?
     let labelPlacement: LabelPlacement
     let spriteSideLength: CGFloat
+    var feetFlush = false
 
-    func withResolvedLabel(_ resolvedLabel: String) -> PetAppearance {
-        PetAppearance(
-            label: resolvedLabel,
+    var labelLayout: LabelLayout {
+        LabelLayout(placement: labelPlacement, feetFlush: feetFlush)
+    }
+}
+
+extension PetAppearance {
+    func fitted(toWidth maximumWidth: CGFloat) -> PetAppearance {
+        let fittedLabel = PetAppearance.shortened(label) { text in
+            text.count <= PetGeometry.labelCharacterLimit
+                && PetView.labelWidth(for: text, placement: labelPlacement) <= maximumWidth
+        }
+        let symbol = PetBubbleSymbol.forMood(mood)
+        let fittedCaption = bubbleCaption.map { caption in
+            PetAppearance.shortened(caption) { text in
+                text.count <= PetGeometry.labelCharacterLimit
+                    && PetView.bubbleWidth(symbol: symbol, caption: text) <= maximumWidth
+            }
+        }
+        guard fittedLabel != label || fittedCaption != bubbleCaption else { return self }
+        return PetAppearance(
+            label: fittedLabel,
             accent: accent,
             mood: mood,
             message: message,
-            bubbleCaption: bubbleCaption,
+            bubbleCaption: fittedCaption,
             labelPlacement: labelPlacement,
-            spriteSideLength: spriteSideLength
+            spriteSideLength: spriteSideLength,
+            feetFlush: feetFlush
         )
+    }
+}
+
+enum LabelShortening {
+    static let ellipsis = "\u{2026}"
+    private static let longestSuffixWord = 6
+    private static let longestKeptHeadTail = 4
+
+    static func shortened(_ text: String, fits: (String) -> Bool) -> String {
+        guard !fits(text) else { return text }
+        if let (head, suffix) = splitDistinguishingSuffix(text),
+           let cut = headCut(Array(head), suffix: suffix, fits: fits) {
+            return cut
+        }
+        let characters = Array(text)
+        let kept = longestFit(upTo: characters.count - 1) { count in fits(middleCut(characters, keeping: count)) } ?? 0
+        return middleCut(characters, keeping: kept)
+    }
+
+    static func splitDistinguishingSuffix(_ text: String) -> (head: String, suffix: String)? {
+        if text.hasSuffix(")"), let open = text.lastIndex(of: "("), open > text.startIndex {
+            var head = String(text[..<open])
+            let separator = head.hasSuffix(" ") ? " " : ""
+            while head.last == " " { head.removeLast() }
+            guard !head.isEmpty else { return nil }
+            return (head, separator + String(text[open...]))
+        }
+        guard let space = text.lastIndex(of: " ") else { return nil }
+        let word = text[text.index(after: space)...]
+        let head = String(text[..<space])
+        guard !word.isEmpty, word.count <= longestSuffixWord,
+              !head.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return (head, String(text[space...]))
+    }
+
+    private static func headCut(_ head: [Character], suffix: String, fits: (String) -> Bool) -> String? {
+        for tailCount in stride(from: min(longestKeptHeadTail, head.count - 1), through: 0, by: -1) {
+            let joined: (Int) -> String = { prefixCount in
+                headCut(head, keepingFront: prefixCount, back: tailCount) + suffix
+            }
+            if let prefixCount = longestFit(upTo: head.count - tailCount - 1, fits: { count in fits(joined(count)) }) {
+                return joined(prefixCount)
+            }
+        }
+        return nil
+    }
+
+    private static func headCut(_ head: [Character], keepingFront frontCount: Int, back backCount: Int) -> String {
+        var front = String(head.prefix(frontCount))
+        while front.last == " " { front.removeLast() }
+        var back = String(head.suffix(backCount))
+        while back.first == " " { back.removeFirst() }
+        return front + ellipsis + back
+    }
+
+    private static func middleCut(_ characters: [Character], keeping count: Int) -> String {
+        let front = (count + 1) / 2
+        var head = String(characters.prefix(front))
+        while head.last == " " { head.removeLast() }
+        var tail = String(characters.suffix(count - front))
+        while tail.first == " " { tail.removeFirst() }
+        return head + ellipsis + tail
+    }
+
+    private static func longestFit(upTo maximum: Int, fits: (Int) -> Bool) -> Int? {
+        guard maximum >= 0, fits(0) else { return nil }
+        var low = 0
+        var high = maximum
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if fits(middle) { low = middle } else { high = middle - 1 }
+        }
+        return low
+    }
+}
+
+extension PetAppearance {
+    fileprivate static func shortened(_ text: String, fits: (String) -> Bool) -> String {
+        LabelShortening.shortened(text, fits: fits)
     }
 }
 
@@ -30,7 +129,9 @@ protocol PetViewInteractionHandler: AnyObject {
 
 final class PetView: NSView {
     private static let redrawEpsilon: CGFloat = 0.01
-    private static let clickTargetColor = NSColor(calibratedWhite: 0, alpha: 0.01)
+    private static let fallbackBackingScale: CGFloat = 2
+    private static let degreesPerRadian: CGFloat = 180 / .pi
+    static let clickTargetColor = NSColor(calibratedWhite: 0, alpha: 0.01)
     private static let boldMonospacedFontName = "Menlo-Bold"
 
     private static let labelFont = monospacedFont(
@@ -54,13 +155,40 @@ final class PetView: NSView {
     private var spriteImage: NSImage?
     private var bubbleVerticalOffset: CGFloat = 0
     private var groundOffsetFraction: CGFloat = 1
-    private var chromeOpacity: CGFloat = 0
+    private(set) var chromeOpacity: CGFloat = 0
+    private(set) var spaceRotationInRadians: CGFloat?
+    private(set) var chromeRedrawCount = 0
+
+    var isInert = false {
+        didSet {
+            guard isInert != oldValue else { return }
+            toolTip = isInert ? nil : petAppearance.message
+        }
+    }
+
+    private let contentView = NSView()
+    private let spriteView = PetSpriteView()
+    private let labelView = PetChromePartView(part: .label)
+    private let bubbleView = PetChromePartView(part: .bubble)
 
     init(sessionId: String, petAppearance: PetAppearance) {
         self.sessionId = sessionId
         self.petAppearance = petAppearance
         super.init(frame: CGRect(origin: .zero, size: PetView.size(for: petAppearance)))
         toolTip = petAppearance.message
+        wantsLayer = true
+        contentView.clipsToBounds = true
+        for partView in [labelView, bubbleView] {
+            partView.owner = self
+        }
+        contentView.addSubview(spriteView)
+        contentView.addSubview(labelView)
+        contentView.addSubview(bubbleView)
+        addSubview(contentView)
+        for drawnView in [labelView, bubbleView] {
+            drawnView.layer?.contentsFormat = .RGBA8Uint
+        }
+        layoutParts()
     }
 
     required init?(coder: NSCoder) {
@@ -68,19 +196,42 @@ final class PetView: NSView {
     }
 
     var preferredSize: CGSize {
+        let contentSize = PetView.size(for: petAppearance)
+        guard spaceRotationInRadians != nil else { return contentSize }
+        let side = ceil(hypot(contentSize.width, contentSize.height))
+        return CGSize(width: side, height: side)
+    }
+
+    var contentSize: CGSize {
         PetView.size(for: petAppearance)
     }
 
-    func update(petAppearance: PetAppearance) {
-        self.petAppearance = petAppearance
-        toolTip = petAppearance.message
-        needsDisplay = true
+    private var contentBounds: CGRect {
+        CGRect(origin: .zero, size: contentSize)
     }
 
-    func update(resolvedLabel: String) {
-        guard resolvedLabel != petAppearance.label else { return }
-        petAppearance = petAppearance.withResolvedLabel(resolvedLabel)
-        needsDisplay = true
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layoutParts()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isInert else { return nil }
+        return super.hitTest(point) == nil ? nil : self
+    }
+
+    func update(spaceRotationInRadians rotation: CGFloat?) {
+        guard rotation != spaceRotationInRadians else { return }
+        spaceRotationInRadians = rotation
+        layoutParts()
+    }
+
+    func update(petAppearance: PetAppearance) {
+        guard petAppearance != self.petAppearance else { return }
+        self.petAppearance = petAppearance
+        toolTip = isInert ? nil : petAppearance.message
+        redrawChrome()
+        layoutParts()
     }
 
     func update(
@@ -89,84 +240,119 @@ final class PetView: NSView {
         groundOffsetFraction: CGFloat,
         chromeOpacity: CGFloat
     ) {
-        let imageChanged = spriteImage !== self.spriteImage
-        let bubbleOffsetChanged = PetView.differs(bubbleVerticalOffset, self.bubbleVerticalOffset)
+        let snappedBubbleOffset = snappedToDevicePixels(bubbleVerticalOffset)
+        let bubbleOffsetChanged = drawsBubble && PetView.differs(snappedBubbleOffset, self.bubbleVerticalOffset)
         let groundOffsetChanged = PetView.differs(groundOffsetFraction, self.groundOffsetFraction)
         let chromeOpacityChanged = PetView.differs(chromeOpacity, self.chromeOpacity)
+        if spriteImage !== self.spriteImage {
+            spriteView.image = spriteImage
+        }
         self.spriteImage = spriteImage
-        self.bubbleVerticalOffset = bubbleVerticalOffset
+        self.bubbleVerticalOffset = snappedBubbleOffset
         self.groundOffsetFraction = groundOffsetFraction
         self.chromeOpacity = chromeOpacity
-        if imageChanged || bubbleOffsetChanged || groundOffsetChanged || chromeOpacityChanged {
-            needsDisplay = true
+        if chromeOpacityChanged {
+            redrawChrome()
+        }
+        if bubbleOffsetChanged || groundOffsetChanged || chromeOpacityChanged {
+            layoutParts()
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSGraphicsContext.current?.imageInterpolation = .none
-        drawSprite()
-        drawChrome()
+    private var drawsBubble: Bool {
+        chromeOpacity > 0 && (PetBubbleSymbol.forMood(petAppearance.mood) != nil || petAppearance.bubbleCaption != nil)
+    }
+
+    private func snappedToDevicePixels(_ offset: CGFloat) -> CGFloat {
+        let scale = window?.backingScaleFactor ?? PetView.fallbackBackingScale
+        return (offset * scale).rounded() / scale
+    }
+
+    func drawSpriteWithCoreGraphics() {
+        spriteView.drawsThroughLayerContents = false
+    }
+
+    private func redrawChrome() {
+        chromeRedrawCount += 1
+        labelView.needsDisplay = true
+        bubbleView.needsDisplay = true
+    }
+
+    private func layoutParts() {
+        let content = contentBounds
+        let rotationInDegrees = (spaceRotationInRadians ?? 0) * PetView.degreesPerRadian
+        contentView.frameCenterRotation = 0
+        contentView.frame = CGRect(
+            x: (bounds.width - content.width) / 2,
+            y: (bounds.height - content.height) / 2,
+            width: content.width,
+            height: content.height
+        )
+        contentView.frameCenterRotation = rotationInDegrees
+        let sideLength = petAppearance.spriteSideLength
+        let groundOffset = groundOffsetFraction
+            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, layout: petAppearance.labelLayout)
+        spriteView.frame = CGRect(
+            x: (content.width - sideLength) / 2,
+            y: PetGeometry.spriteBaseline(layout: petAppearance.labelLayout) - groundOffset,
+            width: sideLength,
+            height: sideLength
+        )
+        spriteView.isHidden = spriteView.frame.maxY <= content.minY
+        labelView.frame = content
+        bubbleView.frame = content.offsetBy(dx: 0, dy: bubbleVerticalOffset)
+        labelView.isHidden = chromeOpacity <= 0
+        bubbleView.isHidden = !drawsBubble
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+        !isInert
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !isInert else { return }
         interactionHandler?.petViewDidReceiveLeftClick(sessionId: sessionId)
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        guard !isInert else { return }
         interactionHandler?.petViewDidReceiveRightClick(sessionId: sessionId)
     }
 
-    static func size(for petAppearance: PetAppearance) -> CGSize {
-        let labelWidth: CGFloat
-        switch petAppearance.labelPlacement {
-        case .pill: labelWidth = labelPillWidth(for: petAppearance.label)
-        case .nametag: labelWidth = nametagWidth(for: petAppearance.label)
+    static func labelWidth(for label: String, placement: LabelPlacement) -> CGFloat {
+        switch placement {
+        case .pill: return labelPillWidth(for: label)
+        case .nametag: return nametagWidth(for: label)
         }
+    }
+
+    static func size(for petAppearance: PetAppearance) -> CGSize {
+        let labelWidth = labelWidth(for: petAppearance.label, placement: petAppearance.labelPlacement)
         let bubbleWidth = bubbleWidth(symbol: PetBubbleSymbol.forMood(petAppearance.mood), caption: petAppearance.bubbleCaption)
         return CGSize(
             width: ceil(max(petAppearance.spriteSideLength, labelWidth, bubbleWidth)),
             height: ceil(PetGeometry.totalHeight(
                 spriteSideLength: petAppearance.spriteSideLength,
-                labelPlacement: petAppearance.labelPlacement
+                layout: petAppearance.labelLayout
             ))
         )
     }
 
-    private func drawSprite() {
-        guard let spriteImage, let graphicsContext = NSGraphicsContext.current else { return }
-        let sideLength = petAppearance.spriteSideLength
-        let groundOffset = groundOffsetFraction
-            * PetGeometry.submergedGroundOffset(spriteSideLength: sideLength, labelPlacement: petAppearance.labelPlacement)
-        let spriteRect = CGRect(
-            x: (bounds.width - sideLength) / 2,
-            y: PetGeometry.spriteBaseline(labelPlacement: petAppearance.labelPlacement) - groundOffset,
-            width: sideLength,
-            height: sideLength
-        )
-        guard spriteRect.maxY > bounds.minY else { return }
-        graphicsContext.saveGraphicsState()
-        NSBezierPath(rect: bounds).setClip()
-        PetView.clickTargetColor.setFill()
-        spriteRect.intersection(bounds).fill()
-        spriteImage.draw(in: spriteRect, from: .zero, operation: .sourceOver, fraction: 1)
-        graphicsContext.restoreGraphicsState()
-    }
-
-    private func drawChrome() {
+    func drawChromePart(_ part: PetChromePart) {
         guard chromeOpacity > 0, let graphicsContext = NSGraphicsContext.current else { return }
         graphicsContext.saveGraphicsState()
         graphicsContext.cgContext.setAlpha(min(chromeOpacity, 1))
-        switch petAppearance.labelPlacement {
-        case .pill: drawLabelPill()
-        case .nametag: drawNametag()
-        }
-        let bubbleSymbol = PetBubbleSymbol.forMood(petAppearance.mood)
-        if bubbleSymbol != nil || petAppearance.bubbleCaption != nil {
-            drawBubble(symbol: bubbleSymbol, caption: petAppearance.bubbleCaption)
+        switch part {
+        case .label:
+            switch petAppearance.labelPlacement {
+            case .pill: drawLabelPill()
+            case .nametag: drawNametag()
+            }
+        case .bubble:
+            let bubbleSymbol = PetBubbleSymbol.forMood(petAppearance.mood)
+            if bubbleSymbol != nil || petAppearance.bubbleCaption != nil {
+                drawBubble(symbol: bubbleSymbol, caption: petAppearance.bubbleCaption)
+            }
         }
         graphicsContext.restoreGraphicsState()
     }
@@ -180,8 +366,10 @@ final class PetView: NSView {
         let labelSize = attributedLabel.size()
         let pillWidth = PetView.labelPillWidth(for: petAppearance.label)
         let pillRect = CGRect(
-            x: (bounds.width - pillWidth) / 2,
-            y: 0,
+            x: (contentBounds.width - pillWidth) / 2,
+            y: petAppearance.labelLayout.labelUnderFeet
+                ? 0
+                : PetGeometry.labelOverHeadBaseline(spriteSideLength: petAppearance.spriteSideLength, layout: petAppearance.labelLayout),
             width: pillWidth,
             height: PetGeometry.labelPillHeight
         )
@@ -215,8 +403,8 @@ final class PetView: NSView {
         let label = PetView.clippedLabel(petAppearance.label)
         let tagWidth = PetView.nametagWidth(for: label)
         let tagRect = CGRect(
-            x: ((bounds.width - tagWidth) / 2).rounded(),
-            y: PetGeometry.nametagBaseline(spriteSideLength: petAppearance.spriteSideLength),
+            x: ((contentBounds.width - tagWidth) / 2).rounded(),
+            y: PetGeometry.labelOverHeadBaseline(spriteSideLength: petAppearance.spriteSideLength, layout: petAppearance.labelLayout),
             width: tagWidth,
             height: PetGeometry.nametagHeight
         )
@@ -256,12 +444,12 @@ final class PetView: NSView {
     private func drawBubble(symbol: PetBubbleSymbol?, caption: String?) {
         let bubbleBaseline = PetGeometry.bubbleBaseline(
             spriteSideLength: petAppearance.spriteSideLength,
-            labelPlacement: petAppearance.labelPlacement
+            layout: petAppearance.labelLayout
         )
         let bubbleWidth = PetView.bubbleWidth(symbol: symbol, caption: caption)
         let bubbleRect = CGRect(
-            x: (bounds.width - bubbleWidth) / 2,
-            y: bubbleBaseline + bubbleVerticalOffset,
+            x: (contentBounds.width - bubbleWidth) / 2,
+            y: bubbleBaseline,
             width: bubbleWidth,
             height: PetGeometry.bubbleSideLength
         )
@@ -299,7 +487,7 @@ final class PetView: NSView {
         attributedCaption.draw(at: CGPoint(x: cursor, y: bubbleRect.midY - attributedCaption.size().height / 2))
     }
 
-    private static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
+    static func bubbleWidth(symbol: PetBubbleSymbol?, caption: String?) -> CGFloat {
         guard let caption else { return PetGeometry.bubbleSideLength }
         var contentWidth = attributedCaption(caption).size().width
         if let symbol {
@@ -371,5 +559,66 @@ final class PetView: NSView {
                 .foregroundColor: SpritePalette.outline
             ]
         )
+    }
+}
+
+enum PetChromePart {
+    case label
+    case bubble
+}
+
+final class PetChromePartView: NSView {
+    let part: PetChromePart
+    weak var owner: PetView?
+
+    init(part: PetChromePart) {
+        self.part = part
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        owner?.drawChromePart(part)
+    }
+}
+
+final class PetSpriteView: NSView {
+    var image: NSImage? {
+        didSet { needsDisplay = true }
+    }
+
+    var drawsThroughLayerContents = true {
+        didSet { needsDisplay = true }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override var wantsUpdateLayer: Bool { drawsThroughLayerContents }
+
+    override func updateLayer() {
+        guard let layer else { return }
+        layer.backgroundColor = PetView.clickTargetColor.cgColor
+        layer.magnificationFilter = .nearest
+        layer.minificationFilter = .nearest
+        layer.contentsGravity = .resize
+        layer.contents = image
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image, let graphicsContext = NSGraphicsContext.current else { return }
+        graphicsContext.imageInterpolation = .none
+        PetView.clickTargetColor.setFill()
+        bounds.fill()
+        image.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
     }
 }

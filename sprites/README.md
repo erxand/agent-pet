@@ -26,6 +26,18 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 - `emerge.txt` and `dive.txt` are optional, 3 frames each. They play once while the pet rises
   out of the ground as it appears and drops back into it as it hides. A pack without them holds
   `idle` frame 0 for both moves.
+- `jump.txt` and `fall.txt` are optional, 2 frames each, and they do not loop: the pet picks the
+  frame from where it is in the air. `jump` frame 0 is the takeoff crouch, shown once for a tick
+  or two when the pet hops onto the Dock; frame 1 is the stretch, held while it rises. Being sprung
+  up by the Dock skips the crouch. `fall` frame 0 is the apex, shown for the first 0.15 s of a fall;
+  frame 1 is the later fall, held until it lands. `fall` plays off the Dock, off its edge, and out
+  of a float (where it loops at 8 fps like `walk`). A pack without `jump.txt` shows `walk`
+  instead, and one without `fall.txt` shows `idle`.
+- `highfive.txt` is optional, 3 frames, facing right like every other animation; the pet on the
+  right of a pair shows them mirrored. Frame 0 raises the hand, frame 1 reaches out toward the
+  other pet, frame 2 is the contact, with the hand at the front edge of the frame so two pets
+  standing a little closer than usual touch hands. The frames are chosen by the greeting, not
+  looped. A pack without `highfive.txt` shows its `wave` frames in their place.
 - Every other color is fixed by the palette. `.` is transparent, and so is any character that is
   not in `palette`. No character is reserved: only the `accentInks` characters ever change color.
 - The shipped packs all use `#` for the outline, `e` for eyes and a lowercase/uppercase pair for
@@ -61,3 +73,17 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
 | seon         | yellow | `A`/`a`, the face mark       |
 | tinowl       | purple | `A`/`a`, the bow tie         |
 | walle        | yellow | none                         |
+| astrocat     | blue   | `A`/`a`                      |
+| bookwyrm     | red    | `A`/`a`                      |
+| bopkin       | blue   | `A`/`a`                      |
+| bumble       | purple | `A`/`a`                      |
+| cactling     | pink   | `A`/`a`                      |
+| dapperfox    | purple | `A`/`a`                      |
+| docturtle    | blue   | `A`/`a`                      |
+| gecklet      | purple | `A`/`a`                      |
+| hermy        | green  | `A`/`a`                      |
+| rangermot    | orange | `A`/`a`                      |
+| raven        | purple | `A`/`a`                      |
+| scruff       | green  | `A`/`a`                      |
+| skyhop       | blue   | `A`/`a`                      |
+| tapeling     | orange | `A`/`a`                      |

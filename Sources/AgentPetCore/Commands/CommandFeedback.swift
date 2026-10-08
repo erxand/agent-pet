@@ -35,6 +35,11 @@ package enum CommandFeedback {
         return ExitCode.usage
     }
 
+    static func reportUnknownGroupMode(_ rawValue: String) -> Int32 {
+        writeToStandardError("unknown group mode \(rawValue). Valid values: \(joined(PetGroupMode.allCases.map { groupMode in groupMode.rawValue })).")
+        return ExitCode.usage
+    }
+
     static func reportMissingTranscriptPath() -> Int32 {
         writeToStandardError("no transcript. Pass \(CommandFlag.path.rawValue) FILE.")
         return ExitCode.usage
@@ -122,7 +127,13 @@ package enum CommandFeedback {
       scan-transcript  diagnostic: print every subagent completion found in a transcript file
       render           print a sprite pack frame to the terminal in truecolor half blocks
       packs            list installed sprite packs with accent, reserved, and live pet count
+      capabilities     print one word per line naming each feature this build has
+      dock-access      say whether the daemon may read the Dock's exact frame; --ask has the daemon ask macOS
       demo             play a short tour on the desktop. It changes no session.
+      physics          ground | float | auto: float makes every pet drift and spin, ground lands them
+      input            on | off | auto: off makes every pet click-through and never take focus
+      visibility       shown | hidden | auto: hidden sends every pet under, records untouched
+      level            normal | above <bundle id> | auto: draw pets just above that app's windows
 
     flags: \(CommandFlag.allCases.map { flag in flag.rawValue }.joined(separator: " "))
     switches: \(CommandSwitch.allCases.map { commandSwitch in commandSwitch.rawValue }.joined(separator: " "))

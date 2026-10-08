@@ -20,6 +20,8 @@ LAUNCH_AGENT_PLIST_PATH="${LAUNCH_AGENTS_DIRECTORY}/${LAUNCH_AGENT_LABEL}.plist"
 LAUNCH_AGENT_DOMAIN_TARGET="gui/$(id -u)"
 LAUNCH_AGENT_SERVICE_TARGET="${LAUNCH_AGENT_DOMAIN_TARGET}/${LAUNCH_AGENT_LABEL}"
 LAUNCH_AGENT_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+SIGNING_IDENTIFIER="com.agent-pet"
+SIGNING_IDENTITY="${AGENT_PET_SIGN_IDENTITY:-}"
 
 mkdir -p "${HOME}/.local/bin"
 mkdir -p "${SESSIONS_DIRECTORY}"
@@ -31,6 +33,14 @@ mkdir -p "${LAUNCH_AGENTS_DIRECTORY}"
 if ! swift build --package-path "${TOOL_DIRECTORY}" -c release; then
     echo "error: swift build failed, agent-pet was not installed" >&2
     exit 1
+fi
+
+if [[ -n "${SIGNING_IDENTITY}" ]]; then
+    if ! codesign --force --sign "${SIGNING_IDENTITY}" --identifier "${SIGNING_IDENTIFIER}" "${BINARY_SOURCE_PATH}"; then
+        echo "error: could not sign ${BINARY_SOURCE_PATH} with ${SIGNING_IDENTITY}, agent-pet was not installed" >&2
+        exit 1
+    fi
+    echo "signed ${BINARY_SOURCE_PATH} as ${SIGNING_IDENTIFIER} with ${SIGNING_IDENTITY}"
 fi
 
 ln -sfn "${BINARY_SOURCE_PATH}" "${BINARY_LINK_PATH}"
@@ -69,7 +79,10 @@ cat > "${LAUNCH_AGENT_PLIST_PATH}" <<PLIST
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>LimitLoadToSessionType</key>

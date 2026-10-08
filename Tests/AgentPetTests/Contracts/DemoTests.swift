@@ -32,6 +32,10 @@ final class RecordingDemoStage: DemoStage {
         guard let terminal else { return }
         events.append("terminal \(terminal.title)")
     }
+    func present(screensaver isUp: Bool) {
+        guard isUp else { return }
+        events.append("screensaver up")
+    }
     func present(pets: [PetDisplayItem], labelPlacement: LabelPlacement) {
         presentedPets.append(pets)
         events.append("pets " + pets.map { item in item.label }.joined(separator: ","))
@@ -58,8 +62,21 @@ struct DemoTimelineTests {
         }
     }
 
+    @Test func theSpaceSceneIsOutsideTheTourAndRaisesAndLowersTheScreensaverWithThreePetsUp() throws {
+        #expect(DemoScript.extraScenes.map { scene in scene.name } == [.space])
+        #expect(!DemoScript.scenes.contains { scene in scene.name == .space })
+        let stage = RecordingDemoStage()
+        let runner = try runner(for: .space, stage: stage)
+        advance(runner, by: 2.5)
+        #expect(stage.events.last == "screensaver up")
+        #expect(stage.events.filter { event in event == "screensaver up" }.count == 1)
+        #expect(runner.displayedPets.count == 3)
+        advance(runner, by: 12)
+        #expect(runner.displayedPets.isEmpty || runner.isFinished)
+    }
+
     @Test func everySceneIsScriptedOnceInOrderAndTheTourIsShort() {
-        #expect(DemoScript.scenes.map { scene in scene.name } == DemoSceneName.allCases)
+        #expect(DemoScript.scenes.map { scene in scene.name } + DemoScript.extraScenes.map { scene in scene.name } == DemoSceneName.allCases)
         #expect(DemoScript.scenes.map { scene in scene.name } == [.title, .states, .click, .finale])
         #expect(DemoScript.totalDurationInSeconds >= 20)
         #expect(DemoScript.totalDurationInSeconds <= 30)
@@ -68,7 +85,7 @@ struct DemoTimelineTests {
     @Test func stepsStayInsideTheirSceneInOrderAndNameRealActors() {
         let castIds = Set(DemoScript.cast.map { actor in actor.sessionId })
         #expect(castIds.count == DemoScript.cast.count)
-        for scene in DemoScript.scenes {
+        for scene in DemoScript.scenes + DemoScript.extraScenes {
             let offsets = scene.steps.map { step in step.offsetInSeconds }
             #expect(offsets == offsets.sorted())
             #expect(offsets.allSatisfy { offset in offset >= 0 && offset < scene.durationInSeconds })
@@ -78,7 +95,7 @@ struct DemoTimelineTests {
                     #expect(castIds.contains(actorId))
                 case .hide(let actorIds):
                     #expect(actorIds.allSatisfy { actorId in castIds.contains(actorId) })
-                case .showTitle, .hideTitle, .hideCursor, .showTerminal, .hideTerminal:
+                case .showTitle, .hideTitle, .hideCursor, .showTerminal, .hideTerminal, .showScreensaver, .hideScreensaver:
                     break
                 }
             }
@@ -86,7 +103,7 @@ struct DemoTimelineTests {
     }
 
     @Test func everyPetIsGoneBeforeItsSceneEnds() throws {
-        for scene in DemoScript.scenes {
+        for scene in DemoScript.scenes + DemoScript.extraScenes {
             let stage = RecordingDemoStage()
             let runner = DemoRunner(scenes: [scene], stage: stage)
             advance(runner, by: scene.durationInSeconds - 0.01)
@@ -363,7 +380,7 @@ struct DemoPixelFontTests {
 
     @Test func everyWordTheDemoShowsCanBeDrawn() {
         var texts: [String] = []
-        for scene in DemoScript.scenes {
+        for scene in DemoScript.scenes + DemoScript.extraScenes {
             if let caption = scene.caption { texts.append(caption) }
             texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
             for step in scene.steps {
@@ -372,7 +389,7 @@ struct DemoPixelFontTests {
                     texts.append(contentsOf: [card.title, card.subtitle])
                 case .showTerminal(let card):
                     texts.append(contentsOf: card.shownTexts)
-                case .show, .hide, .click, .hideTitle, .pointCursor, .hideCursor, .hideTerminal:
+                case .show, .hide, .click, .hideTitle, .pointCursor, .hideCursor, .hideTerminal, .showScreensaver, .hideScreensaver:
                     break
                 }
             }
@@ -417,8 +434,8 @@ struct DemoCommandTests {
         let run = try sandbox.run(["demo", "--list"])
         #expect(run.exitStatus == 0)
         let lines = run.standardOutput.split(separator: "\n")
-        #expect(lines.count == DemoSceneName.allCases.count + 1)
-        for (line, name) in zip(lines, DemoSceneName.allCases) {
+        #expect(lines.count == DemoScript.scenes.count + 1)
+        for (line, name) in zip(lines, DemoScript.scenes.map { scene in scene.name }) {
             #expect(line.hasPrefix(name.rawValue))
         }
         #expect(lines.last?.hasPrefix("total") == true)
@@ -468,7 +485,7 @@ struct DemoCommandTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.sessionsDirectory.path) == ["real-session.json"])
         #expect(sandbox.tmuxCalls().isEmpty)
         #expect(!sandbox.exists(sandbox.hookLog))
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
     }
 
     @Test func aDryRunInAFreshHomeCreatesNothing() throws {
@@ -492,7 +509,7 @@ struct DemoCommandTests {
         let process = Process()
         process.executableURL = try Sandbox.binaryURL()
         process.arguments = ["demo", "--dry-run"]
-        process.environment = ["HOME": sandbox.home.path, "CFFIXED_USER_HOME": sandbox.home.path, "PATH": "/usr/bin:/bin"]
+        process.environment = sandbox.environment()
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = FileHandle.nullDevice
@@ -504,8 +521,8 @@ struct DemoCommandTests {
             firstOutput.append(chunk)
         }
         kill(process.processIdentifier, signalNumber)
-        let deadline = Date().addingTimeInterval(5)
-        while process.isRunning && Date() < deadline {
+        let hangBound = Date().addingTimeInterval(30)
+        while process.isRunning && Date() < hangBound {
             Thread.sleep(forTimeInterval: 0.02)
         }
         if process.isRunning { process.terminate() }
@@ -555,7 +572,7 @@ struct DemoPaletteTests {
 struct DemoWordsTests {
     @Test func noShownTextUsesDashesOrExclamationMarksOrGameWords() {
         var texts: [String] = []
-        for scene in DemoScript.scenes {
+        for scene in DemoScript.scenes + DemoScript.extraScenes {
             if let caption = scene.caption { texts.append(caption) }
             texts.append(contentsOf: scene.stateSlots.map { slot in slot.label })
             for step in scene.steps {

@@ -4,9 +4,14 @@ package protocol SessionSource {
     func recordsBySessionId() -> [String: ClaudeSessionRecord]
     func signature() -> SessionSourceSignature
     func recordsBySessionId(in signature: SessionSourceSignature) -> [String: ClaudeSessionRecord]
+    func watchedDirectories() -> [URL]
 }
 
 extension SessionSource {
+    package func watchedDirectories() -> [URL] {
+        []
+    }
+
     package func recordsBySessionId(in signature: SessionSourceSignature) -> [String: ClaudeSessionRecord] {
         recordsBySessionId()
     }
@@ -36,6 +41,10 @@ package struct DirectorySessionSource: SessionSource {
             }
         }
         return expanded
+    }
+
+    package func watchedDirectories() -> [URL] {
+        directories()
     }
 
     package func recordsBySessionId() -> [String: ClaudeSessionRecord] {

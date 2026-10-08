@@ -16,14 +16,33 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var lastConfigurationModification: Date?
 
     private var presencesBySessionId: [String: PetPresence] = [:]
+    private var lanePetKeys: [String] = []
+    private var groundPets: [PetPresence] = []
+    private var minimumGroundGap: CGFloat = 0
+    private var screenChangedSincePlan = false
     private let spriteFrames = PetSpriteFrames()
     private var lastPetSessionsSignature: SessionsDirectorySignature?
     private var lastClaudeSessionsSignature: SessionSourceSignature?
+    private let spritePackChanges = DirectoryChangeMonitor()
+    private let claudeSessionChanges = DirectoryChangeMonitor()
+    private var spritePackRescanGate = RescanGate()
+    private let appWindowWatcher: AppWindowWatching
+    private let stateCommandChanges = DirectoryChangeMonitor()
+    private var stateCommandRescanGate = RescanGate()
+    private var stateCommands = PetStateSettings.none
+    private var effectiveStates = PetEffectiveStates.defaults
+    private var petWindowLevel: NSWindow.Level = .screenSaver
+    private var claudeSessionRescanGate = RescanGate()
     private var nextSettleDeadline: TimeInterval?
     private var lastAnimationTimestamp = Date()
     private var timers: [Timer] = []
     private var displayChangeObserver: NSObjectProtocol?
     private var homeScreenFrame: CGRect?
+    private let dockAccess: DockAccessReporter
+    private lazy var ground = PetGround { [weak self] in
+        DockGround(sensing: SystemDockSensing { self?.dockAccess.isGranted ?? false })
+    }
+    private let highFives = HighFiveDirector()
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
@@ -31,8 +50,16 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     init(
         configurationFile: URL = ConfigurationFile.path(),
         store: PetSessionStore = PetSessionStore(),
-        spritePackRegistry: SpritePackRegistry = SpritePackRegistry()
+        spritePackRegistry: SpritePackRegistry = SpritePackRegistry(),
+        dockAccess: DockAccessReporter = DockAccessReporter(
+            files: .standard,
+            access: AccessibilityDockAccess(),
+            processIdentifier: ProcessInfo.processInfo.processIdentifier
+        ),
+        appWindowWatcher: AppWindowWatching = AppWindowWatcher()
     ) {
+        self.dockAccess = dockAccess
+        self.appWindowWatcher = appWindowWatcher
         self.configurationFile = configurationFile
         self.store = store
         self.spritePackRegistry = spritePackRegistry
@@ -43,6 +70,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     func start() {
         PetPaths.createStateDirectoriesIfNeeded()
         lastConfigurationModification = ConfigurationFile.modificationDate(of: configurationFile)
+        PetStateFile.clearCommands()
+        PetStateFile.saveEffective(effectiveStates)
         reconcile(forceReload: true)
         scheduleTimers()
         observeDisplayChanges()
@@ -63,12 +92,13 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
         let oldFrame = homeScreenFrame ?? screenFrames.visibleFrame
         homeScreenFrame = screenFrames.visibleFrame
+        if oldFrame != screenFrames.visibleFrame { screenChangedSincePlan = true }
+        refreshGround(screenFrames: screenFrames, elapsedSeconds: nil)
         for presence in presencesBySessionId.values {
-            presence.homeHorizontalCenter = LaneLayout.carriedHorizontalCenter(
-                presence.homeHorizontalCenter,
-                from: oldFrame,
-                to: screenFrames.visibleFrame
-            )
+            carry(presence, from: oldFrame, to: screenFrames.visibleFrame)
+        }
+        assignLanes(screenFrame: screenFrames.visibleFrame)
+        for presence in presencesBySessionId.values {
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
     }
@@ -101,6 +131,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     func petViewDidReceiveLeftClick(sessionId petKey: String) {
+        guard acceptsInput(forPetKey: petKey) else { return }
         if let focusRequest = presencesBySessionId[petKey]?.focusRequest {
             contracts.focuser.focus(focusRequest)
         }
@@ -109,8 +140,37 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     func petViewDidReceiveRightClick(sessionId petKey: String) {
+        guard acceptsInput(forPetKey: petKey) else { return }
         hideSession(forPetKey: petKey)
         beginDive(sessionId: petKey)
+    }
+
+    private func acceptsInput(forPetKey petKey: String) -> Bool {
+        PetInputPolicy.acceptsInput(
+            input: effectiveStates.input,
+            isReturningFromSpace: presencesBySessionId[petKey].map(isReturningFromSpace) ?? false
+        )
+    }
+
+    private func isReturningFromSpace(_ presence: PetPresence) -> Bool {
+        guard let motion = presence.spaceMotion else {
+            if presence.walksHomeFromSpace && !presence.animator.isWalkingHome { presence.walksHomeFromSpace = false }
+            return presence.walksHomeFromSpace
+        }
+        switch motion.phase {
+        case .floating: return false
+        case .falling, .landed: return true
+        }
+    }
+
+    private func applyInputPolicy(to presence: PetPresence) {
+        let inert = !PetInputPolicy.acceptsInput(
+            input: effectiveStates.input,
+            isReturningFromSpace: isReturningFromSpace(presence)
+        )
+        guard presence.view.isInert != inert || presence.window.ignoresMouseEvents != inert else { return }
+        presence.view.isInert = inert
+        presence.window.ignoresMouseEvents = inert
     }
 
     private func hideSession(forPetKey petKey: String) {
@@ -126,6 +186,61 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         lastConfigurationModification = modification
         contracts = AgentPetContracts(configuration: ConfigurationFile.load(from: configurationFile), focusCompletion: .detaches)
         return true
+    }
+
+    private func updateStates(now: TimeInterval, forced: Bool) -> Bool {
+        if stateCommandRescanGate.shouldRescan(changeReported: changeReported(by: stateCommandChanges), forced: forced, now: now) {
+            stateCommandChanges.watch(directories: [PetStateFile.controlDirectory])
+            stateCommands = PetStateFile.loadCommands()
+        }
+        var watched = Set(contracts.configuration.fullScreenRules.flatMap { rule in rule.bundleIdentifiers })
+        if case .above(let bundleIdentifier) = stateCommands.level {
+            watched.insert(bundleIdentifier)
+        }
+        appWindowWatcher.watch(bundleIdentifiers: watched)
+        let summaries = appWindowWatcher.summaries(now: now)
+        let resolved = PetEffectiveStates.resolve(
+            commands: stateCommands,
+            trigger: PetFullScreenRule.triggered(by: contracts.configuration.fullScreenRules, summaries: summaries)
+        )
+        let level = NSWindow.Level(rawValue: WindowDetection.windowLevel(
+            for: resolved.level,
+            summaries: summaries,
+            petLevel: NSWindow.Level.screenSaver.rawValue,
+            shieldingLevel: Int(CGShieldingWindowLevel())
+        ))
+        let statesChanged = resolved != effectiveStates
+        guard statesChanged || level != petWindowLevel else { return false }
+        let inputTurnedOff = resolved.input == .off && effectiveStates.input == .on
+        let visibilityChanged = resolved.visibility != effectiveStates.visibility
+        effectiveStates = resolved
+        petWindowLevel = level
+        if statesChanged { PetStateFile.saveEffective(resolved) }
+        if inputTurnedOff {
+            let dropped = RunningFocusCommands.shared.cancelAll()
+            if dropped > 0 {
+                SpritePackRegistry.writeToStandardError("agent-pet: dropped \(dropped) focus command(s) in flight because input turned off")
+            }
+        }
+        for presence in presencesBySessionId.values {
+            presence.window.level = petWindowLevel
+            applyInputPolicy(to: presence)
+        }
+        return visibilityChanged
+    }
+
+    private var floatsPets: Bool {
+        switch effectiveStates.physics {
+        case .float: return true
+        case .ground: return false
+        }
+    }
+
+    private var hidesPets: Bool {
+        switch effectiveStates.visibility {
+        case .hidden: return true
+        case .shown: return false
+        }
     }
 
     private func scheduleTimers() {
@@ -156,24 +271,42 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
 
     private func reconcile(forceReload: Bool) {
         guard !isShuttingDown else { return }
+        let now = Date().timeIntervalSince1970
+        dockAccess.tick()
         let configurationChanged = reloadConfigurationIfChanged()
-        let replacementLoader = configurationChanged || forceReload ? contracts.spritePackLoader : nil
-        if spritePackRegistry.reloadChangedPacks(using: replacementLoader) {
-            spriteFrames.removeAllCachedImages()
+        let rescanForced = configurationChanged || forceReload
+        if spritePackRescanGate.shouldRescan(changeReported: changeReported(by: spritePackChanges), forced: rescanForced, now: now) {
+            spritePackChanges.watch(directories: contracts.spritePackLoader.searchDirectories())
+            let replacementLoader = rescanForced ? contracts.spritePackLoader : nil
+            if spritePackRegistry.reloadChangedPacks(using: replacementLoader) {
+                spriteFrames.removeAllCachedImages()
+            }
+        }
+        var claudeSessionsChanged = false
+        if claudeSessionRescanGate.shouldRescan(changeReported: changeReported(by: claudeSessionChanges), forced: rescanForced, now: now) {
+            claudeSessionChanges.watch(directories: contracts.sessionSource.watchedDirectories())
+            let claudeSessionsSignature = contracts.sessionSource.signature()
+            claudeSessionsChanged = claudeSessionsSignature != lastClaudeSessionsSignature
+            lastClaudeSessionsSignature = claudeSessionsSignature
         }
         let petSessionsSignature = SessionsDirectorySignature.current(directory: PetPaths.sessionsDirectory)
-        let claudeSessionsSignature = contracts.sessionSource.signature()
-        let petSessionsChanged = forceReload
-            || configurationChanged
-            || petSessionsSignature != lastPetSessionsSignature
-        let claudeSessionsChanged = claudeSessionsSignature != lastClaudeSessionsSignature
+        let petSessionsChanged = rescanForced || petSessionsSignature != lastPetSessionsSignature
         lastPetSessionsSignature = petSessionsSignature
-        lastClaudeSessionsSignature = claudeSessionsSignature
-        let settleDue = nextSettleDeadline.map { deadline in Date().timeIntervalSince1970 >= deadline } ?? false
+        let settleDue = nextSettleDeadline.map { deadline in now >= deadline } ?? false
+        let visibilityChanged = updateStates(now: now, forced: rescanForced)
 
-        if petSessionsChanged || claudeSessionsChanged || settleDue {
-            applyRecords(store.list(), claudeSessions: contracts.sessionSource.recordsBySessionId(in: claudeSessionsSignature))
+        if petSessionsChanged || claudeSessionsChanged || settleDue || visibilityChanged || screenChangedSincePlan {
+            applyRecords(store.list(), claudeSessions: currentClaudeSessions())
         }
+    }
+
+    private func changeReported(by monitor: DirectoryChangeMonitor) -> Bool {
+        monitor.consumeChange() || !monitor.isWatching
+    }
+
+    private func currentClaudeSessions() -> [String: ClaudeSessionRecord] {
+        guard let lastClaudeSessionsSignature else { return contracts.sessionSource.recordsBySessionId() }
+        return contracts.sessionSource.recordsBySessionId(in: lastClaudeSessionsSignature)
     }
 
     private func applyRecords(_ records: [PetSession], claudeSessions: [String: ClaudeSessionRecord]) {
@@ -182,7 +315,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let shownPetKeys = Set(presencesBySessionId.compactMap { petKey, presence in
             presence.animator.isDiving || presence.animator.isSubmerged ? nil : petKey
         })
-        let items = planner.displayItems(
+        let items = hidesPets ? [] : planner.displayItems(
             records: records,
             claudeSessions: claudeSessions,
             now: now,
@@ -196,8 +329,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
-        homeScreenFrame = screenFrames.visibleFrame
-        for (laneIndex, item) in items.enumerated() {
+        followScreen(to: screenFrames.visibleFrame)
+        refreshGround(screenFrames: screenFrames, elapsedSeconds: nil)
+        let newcomers = Set(items.map { item in item.petKey }.filter { petKey in presencesBySessionId[petKey] == nil })
+        let widthPerPet = LaneLayout.maximumPetWidth(laneCount: items.count, screenFrame: screenFrames.visibleFrame)
+        for item in items {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
             let chosenAccent = contracts.configuration.paintsAccentInks
@@ -212,8 +348,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 message: item.message,
                 bubbleCaption: item.bubbleCaption,
                 labelPlacement: contracts.configuration.labelPlacement,
-                spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize)
-            )
+                spriteSideLength: PetGeometry.spritePixelSideLength(frameSize: spriteSheet.frameSize),
+                feetFlush: contracts.configuration.groundGap != nil
+            ).fitted(toWidth: widthPerPet)
             let presence = presencesBySessionId[item.petKey]
                 ?? makePresence(
                     sessionId: item.petKey,
@@ -228,14 +365,135 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             presence.spriteTint = sessionSheet.tint
             presence.focusRequest = item.focusRequest
             presence.memberSessionIds = item.memberSessionIds
-            presence.homeHorizontalCenter = LaneLayout.homeHorizontalCenter(
-                laneIndex: laneIndex,
-                laneCount: items.count,
-                screenFrame: screenFrames.visibleFrame
-            )
             presencesBySessionId[item.petKey] = presence
+        }
+        lanePetKeys = items.map { item in item.petKey }
+        assignLanes(newcomers: newcomers, screenFrame: screenFrames.visibleFrame)
+        screenChangedSincePlan = false
+        for petKey in lanePetKeys {
+            guard let presence = presencesBySessionId[petKey] else { continue }
             applyGeometry(to: presence, screenFrames: screenFrames)
         }
+    }
+
+    private func followScreen(to visibleFrame: CGRect) {
+        defer { homeScreenFrame = visibleFrame }
+        guard let oldFrame = homeScreenFrame, oldFrame != visibleFrame else { return }
+        screenChangedSincePlan = true
+        for presence in presencesBySessionId.values {
+            carry(presence, from: oldFrame, to: visibleFrame)
+        }
+        assignLanes(screenFrame: visibleFrame)
+    }
+
+    private func assignLanes(newcomers: Set<String> = [], screenFrame: CGRect) {
+        let presences = lanePetKeys.compactMap { petKey in presencesBySessionId[petKey] }
+        minimumGroundGap = LaneRedivision.apply(
+            to: presences,
+            keepingStanding: presences.map { presence in !newcomers.contains(presence.sessionId) },
+            screenFrame: screenFrame
+        )
+        sendCrowdedNeighboursHome()
+    }
+
+    private func carry(_ presence: PetPresence, from oldFrame: CGRect, to newFrame: CGRect) {
+        presence.groundBody = nil
+        LaneRedivision.carry(presence, from: oldFrame, to: newFrame)
+    }
+
+    private func sendCrowdedNeighboursHome() {
+        sortGroundPets()
+        let standing = groundPets.map { presence in (key: presence.sessionId, x: groundCenter(of: presence)) }
+        for (left, right) in highFives.crowdedPairs(standing, normalGap: minimumGroundGap) {
+            groundPets[left].animator.walkHomeNow()
+            groundPets[right].animator.walkHomeNow()
+        }
+    }
+
+    private func petLanded(_ presence: PetPresence) {
+        presence.walksHomeFromSpace = true
+        assignLanes(screenFrame: homeScreenFrame ?? OverlayScreenFrames.current(chooser: contracts.displayChooser).visibleFrame)
+    }
+
+    private func collideFloatingPets() {
+        guard presencesBySessionId.values.contains(where: { presence in presence.spaceMotion?.phase == .floating }) else { return }
+        let floating = presencesBySessionId.values.filter { presence in presence.spaceMotion?.phase == .floating }
+        guard floating.count > 1 else { return }
+        var motions = floating.compactMap { presence in presence.spaceMotion }
+        SpaceMotion.collide(&motions) { first, second in
+            (floating[first].view.petAppearance.spriteSideLength + floating[second].view.petAppearance.spriteSideLength)
+                / 2 * LaneLayout.bodyWidthFraction
+        }
+        for (presence, motion) in zip(floating, motions) {
+            presence.spaceMotion = motion
+        }
+    }
+
+    private func sortGroundPets() {
+        groundPets.removeAll(keepingCapacity: true)
+        for presence in presencesBySessionId.values {
+            presence.groundIndex = -1
+            guard presence.spaceMotion == nil, !presence.animator.isDiving, !presence.animator.isSubmerged else { continue }
+            groundPets.append(presence)
+        }
+        guard groundPets.count > 1 else { return }
+        groundPets.sort { left, right in groundCenter(of: left) < groundCenter(of: right) }
+        for (index, presence) in groundPets.enumerated() {
+            presence.groundIndex = index
+        }
+    }
+
+    private func canHighFive(_ presence: PetPresence) -> Bool {
+        HighFiveDirector.isFree(
+            animator: presence.animator,
+            mood: presence.view.petAppearance.mood,
+            inFlight: presence.spaceMotion != nil,
+            body: presence.groundBody
+        )
+    }
+
+    private func groundCenter(of presence: PetPresence) -> CGFloat {
+        presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
+    }
+
+    private func allowsStep(_ presence: PetPresence, toOffset offset: CGFloat) -> Bool {
+        allowsNeighbourStep(presence, toOffset: offset) && ground.allowsStep(presence, toOffset: offset)
+    }
+
+    private func refreshGround(screenFrames: OverlayScreenFrames, elapsedSeconds: Double?) {
+        ground.refresh(
+            standsOnDock: contracts.configuration.standsOnDock,
+            screenFrames: screenFrames,
+            now: ProcessInfo.processInfo.systemUptime,
+            elapsedSeconds: elapsedSeconds,
+            bottomInset: contracts.configuration.groundGap ?? PetGeometry.windowBottomInset
+        )
+    }
+
+    private func allowsNeighbourStep(_ presence: PetPresence, toOffset offset: CGFloat) -> Bool {
+        let index = presence.groundIndex
+        guard index >= 0, groundPets.count > 1 else { return true }
+        let current = groundCenter(of: presence)
+        let next = presence.homeHorizontalCenter + offset
+        return allowsStep(presence, from: current, to: next, besideGroundPetAt: index - 1)
+            && allowsStep(presence, from: current, to: next, besideGroundPetAt: index + 1)
+    }
+
+    private func allowsStep(_ presence: PetPresence, from current: CGFloat, to next: CGFloat, besideGroundPetAt index: Int) -> Bool {
+        guard groundPets.indices.contains(index) else { return true }
+        let neighbour = groundPets[index]
+        guard !highFives.allowsStep(
+            of: presence.sessionId,
+            from: current,
+            to: next,
+            beside: neighbour.sessionId,
+            at: groundCenter(of: neighbour),
+            normalGap: minimumGroundGap
+        ) else {
+            return true
+        }
+        if presence.animator.isWalkingHome { neighbour.animator.walkHomeNow() }
+        return false
     }
 
     private func makePresence(
@@ -250,6 +508,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             contentRect: CGRect(origin: .zero, size: view.preferredSize),
             petContentView: view
         )
+        window.level = petWindowLevel
+        let inert = !PetInputPolicy.acceptsInput(input: effectiveStates.input, isReturningFromSpace: false)
+        view.isInert = inert
+        window.ignoresMouseEvents = inert
         window.orderFrontRegardless()
         return PetPresence(
             sessionId: sessionId,
@@ -261,7 +523,11 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func beginDive(sessionId: String) {
-        presencesBySessionId[sessionId]?.animator.requestDive()
+        guard let presence = presencesBySessionId[sessionId] else { return }
+        if PetChrome.shownOpacity(1, spaceMotion: presence.spaceMotion, hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating) == 0 {
+            presence.animator.hideChrome()
+        }
+        presence.animator.requestDive()
     }
 
     private func removePresence(sessionId: String) {
@@ -294,16 +560,61 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         }
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
+        followScreen(to: screenFrames.visibleFrame)
+        refreshGround(screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
         var submergedSessionIds: [String] = []
+        collideFloatingPets()
+        sortGroundPets()
+        highFives.tick(
+            neighbours: groundPets.map { presence in HighFiveCandidate(participant: presence, isFree: canHighFive(presence)) },
+            elapsedSeconds: elapsedSeconds,
+            now: ProcessInfo.processInfo.systemUptime
+        ) { participant, from, to in
+            HighFiveDirector.levelPath(self.ground.profile, for: participant, from: from, to: to)
+        }
+        let crowdedLabels = HighFiveDirector.hiddenLabels(
+            groundPets.map { presence in (key: presence.sessionId, x: groundCenter(of: presence)) },
+            normalGap: minimumGroundGap
+        )
         for presence in presencesBySessionId.values {
-            presence.animator.advance(elapsedSeconds: elapsedSeconds, mood: presence.view.petAppearance.mood)
+            presence.greetingChromeFade = HighFiveDirector.chromeFade(
+                presence.greetingChromeFade,
+                hidden: crowdedLabels.contains(presence.sessionId),
+                elapsedSeconds: elapsedSeconds
+            )
+        }
+        for presence in presencesBySessionId.values {
+            defer { applyInputPolicy(to: presence) }
+            if PetSpaceFlight.advance(
+                presence,
+                elapsedSeconds: elapsedSeconds,
+                floats: floatsPets,
+                screenFrame: screenFrames.screenFrame,
+                groundBottom: ground.floorUnderFlight(of: presence),
+                homeCenterX: presence.homeHorizontalCenter,
+                render: { flyingPresence in self.renderSprite(for: flyingPresence) },
+                landed: { landedPresence in self.petLanded(landedPresence) }
+            ) {
+                presence.groundBody = nil
+                continue
+            }
+            presence.animator.advance(
+                elapsedSeconds: elapsedSeconds,
+                mood: presence.view.petAppearance.mood,
+                airborne: presence.groundBody?.isAirborne ?? false
+            ) { offset in
+                self.allowsStep(presence, toOffset: offset)
+            }
+            ground.finishStep(presence)
             if presence.animator.isSubmerged {
                 submergedSessionIds.append(presence.sessionId)
                 continue
             }
+            // Rendered after the body moves, so a launch or a touchdown tick shows its own state; PetGroundTests.step follows this order.
+            if !presence.animator.isDiving {
+                applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
+            }
             renderSprite(for: presence)
-            guard !presence.animator.isDiving else { continue }
-            applyGeometry(to: presence, screenFrames: screenFrames)
         }
         for sessionId in submergedSessionIds {
             removePresence(sessionId: sessionId)
@@ -317,29 +628,36 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             spriteImage: spriteImage,
             bubbleVerticalOffset: presence.animator.bubbleVerticalOffset,
             groundOffsetFraction: CGFloat(presence.animator.groundOffsetFraction),
-            chromeOpacity: CGFloat(presence.animator.chromeOpacity)
+            chromeOpacity: CGFloat(PetChrome.shownOpacity(
+                presence.animator.chromeOpacity,
+                spaceMotion: presence.spaceMotion,
+                hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating
+            ) * presence.greetingChromeFade)
         )
     }
 
-    private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames) {
+    private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames, elapsedSeconds: Double = 0) {
+        guard presence.spaceMotion == nil else { return }
         let windowSize = presence.view.preferredSize
         let desiredCenter = presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
-        let unclampedHorizontalOrigin = desiredCenter - windowSize.width / 2
-        let horizontalOrigin = min(
-            max(unclampedHorizontalOrigin, screenFrames.visibleFrame.minX),
-            max(screenFrames.visibleFrame.maxX - windowSize.width, screenFrames.visibleFrame.minX)
+        let horizontalOrigin = PetGround.horizontalOrigin(
+            desiredCenter: desiredCenter,
+            windowWidth: windowSize.width,
+            visibleFrame: screenFrames.visibleFrame
+        )
+        let verticalOrigin = ground.windowBottom(
+            for: presence,
+            standingCenter: horizontalOrigin + windowSize.width / 2,
+            elapsedSeconds: elapsedSeconds
         )
 
-        let verticalOrigin = screenFrames.visibleFrame.minY + PetGeometry.windowBottomInset
-
-        presence.window.setFrame(
-            CGRect(
-                x: horizontalOrigin.rounded(),
-                y: verticalOrigin.rounded(),
-                width: windowSize.width,
-                height: windowSize.height
-            ),
-            display: false
+        let frame = CGRect(
+            x: horizontalOrigin.rounded(),
+            y: verticalOrigin.rounded(),
+            width: windowSize.width,
+            height: windowSize.height
         )
+        guard frame != presence.window.frame else { return }
+        presence.window.setFrame(frame, display: false)
     }
 }

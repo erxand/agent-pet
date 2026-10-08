@@ -1,11 +1,11 @@
 import AgentPetCore
 import AppKit
 
-final class PetPresence {
+final class PetPresence: LaneWalker, HighFiveParticipant {
     let sessionId: String
-    let window: PetWindow
+    let window: PetWindowing
     let view: PetView
-    let animator = PetAnimator()
+    let animator: PetAnimator
 
     var homeHorizontalCenter: CGFloat = 0
     var focusRequest: FocusRequest?
@@ -13,14 +13,46 @@ final class PetPresence {
     var spritePackName: String
     var spriteSheet: SpriteSheet
     var spriteTint: AccentColor?
+    var spaceMotion: SpaceMotion?
+    var walksHomeFromSpace = false
+    var groundIndex = -1
+    var groundBody: GroundBody?
+    var waitsOnJump = false
+    var greetingChromeFade: Double = 1
+
+    var laneWidth: CGFloat { view.contentSize.width }
+    var windowWidth: CGFloat { view.preferredSize.width }
+    var isInFlight: Bool { spaceMotion != nil }
+    var petKey: String { sessionId }
+    var spriteSideLength: CGFloat { view.petAppearance.spriteSideLength }
+
+    var shownAnimationName: SpriteAnimationName {
+        spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName
+    }
+
+    var groundBodyFrameIndex: Int? {
+        guard spaceMotion == nil, animator.isGrounded else { return nil }
+        return groundBody?.frameIndex
+    }
+
+    private var groundBodyAnimationName: SpriteAnimationName? {
+        guard animator.isGrounded else { return nil }
+        return groundBody?.animationName
+    }
+
+    var shownFacingLeft: Bool {
+        spaceMotion?.facingLeft ?? animator.facingLeft
+    }
 
     init(
         sessionId: String,
-        window: PetWindow,
+        window: PetWindowing,
         view: PetView,
         spritePackName: String,
-        spriteSheet: SpriteSheet
+        spriteSheet: SpriteSheet,
+        animator: PetAnimator = PetAnimator()
     ) {
+        self.animator = animator
         self.sessionId = sessionId
         self.window = window
         self.view = view

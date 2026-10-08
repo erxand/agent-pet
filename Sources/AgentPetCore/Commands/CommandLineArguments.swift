@@ -16,7 +16,13 @@ enum CommandName: String, CaseIterable {
     case scanTranscript = "scan-transcript"
     case render
     case packs
+    case capabilities
+    case dockAccess = "dock-access"
     case demo
+    case physics
+    case input
+    case visibility
+    case level
 }
 
 enum CommandFlag: String, CaseIterable {
@@ -41,6 +47,9 @@ enum CommandFlag: String, CaseIterable {
     case scene = "--scene"
     case speed = "--speed"
     case snapshot = "--snapshot"
+    case groupMode = "--group-mode"
+    case disambiguator = "--disambiguator"
+    case disambiguationScope = "--disambiguation-scope"
 }
 
 struct ParsedFlags {
@@ -73,6 +82,10 @@ struct ParsedFlags {
         presentSwitches = collectedSwitches
     }
 
+    func valueOrEmpty(for flag: CommandFlag) -> String? {
+        valuesByFlag[flag]
+    }
+
     func value(for flag: CommandFlag) -> String? {
         guard let value = valuesByFlag[flag], !value.isEmpty else { return nil }
         return value
@@ -85,6 +98,7 @@ struct ParsedFlags {
 
 enum ExitCode {
     static let success: Int32 = 0
+    static let failure: Int32 = 1
     static let usage: Int32 = 2
 }
 

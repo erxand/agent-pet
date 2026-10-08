@@ -6,6 +6,11 @@ package enum PetMood: String, Codable, CaseIterable {
     case blocked
 }
 
+package enum PetGroupMode: String, Codable, CaseIterable {
+    case shared
+    case lead
+}
+
 package enum PetAgent: String, Codable, CaseIterable {
     case claudeCode = "claude-code"
     case pi
@@ -45,6 +50,9 @@ package struct PetSession: Codable, Equatable {
     package var transcriptPath: String?
     package var transcriptScanOffset: Int
     package var updatedAt: Double
+    package var groupMode: PetGroupMode?
+    package var disambiguator: String?
+    package var disambiguationScope: String?
 
     package var isPreview: Bool {
         sessionId.hasPrefix(PetSession.previewSessionIdPrefix)
@@ -56,6 +64,10 @@ package struct PetSession: Codable, Equatable {
 
     package var isFlaggedOwner: Bool {
         owner == true
+    }
+
+    package var leadsItsGroup: Bool {
+        groupMode == .lead
     }
 
     package var isWorking: Bool {
@@ -119,6 +131,9 @@ extension PetSession {
             ?? PetSession.initialTranscriptScanOffset
         activeSubagents = try container.decodeIfPresent([TrackedSubagent].self, forKey: .activeSubagents)
             ?? PetSession.decodeLegacySubagents(from: decoder, startedAt: updatedAt)
+        groupMode = (try? container.decodeIfPresent(PetGroupMode.self, forKey: .groupMode)) ?? nil
+        disambiguator = try container.decodeIfPresent(String.self, forKey: .disambiguator)
+        disambiguationScope = try container.decodeIfPresent(String.self, forKey: .disambiguationScope)
     }
 
     private static func decodeLegacySubagents(from decoder: Decoder, startedAt: TimeInterval) throws -> [TrackedSubagent] {
@@ -151,7 +166,10 @@ extension PetSession {
             activeSubagents: [],
             transcriptPath: nil,
             transcriptScanOffset: initialTranscriptScanOffset,
-            updatedAt: Date().timeIntervalSince1970
+            updatedAt: Date().timeIntervalSince1970,
+            groupMode: nil,
+            disambiguator: nil,
+            disambiguationScope: nil
         )
     }
 }

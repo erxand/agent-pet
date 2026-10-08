@@ -5,10 +5,17 @@ enum LaunchctlSubcommand: String {
     case bootstrap
 }
 
+enum LaunchctlOutcome: Equatable {
+    case succeeded
+    case failed
+    case timedOut
+}
+
 enum LaunchAgent {
     static let label = "com.agent-pet.daemon"
 
     private static let launchctlExecutablePath = "/bin/launchctl"
+    private static let launchctlTimeoutInSeconds: TimeInterval = 5
     private static let libraryDirectoryName = "Library"
     private static let launchAgentsDirectoryName = "LaunchAgents"
     private static let propertyListFileExtension = "plist"
@@ -35,25 +42,40 @@ enum LaunchAgent {
         domainTarget + serviceTargetSeparator + label
     }
 
-    static func start() {
-        guard !runLaunchctl(subcommand: .kickstart, arguments: [serviceTarget]) else { return }
-        runLaunchctl(subcommand: .bootstrap, arguments: [domainTarget, propertyListFile.path])
+    static func start(
+        homeIsForeign: () -> Bool = AccountHome.isForeign,
+        launchctl: (LaunchctlSubcommand, [String]) -> LaunchctlOutcome = { subcommand, arguments in
+            runLaunchctl(subcommand: subcommand, arguments: arguments)
+        }
+    ) {
+        guard !homeIsForeign() else { return }
+        switch launchctl(.kickstart, [serviceTarget]) {
+        case .succeeded, .timedOut:
+            return
+        case .failed:
+            _ = launchctl(.bootstrap, [domainTarget, propertyListFile.path])
+        }
     }
 
     @discardableResult
-    private static func runLaunchctl(subcommand: LaunchctlSubcommand, arguments: [String]) -> Bool {
+    private static func runLaunchctl(subcommand: LaunchctlSubcommand, arguments: [String]) -> LaunchctlOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchctlExecutablePath)
         process.arguments = [subcommand.rawValue] + arguments
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
         do {
             try process.run()
         } catch {
-            return false
+            return .failed
         }
-        process.waitUntilExit()
-        return process.terminationStatus == ExitCode.success
+        guard finished.wait(timeout: .now() + launchctlTimeoutInSeconds) == .success else {
+            process.terminate()
+            return .timedOut
+        }
+        return process.terminationStatus == ExitCode.success ? .succeeded : .failed
     }
 }

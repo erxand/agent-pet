@@ -20,7 +20,7 @@ struct HookCharacterizationTests {
         #expect(record["message"] as? String == String(repeating: "x", count: 80))
         let line = try #require(sandbox.hookLogLines().last)
         #expect(line.hasSuffix("Stop \(RecordFixtures.shortSessionId) - visible=true agents=0"))
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
     }
 
     @Test func stopWithARunningSubagentStaysHidden() throws {
@@ -181,7 +181,7 @@ struct HookCharacterizationTests {
         #expect(run.exitStatus == 0)
         #expect(run.standardOutput.isEmpty)
         #expect(!sandbox.exists(sandbox.recordURL(RecordFixtures.sessionId)))
-        #expect(!sandbox.exists(sandbox.daemonLog))
+        #expect(sandbox.startedNoDaemon)
     }
 
     @Test func theSessionIdFallsBackToTheEnvironment() throws {

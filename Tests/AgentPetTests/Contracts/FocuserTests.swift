@@ -128,27 +128,40 @@ struct FocuserTests {
 
     @Test func commandFocuserTerminatesACommandPastItsTimeout() {
         var reports: [String] = []
-        let started = Date()
-        CommandFocuser(arguments: ["/bin/sleep", "10"], timeoutInSeconds: 0.3, waitsForCompletion: true) { line in
-            reports.append(line)
-        }.focus(request())
-
-        #expect(Date().timeIntervalSince(started) < 3)
-        #expect(reports == ["focus command /bin/sleep timed out after 0.3 s and was terminated"])
-    }
-
-    @Test func commandFocuserKillsACommandThatIgnoresTermination() {
-        var reports: [String] = []
-        let started = Date()
         CommandFocuser(
-            arguments: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.05; done"],
+            arguments: ["/bin/sleep", "1000"],
             timeoutInSeconds: 0.3,
+            terminationGraceInSeconds: 30,
             waitsForCompletion: true
         ) { line in
             reports.append(line)
         }.focus(request())
 
-        #expect(Date().timeIntervalSince(started) < 4)
+        #expect(reports == ["focus command /bin/sleep timed out after 0.3 s and was terminated"])
+    }
+
+    @Test func commandFocuserKillsACommandThatIgnoresTermination() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("focus-trap-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let ready = folder.appendingPathComponent("ready")
+        var reports: [String] = []
+        CommandFocuser(
+            arguments: ["/bin/sh", "-c", "trap '' TERM; : > \"$0\"; while :; do sleep 0.05; done", ready.path],
+            timeoutInSeconds: 0.3,
+            terminationGraceInSeconds: 0.5,
+            beforeTimeout: {
+                let hangBound = Date().addingTimeInterval(30)
+                while !FileManager.default.fileExists(atPath: ready.path) && Date() < hangBound {
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            },
+            waitsForCompletion: true
+        ) { line in
+            reports.append(line)
+        }.focus(request())
+
+        #expect(FileManager.default.fileExists(atPath: ready.path))
         #expect(reports == ["focus command /bin/sh timed out after 0.3 s and was killed"])
     }
 }

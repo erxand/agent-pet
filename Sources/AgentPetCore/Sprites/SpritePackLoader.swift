@@ -99,6 +99,10 @@ package struct SpritePackLoader {
         return result
     }
 
+    package func searchDirectories() -> [URL] {
+        searchRoots().compactMap { root in root.url }
+    }
+
     private struct SearchRoot {
         let url: URL?
         let configuredPath: String
@@ -155,6 +159,9 @@ package struct SpritePackLoader {
             sit: framesByAnimation[.sit] ?? [],
             emerge: framesByAnimation[.emerge] ?? [],
             dive: framesByAnimation[.dive] ?? [],
+            jump: framesByAnimation[.jump] ?? [],
+            fall: framesByAnimation[.fall] ?? [],
+            highfive: framesByAnimation[.highfive] ?? [],
             colorsByCharacter: colorsByCharacter
         )
         let declaredAccent = manifest.accent.flatMap { accentName in AccentColor(rawValue: accentName) }

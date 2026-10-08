@@ -9,23 +9,32 @@ package struct CommandFocuser: Focuser {
     package static let defaultTimeoutInSeconds: TimeInterval = 5
 
     private static let pollIntervalInSeconds: TimeInterval = 0.02
-    private static let terminationGraceInSeconds: TimeInterval = 1
+    package static let defaultTerminationGraceInSeconds: TimeInterval = 1
     private static let secondsFormat = "%g"
     private static let missingValue = ""
 
     private let arguments: [String]
     private let timeoutInSeconds: TimeInterval
+    private let terminationGraceInSeconds: TimeInterval
+    private let beforeTimeout: () -> Void
     private let waitsForCompletion: Bool
     private let report: (String) -> Void
+    private let runningCommands: RunningFocusCommands
 
     package init(
         arguments: [String],
         timeoutInSeconds: TimeInterval = CommandFocuser.defaultTimeoutInSeconds,
+        terminationGraceInSeconds: TimeInterval = CommandFocuser.defaultTerminationGraceInSeconds,
+        beforeTimeout: @escaping () -> Void = {},
         waitsForCompletion: Bool,
-        report: @escaping (String) -> Void = CommandFeedback.writeToStandardError
+        report: @escaping (String) -> Void = CommandFeedback.writeToStandardError,
+        runningCommands: RunningFocusCommands = .shared
     ) {
+        self.runningCommands = runningCommands
         self.arguments = arguments
         self.timeoutInSeconds = timeoutInSeconds
+        self.terminationGraceInSeconds = terminationGraceInSeconds
+        self.beforeTimeout = beforeTimeout
         self.waitsForCompletion = waitsForCompletion
         self.report = report
     }
@@ -61,13 +70,20 @@ package struct CommandFocuser: Focuser {
             report("focus command \(executablePath) could not start: \(error.localizedDescription)")
             return
         }
+        runningCommands.add(process)
         let timeoutInSeconds = timeoutInSeconds
+        let terminationGraceInSeconds = terminationGraceInSeconds
+        let beforeTimeout = beforeTimeout
         let report = report
+        let runningCommands = runningCommands
         let supervise = {
             CommandFocuser.supervise(
                 process,
+                runningCommands: runningCommands,
                 executablePath: executablePath,
                 timeoutInSeconds: timeoutInSeconds,
+                terminationGraceInSeconds: terminationGraceInSeconds,
+                beforeTimeout: beforeTimeout,
                 report: report
             )
         }
@@ -80,11 +96,17 @@ package struct CommandFocuser: Focuser {
 
     private static func supervise(
         _ process: Process,
+        runningCommands: RunningFocusCommands,
         executablePath: String,
         timeoutInSeconds: TimeInterval,
+        terminationGraceInSeconds: TimeInterval,
+        beforeTimeout: () -> Void,
         report: (String) -> Void
     ) {
+        beforeTimeout()
         waitForExit(of: process, upTo: timeoutInSeconds)
+        defer { runningCommands.remove(process) }
+        guard !runningCommands.wasCancelled(process) else { return }
         if process.isRunning {
             process.terminate()
             waitForExit(of: process, upTo: terminationGraceInSeconds)
@@ -111,5 +133,54 @@ package struct CommandFocuser: Focuser {
 
     private static func formattedSeconds(_ seconds: TimeInterval) -> String {
         String(format: secondsFormat, seconds)
+    }
+}
+
+package final class RunningFocusCommands {
+    package static let shared = RunningFocusCommands()
+
+    package init() {}
+
+    private let lock = NSLock()
+    private var runningByProcessIdentifier: [Int32: Process] = [:]
+    private var cancelledProcessIdentifiers: Set<Int32> = []
+
+    package var runningCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return runningByProcessIdentifier.count
+    }
+
+    func add(_ process: Process) {
+        lock.lock()
+        runningByProcessIdentifier[process.processIdentifier] = process
+        lock.unlock()
+    }
+
+    func remove(_ process: Process) {
+        lock.lock()
+        runningByProcessIdentifier.removeValue(forKey: process.processIdentifier)
+        cancelledProcessIdentifiers.remove(process.processIdentifier)
+        lock.unlock()
+    }
+
+    func wasCancelled(_ process: Process) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelledProcessIdentifiers.contains(process.processIdentifier)
+    }
+
+    @discardableResult
+    package func cancelAll() -> Int {
+        lock.lock()
+        let running = Array(runningByProcessIdentifier.values)
+        for process in running {
+            cancelledProcessIdentifiers.insert(process.processIdentifier)
+        }
+        lock.unlock()
+        for process in running where process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        return running.count
     }
 }

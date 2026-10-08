@@ -121,7 +121,16 @@ struct PetDiveTests {
                     homeDirectory: sandbox.home
                 ),
                 reportFailure: { _ in }
-            )
+            ),
+            dockAccess: DockAccessReporter(
+                files: DockAccessFiles(
+                    reportFile: sandbox.stateDirectory.appendingPathComponent("dock-access.json"),
+                    requestFile: sandbox.stateDirectory.appendingPathComponent("control/dock-access-ask")
+                ),
+                access: UngrantedDockAccess(),
+                processIdentifier: 4242
+            ),
+            appWindowWatcher: NoAppWindows()
         )
         var completions = 0
         controller.beginShutdown { completions += 1 }
@@ -130,4 +139,14 @@ struct PetDiveTests {
         controller.beginShutdown { completions += 1 }
         #expect(completions == 1)
     }
+}
+
+private final class NoAppWindows: AppWindowWatching {
+    func watch(bundleIdentifiers wanted: Set<String>) {}
+    func summaries(now: TimeInterval) -> [String: AppWindowSummary] { [:] }
+}
+
+private struct UngrantedDockAccess: DockAccessChecking {
+    func isGranted() -> Bool { false }
+    func ask() -> Bool { false }
 }

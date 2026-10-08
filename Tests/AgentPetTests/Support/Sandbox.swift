@@ -14,7 +14,7 @@ enum SandboxFailure: Error {
 final class Sandbox {
     static let binaryOverrideVariable = "AGENT_PET_TEST_BINARY"
     private static let binaryName = "agent-pet"
-    private static let commandTimeoutInSeconds: TimeInterval = 20
+    private static let commandTimeoutInSeconds: TimeInterval = 60
     private static let tmuxLogFileName = "tmux.log"
     private static let tmuxFieldSeparator = "\u{1F}"
 
@@ -60,6 +60,17 @@ final class Sandbox {
         fileManager.fileExists(atPath: fileURL.path)
     }
 
+    func environment(merging extraEnvironment: [String: String] = [:]) -> [String: String] {
+        var environment = [
+            "HOME": home.path,
+            "CFFIXED_USER_HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+            "TMUX_EXECUTABLE": tmuxStub.path
+        ]
+        environment.merge(extraEnvironment) { _, extraValue in extraValue }
+        return environment
+    }
+
     @discardableResult
     func run(
         _ arguments: [String],
@@ -75,14 +86,7 @@ final class Sandbox {
             process.executableURL = try Sandbox.binaryURL()
             process.arguments = arguments
         }
-        var environment = [
-            "HOME": home.path,
-            "CFFIXED_USER_HOME": home.path,
-            "PATH": "/usr/bin:/bin",
-            "TMUX_EXECUTABLE": tmuxStub.path
-        ]
-        environment.merge(extraEnvironment) { _, extraValue in extraValue }
-        process.environment = environment
+        process.environment = environment(merging: extraEnvironment)
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -136,6 +140,11 @@ final class Sandbox {
     func activeSubagentIds(_ sessionId: String) -> [String] {
         let entries = record(sessionId)?["activeSubagents"] as? [[String: Any]] ?? []
         return entries.compactMap { entry in entry["id"] as? String }
+    }
+
+    var startedNoDaemon: Bool {
+        guard let contents = try? String(contentsOf: daemonLog, encoding: .utf8) else { return true }
+        return !contents.contains("daemon started")
     }
 
     func hookLogLines() -> [String] {

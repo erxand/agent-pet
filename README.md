@@ -8,6 +8,8 @@ jumps you back to the session it belongs to.
 
 ![agent-pet sprite sheet](docs/sprite-sheet.png)
 
+The sheet shows every shipped pack; `python3 scripts/sprite-sheet/sheet.py` redraws it after a pack changes.
+
 <!-- TODO: add docs/screenshot.png, a real capture of pets along the bottom of the desktop. -->
 ![agent-pet on the desktop](docs/screenshot.png)
 
@@ -31,6 +33,41 @@ jumps you back to the session it belongs to.
 
 `~/.local/bin` must be on your `PATH`, because that is where `install.sh` links the binary.
 
+## Letting pets stand on the Dock exactly
+
+Pets treat a Dock at the bottom of the screen as ground. To know exactly where the Dock is, the
+daemon needs Accessibility access. Without it, pets still work, but they follow an estimate of
+the Dock's size and position.
+
+macOS ties that access to the binary's code signature. A plain `./install.sh` build is signed
+ad hoc, so every rebuild gets a new signature and macOS forgets the access. Sign the binary with
+a certificate and a fixed identifier, and the access survives every rebuild.
+
+1. Get a signing certificate. A free Apple Development certificate is enough: in Xcode, open
+   Settings > Accounts, add your Apple ID, then Manage Certificates > + > Apple Development.
+   Check that you have one:
+
+   ```
+   security find-identity -v -p codesigning
+   ```
+
+   Copy the name in quotes, for example `Apple Development: Your Name (TEAMID1234)`.
+2. Install with that identity. `install.sh` signs the binary with the fixed identifier
+   `com.agent-pet` when `AGENT_PET_SIGN_IDENTITY` is set, and restarts the daemon:
+
+   ```
+   AGENT_PET_SIGN_IDENTITY="Apple Development: Your Name (TEAMID1234)" ./install.sh
+   ```
+
+   To sign a binary you built another way, run
+   `codesign --force --sign "Apple Development: Your Name (TEAMID1234)" --identifier com.agent-pet <path to agent-pet>`
+   and restart the daemon.
+3. Grant access once. Run `agent-pet dock-access --ask`, then turn on agent-pet in
+   System Settings > Privacy & Security > Accessibility. `agent-pet dock-access` prints
+   `granted` once the daemon has it.
+4. Sign every rebuild the same way (keep `AGENT_PET_SIGN_IDENTITY` set when you run
+   `install.sh`). The identity and the identifier stay the same, so macOS keeps the access.
+
 ## Usage
 
 | form | effect |
@@ -47,7 +84,7 @@ text, and the rest becomes the nickname.
 Left-click a pet to focus its session's tmux pane and terminal tab, then hide the pet.
 Right-click to hide it without focusing.
 
-Seven commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
+Eight commands are useful from any shell, plus `agent-pet demo`, described under "Demo":
 
 - `agent-pet status` prints one row per enrolled session (short id, label, sprite, accent,
   enabled, visible, mood, running subagent count, alive) and the daemon's pid. Add `--json` for
@@ -62,13 +99,23 @@ Seven commands are useful from any shell, plus `agent-pet demo`, described under
   running and prints how many it dropped. It exits 2 when the session has no record.
 - `agent-pet render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` draws a sprite in the
   terminal with truecolor half blocks, two pixel rows per line, so a picker can show the pets without
-  the overlay. `--accent` shows the pet as a session that chose that color would see it.
+  the overlay. `--accent` shows the pet as a session that chose that color would see it. `--animation`
+  is one of `idle`, `walk`, `wave`, `sit`, `emerge`, `dive`, `jump`, `fall` and `highfive`.
 - `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
   them, and how many live pets use each.
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
   agent id. It changes no record.
+- `agent-pet capabilities` prints one word per line, one for each feature this build has, such as
+  `focus-target-select`. A script that drives agent-pet can check for a word instead of comparing
+  versions, and a build that predates the command exits 2.
+- `agent-pet dock-access` prints `granted`, `not granted` or `unknown`: whether the running daemon
+  may read the Dock's exact frame (macOS Accessibility). It reports the daemon's own access, not
+  the terminal's, and never prompts; `unknown` means the daemon is not running.
+  `agent-pet dock-access --ask` has the daemon ask macOS once; turn agent-pet on in
+  System Settings > Privacy & Security > Accessibility and the daemon notices within 5 seconds.
+  Sign the binary first so the access survives rebuilds, see "Letting pets stand on the Dock exactly".
 
 ## Demo
 
@@ -111,6 +158,7 @@ of the repo.
 | `agent-pet demo --speed 2` | play faster. A value below 1 plays slower |
 | `agent-pet demo --dry-run` | print the timed timeline in the terminal, and draw nothing |
 | `agent-pet demo --snapshot DIR` | write PNGs of the title card, a caption with each key hint, the click scene, the states scene and the terminal reveal to DIR |
+| `agent-pet demo --scene space` | an extra scene, not part of the tour: a stand-in screensaver comes up and the pets float over it, as a script would make them with `agent-pet physics float`, then they fall, land and walk home. With `--snapshot DIR` it also writes `space-1.png` to `space-5.png` |
 
 ## Configuration
 
@@ -133,7 +181,10 @@ and a missing key, an unknown key or a value agent-pet does not understand means
   "accentInks": true,
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
-  "display": "primary"
+  "display": "primary",
+  "whenFullScreen": [
+    {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}
+  ]
 }
 ```
 
@@ -143,7 +194,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `sessionDirectories` | `["~/.claude/sessions"]` | where Claude Code session files are read for labels and liveness. `~` and `*` expand, so `~/.claude-*/sessions` covers every extra Claude config root |
 | `colorSync` | `"tmux-color"` | `none` stops agent-pet from typing `/color` into the session's pane |
 | `labelPlacement` | `"pill"` | `nametag` puts the label over the pet's head on a dark tag in a pixel font, readable on any desktop |
-| `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id |
+| `disambiguateLabels` | `false` | when two visible pets show the same label, both get a space and the last 4 characters of their session id. Sessions enrolled with `--disambiguator TEXT --disambiguation-scope KEY` that clash inside one scope get TEXT instead |
 | `reservedSprites` | `[]` | packs that random assignment never picks. `--sprite <name>` can still choose one |
 | `spriteDirectories` | `[]` | more folders of sprite packs, laid out like `~/.agent-pet/sprites/`. Their packs join the random pool, `packs`, `render` and `--sprite`. `~` and `*` expand. On a name clash `~/.agent-pet/sprites/` wins |
 | `settleSeconds` | `0` | how long a session must stay waiting before its pet comes up, so a queued message that starts right after Claude finishes never flashes a pet. About `1` covers it. `0` shows at once |
@@ -151,6 +202,10 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `accentInks` | `false` | `true` lets a color you choose (`/pet <nickname> <color>`, `--accent`) paint part of the creature too, not only the label dot, the bubble and the prompt bar |
 | `diveOnExit` | `false` | `true` makes a stopping daemon (a launchd restart, Ctrl-C) dive its pets before it exits instead of dropping them. Read when the daemon starts |
 | `subagentToolsKeepNeedsInput` | `false` | `true` keeps a `needsInput` pet up while background subagents call tools, so a question one subagent asked stays visible until the main agent moves on. Off, any tool call hides the pet |
+| `whenFullScreen` | `[]` | rules that set pet states while an app shows a window covering a display, see "Scripting the pets" |
+| `hideLabelsWhileFloating` | `false` | `true` hides each pet's label and bubble while it floats or falls, and shows them again when it lands |
+| `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give the agent-pet daemon Accessibility access (`agent-pet dock-access --ask`) and sign the binary so the access sticks, see "Letting pets stand on the Dock exactly"; without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
+| `groundGap` | absent | points between a pet's feet and the ground, on the screen bottom and on the Dock alike. Absent keeps today's look (a small lift, with the label pill under the feet). `0` stands pets right on the edge; the pill then sits over the head |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
 The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or
@@ -178,10 +233,64 @@ waiting, a click jumps to it (or to the owner when none is), and the pet hides f
 member takes the owner's sprite, and `status --json` reports each session's `group` and whether it is
 the `owner`.
 
+`--group-mode lead` on the owner changes that for a window with one lead session and helpers (the owner's
+own mode decides it, so `--group-mode shared` on the owner turns it off again). The pet then wears the
+owner's label and a click always goes to the owner. Ready still waits for every member. A helper's
+question gets a pet of its own at once, with the helper's label and click. Hiding the owner (for example
+`agent-pet hide --focus-target PANE` when you switch to its pane) hides every member's ready too. With
+no live owner the group acts as a plain group, labelled by the member that is waiting.
+
 The hooks are also safe to install for every session in Claude Code's `settings.json`, instead of or
 beside the `/pet` skill. For a session that never enrolled, `agent-pet hook` exits in a few
 milliseconds and writes nothing, and when both sets of hooks fire for the same event, the event
 counts once.
+
+## Scripting the pets
+
+Four states change what every pet does, and your own scripts can set them. Each is a command:
+
+| command | what it does |
+|---|---|
+| `agent-pet physics float` | every pet lifts off and drifts and spins slowly, as if in space |
+| `agent-pet physics ground` | they fall, land and walk to their lanes, which follow where each one landed (the default) |
+| `agent-pet input off` | every pet ignores the mouse: clicks go to whatever is under it, a pet never takes focus and never runs the focuser, and a focus command already running is stopped |
+| `agent-pet input on` | pets take clicks again (the default) |
+| `agent-pet visibility hidden` | every pet dives; nothing about the sessions changes |
+| `agent-pet visibility shown` | they come back up (the default) |
+| `agent-pet level above <bundle id>` | pets draw just above that app's topmost window, never above the real lock screen |
+| `agent-pet level normal` | the normal level (the default) |
+
+`auto` instead of a value (`agent-pet physics auto`) hands that state back to the config rules, or to the
+default. `agent-pet status --json` reports each state with its value and where it came from: `cli`,
+`trigger` (a config rule) or `default`. A command always beats a rule. Commands last until the daemon
+restarts; rules are in the config, so they last.
+
+The same thing can come from the config. A rule sets states while any listed app shows a window that
+covers a display, and the states go back to `auto` when the window goes. For a screensaver that runs as
+an ordinary app with a full screen window:
+
+```json
+{
+  "whenFullScreen": [
+    {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}
+  ]
+}
+```
+
+`apply` takes `physics`, `input`, `visibility`, and `level` as `normal` or `above` (above the app that
+matched). Detection reads the window list once a second while a listed app runs, and needs no
+permission. The same rule, done from a shell script that knows when the screensaver starts and stops:
+
+```sh
+#!/bin/sh
+case "$1" in
+  start) agent-pet physics float; agent-pet input off; agent-pet level above com.example.screensaver ;;
+  stop)  agent-pet physics auto;  agent-pet input auto; agent-pet level auto ;;
+esac
+```
+
+This is also the way to try the float without a screensaver: run `agent-pet physics float`, watch, then
+`agent-pet physics auto`.
 
 ## How it works
 
@@ -192,7 +301,8 @@ There are three parts:
    `~/.agent-pet/sessions/`.
 2. A launchd user agent runs the overlay daemon. It polls that directory and reconciles one
    borderless always-on-top window per record marked visible, so the record is the only thing
-   that decides whether a pet is on screen.
+   that decides whether a pet is on screen. Sprite pack folders and Claude Code session folders are
+   rescanned only when FSEvents reports a change in them, and at least every 5 seconds.
 3. A left click runs tmux `select-window`, `select-pane` and `switch-client`, then an
    AppleScript that selects the matching iTerm2 tab and brings the window forward.
 
@@ -261,14 +371,17 @@ Sessions differ in four ways.
 agent-pet picks one of the installed packs at random among the packs that the fewest other live
 sessions are using, so no two sessions share a pet until there are more sessions than packs.
 The pick is stored in the session's record, so it stays put for the life of the session.
-`sprite:<name>` chooses one explicitly. The repo ships eight: `claude` (the original orange
-critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl` and `walle`.
+`sprite:<name>` chooses one explicitly. The repo ships 22: `claude` (the original orange
+critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl`, `walle`, `astrocat`,
+`bookwyrm`, `bopkin`, `bumble`, `cactling`, `dapperfox`, `docturtle`, `gecklet`, `hermy`,
+`rangermot`, `raven`, `scruff`, `skyhop` and `tapeling`.
 
 **Accent color**, on the label dot, the mood bubble and the Claude Code prompt bar. It takes the
 color of the session's sprite pack, so a glance at the prompt bar tells you which creature is
 yours. `/pet <nickname> <color>` overrides it. With `"accentInks": true` in the config, a color you
 choose this way also paints the pet: every shipped pack but `claude` and `walle` hands one part of the creature to the accent (golem's chest gem,
-hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie), so
+hatchling's scarf, mossling's cap, nimbus's lightning, seon's face mark, tinowl's bow tie, and one
+part of each of the newer packs), so
 sessions that share a creature still look different. A session that only took its pack's color
 keeps the pack's own look.
 
@@ -282,6 +395,20 @@ keeps the pack's own look.
 | seon      | yellow |
 | tinowl    | purple |
 | walle     | yellow |
+| astrocat  | blue   |
+| bookwyrm  | red    |
+| bopkin    | blue   |
+| bumble    | purple |
+| cactling  | pink   |
+| dapperfox | purple |
+| docturtle | blue   |
+| gecklet   | purple |
+| hermy     | green  |
+| rangermot | orange |
+| raven     | purple |
+| scruff    | green  |
+| skyhop    | blue   |
+| tapeling  | orange |
 
 A pack of your own sets its color with the `accent` field in `pack.json`. Without that field,
 agent-pet uses the pack's most common color, leaving out the two darkest ones (the outline and
@@ -310,8 +437,14 @@ color.
 **Label**, shown under the sprite on a dark pill (or over its head, with `labelPlacement`
 `nametag`): your nickname, or the session's own name, or the basename of its working directory.
 
-**Lane**: the daemon sorts visible pets by last update time and spreads them evenly across the
-screen width. Each pet wanders near its own spot, so two pets never overlap.
+**Lane**: the visible pets split the screen width into equal lanes, one each, and each pet wanders
+across its whole lane, so a lone pet roams the full width and two pets never overlap. When pets come
+or go the lanes are divided again and each pet walks to its new one.
+
+**High five**: once in a while (a couple of times an hour for a pair) two neighbouring pets
+that face each other walk up to the border between their lanes. The first to arrive raises its
+hand and waits, the other arrives and they high five, then go back to wandering. A pet with a question or
+a request for you never joins in.
 
 ## Customizing the pet
 
@@ -322,6 +455,8 @@ sprites/README.md for the full rules.
 <pack-name>/pack.json                    name, frameSize, optional accent and accentInks, and a character-to-hex palette
 <pack-name>/idle.txt walk.txt wave.txt sit.txt    frames of frameSize square rows, blank line between frames
 <pack-name>/emerge.txt dive.txt          optional, 3 frames each
+<pack-name>/jump.txt fall.txt            optional, 2 frames each (takeoff, rise; apex, later fall); without them a jump shows walk and a fall shows idle
+<pack-name>/highfive.txt                 optional, 3 frames (raise, reach, contact); without it a high five shows wave
 ```
 
 Every color in a pack comes from its palette, except the inks named in the optional `accentInks`
@@ -330,8 +465,8 @@ its accent, those pixels are painted in it and in a darker shade of it. The opti
 session that gets the pack uses it for the label dot, the mood bubble and the prompt bar.
 
 Packs live in `~/.agent-pet/sprites/<name>/`. `install.sh` refreshes every shipped pack there on
-each install, so edits to a pack named `claude`, `golem`, `hatchling`, `mossling`, `nimbus`,
-`seon`, `tinowl` or `walle` are overwritten. To customize a shipped pack, copy it under a new name and
+each install, so edits to a pack with the name of any pack in the repo's `sprites/` folder are
+overwritten. To customize a shipped pack, copy it under a new name and
 edit the copy. `install.sh` leaves packs with other names alone. Every installed pack joins the
 random pool, so dropping a new directory in is all it takes to add a pet.
 

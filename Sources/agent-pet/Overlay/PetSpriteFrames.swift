@@ -12,7 +12,7 @@ final class PetSpriteFrames {
 
     func image(for presence: PetPresence) -> NSImage? {
         guard let resolvedAnimation = resolveAnimation(
-            presence.animator.animationName,
+            presence.shownAnimationName,
             in: presence.spriteSheet
         ) else { return nil }
 
@@ -22,7 +22,7 @@ final class PetSpriteFrames {
             tint: presence.spriteTint,
             animationName: resolvedAnimation.animationName,
             frameIndex: frameIndex,
-            facingLeft: presence.animator.facingLeft
+            facingLeft: presence.shownFacingLeft
         )
 
         if let cachedImage = spriteImageCache[cacheKey] {
@@ -32,18 +32,29 @@ final class PetSpriteFrames {
             for: resolvedAnimation.frames[frameIndex],
             palette: presence.spriteSheet.palette,
             scale: PetGeometry.spriteScale,
-            facingLeft: presence.animator.facingLeft
+            facingLeft: presence.shownFacingLeft
         )
         spriteImageCache[cacheKey] = spriteImage
         return spriteImage
     }
 
+    func shownFrame(for presence: PetPresence) -> (animationName: SpriteAnimationName, frameIndex: Int)? {
+        guard let resolvedAnimation = resolveAnimation(presence.shownAnimationName, in: presence.spriteSheet) else { return nil }
+        return (resolvedAnimation.animationName, frameIndex(for: presence, resolvedAnimation: resolvedAnimation))
+    }
+
     private func frameIndex(for presence: PetPresence, resolvedAnimation: ResolvedAnimation) -> Int {
         let frameCount = resolvedAnimation.frames.count
+        if presence.shownAnimationName == .highfive, let highFiveFrame = presence.animator.highFiveFrame {
+            return min(max(highFiveFrame, 0), frameCount - 1)
+        }
+        if let flightFrame = presence.groundBodyFrameIndex, resolvedAnimation.animationName == presence.shownAnimationName {
+            return min(flightFrame, frameCount - 1)
+        }
         guard presence.animator.playsGroundAnimationOnce else {
             return presence.animator.frameTick % frameCount
         }
-        guard resolvedAnimation.animationName == presence.animator.animationName else {
+        guard resolvedAnimation.animationName == presence.shownAnimationName else {
             return PetSpriteFrames.substituteGroundFrameIndex
         }
         let spreadIndex = Int(presence.animator.groundAnimationProgress * Double(frameCount))
@@ -59,16 +70,7 @@ final class PetSpriteFrames {
         _ requestedAnimation: SpriteAnimationName,
         in spriteSheet: SpriteSheet
     ) -> ResolvedAnimation? {
-        let requestedFrames = requestedAnimation.frames(in: spriteSheet)
-        if !requestedFrames.isEmpty {
-            return ResolvedAnimation(animationName: requestedAnimation, frames: requestedFrames)
-        }
-        for fallbackAnimation in SpriteAnimationName.allCases {
-            let fallbackFrames = fallbackAnimation.frames(in: spriteSheet)
-            if !fallbackFrames.isEmpty {
-                return ResolvedAnimation(animationName: fallbackAnimation, frames: fallbackFrames)
-            }
-        }
-        return nil
+        guard let shownAnimation = requestedAnimation.shown(in: spriteSheet) else { return nil }
+        return ResolvedAnimation(animationName: shownAnimation, frames: shownAnimation.frames(in: spriteSheet))
     }
 }
