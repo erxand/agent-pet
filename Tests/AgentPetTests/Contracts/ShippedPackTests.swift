@@ -30,6 +30,8 @@ struct ShippedPackTests {
                 #expect(pack.ownAccent != nil, "\(name)")
             case .failed(let reason):
                 Issue.record("\(name) did not load: \(reason)")
+            case .notDownloaded(let paths):
+                Issue.record("\(name) is not downloaded: \(paths)")
             }
         }
     }

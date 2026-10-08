@@ -112,7 +112,7 @@ Nine commands are useful from any shell, plus `agent-pet demo`, described under 
   versions, and a build that predates the command exits 2.
 - `agent-pet dock-access` prints `granted`, `not granted` or `unknown`: whether the running daemon
   may read the Dock's exact frame (macOS Accessibility). It reports the daemon's own access, not
-  the terminal's, and never prompts; `unknown` means the daemon is not running.
+  the terminal's, and never prompts; `unknown` means no running daemon has written a report.
   `agent-pet dock-access --ask` has the daemon ask macOS once; turn agent-pet on in
   System Settings > Privacy & Security > Accessibility and the daemon notices within 5 seconds.
   Sign the binary first so the access survives rebuilds, see "Letting pets stand on the Dock exactly".
@@ -205,7 +205,7 @@ and a missing key, an unknown key or a value agent-pet does not understand means
 | `whenFullScreen` | `[]` | rules that set pet states while an app shows a window covering a display, see "Scripting the pets" |
 | `hideLabelsWhileFloating` | `false` | `true` hides each pet's label and bubble while it floats or falls, and shows them again when it lands |
 | `dockGround` | `true` | a Dock at the bottom of the screen is ground: pets are sprung up onto it when it slides in, walk on it, fall off when it hides, and jump up its edges, so they never stand over its icons. `false` keeps them on the bottom edge of the usable screen. For the exact Dock frame, give the agent-pet daemon Accessibility access (`agent-pet dock-access --ask`) and sign the binary so the access sticks, see "Letting pets stand on the Dock exactly"; without it pets follow an estimate. Falls from a float play the `fall` animation whatever this key says |
-| `groundGap` | absent | points between a pet's feet and the ground, on the screen bottom and on the Dock alike. Absent keeps today's look (a small lift, with the label pill under the feet). `0` stands pets right on the edge; the pill then sits over the head |
+| `groundGap` | absent | a number from 0 to 200: points between a pet's feet and the ground, on the screen bottom and on the Dock alike. Absent keeps today's look (a small lift, with the label pill under the feet). `0` stands pets right on the edge; the pill then sits over the head |
 | `display` | `"focused"` | which display the pets live on when there are several. `focused` follows the display with keyboard focus. `primary` keeps them on the primary display (the one with the menu bar in System Settings), and follows macOS when the primary changes, such as when a laptop lid closes. `name:<display name>` picks one display by the name macOS gives it in System Settings > Displays, and uses the primary display while that one is not attached |
 
 The daemon rereads the file when it changes, so there is nothing to restart (`diveOnExit` aside). With `primary` or

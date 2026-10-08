@@ -199,7 +199,7 @@ which is what sweeps records that a missed `SessionEnd` hook left behind.
    ellipsis (`PetAppearance.fitted(toWidth:)`, `LabelShortening`). The part that tells pets apart stays:
    a final `(...)` group or a short last word (6 characters or fewer, such as `T1` or a disambiguation
    suffix) is kept whole, and the text before it keeps its start and up to its last 4 characters around
-   the ellipsis, the start giving way first (`NIS…140 (DEV)`), since numbers that tell tickets apart sit at
+   the ellipsis, the start giving way first (`TIC…140 (DEV)`), since numbers that tell tickets apart sit at
    the end of it. A label with neither is cut in the middle. The lengths are found by binary search when
    the pets are planned, never per frame. A change of the screen the pets use plans them again at the
    next poll, so the labels are fitted and the gap worked out for the new width. After every lane
@@ -1320,6 +1320,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "accentInks": true,
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
+  "dockGround": true,
+  "hideLabelsWhileFloating": false,
   "display": "primary",
   "whenFullScreen": [
     {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}
