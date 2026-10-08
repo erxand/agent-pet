@@ -16,6 +16,7 @@ struct HighFiveCandidate {
 final class HighFiveDirector {
     static let greetingDistance: CGFloat = 320
     static let chancePerEncounter: Double = 0.1
+    static let evenOddsThreshold: Double = 0.5
     static let pairCooldownInSeconds: TimeInterval = 600
     static let arrivalStaggerInSeconds: Double = 0.6
     static let raiseFrameInSeconds: Double = 0.15
@@ -185,7 +186,7 @@ final class HighFiveDirector {
         let rightTarget = border + halfSpacing - right.homeHorizontalCenter
         let leftDistance = abs(leftTarget - left.animator.horizontalOffsetFromHome)
         let rightDistance = abs(rightTarget - right.animator.horizontalOffsetFromHome)
-        let leftFirst = leftDistance == rightDistance ? random() < 0.5 : leftDistance < rightDistance
+        let leftFirst = leftDistance == rightDistance ? random() < HighFiveDirector.evenOddsThreshold : leftDistance < rightDistance
         let first = leftFirst ? left : right
         let second = leftFirst ? right : left
         let firstDistance = leftFirst ? leftDistance : rightDistance

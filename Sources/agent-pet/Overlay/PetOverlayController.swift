@@ -610,16 +610,19 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 submergedSessionIds.append(presence.sessionId)
                 continue
             }
-            // Rendered after the body moves, so a launch or a touchdown tick shows its own state; PetGroundTests.step follows this order.
-            if !presence.animator.isDiving {
-                applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
-            }
-            renderSprite(for: presence)
+            showStateAfterBodyStep(presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
         }
         for sessionId in submergedSessionIds {
             removePresence(sessionId: sessionId)
         }
         finishShutdownIfEveryPetIsUnder()
+    }
+
+    private func showStateAfterBodyStep(_ presence: PetPresence, screenFrames: OverlayScreenFrames, elapsedSeconds: Double) {
+        if !presence.animator.isDiving {
+            applyGeometry(to: presence, screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
+        }
+        renderSprite(for: presence)
     }
 
     private func renderSprite(for presence: PetPresence) {

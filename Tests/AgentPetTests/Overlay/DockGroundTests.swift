@@ -814,8 +814,7 @@ struct PetGroundTests {
         PetGround { DockGround(sensing: sensing, screenFrames: { [screenFrame] }) }
     }
 
-    // The controller's tick order, by hand: refresh, the animator's step, finishStep, the body, then the render.
-    private func step(_ presence: PetPresence, ground: PetGround, now: Double, standsOnDock: Bool = true, sawWait: inout Bool) -> CGFloat {
+    private func stepInControllerTickOrder(_ presence: PetPresence, ground: PetGround, now: Double, standsOnDock: Bool = true, sawWait: inout Bool) -> CGFloat {
         ground.refresh(standsOnDock: standsOnDock, screenFrames: screenFrames, now: now, elapsedSeconds: tick)
         var waitedThisTick = false
         presence.animator.advance(elapsedSeconds: tick, mood: .ready, airborne: presence.groundBody?.isAirborne ?? false) { offset in
@@ -848,7 +847,7 @@ struct PetGroundTests {
         let presence = makePresence(home: 800)
         var sawWait = false
         for index in 0..<120 {
-            let bottom = step(presence, ground: ground, now: Double(index) * tick, standsOnDock: false, sawWait: &sawWait)
+            let bottom = stepInControllerTickOrder(presence, ground: ground, now: Double(index) * tick, standsOnDock: false, sawWait: &sawWait)
             #expect(bottom == screenFrame.minY + PetGeometry.windowBottomInset)
             #expect(presence.groundBody == nil)
         }
@@ -868,7 +867,7 @@ struct PetGroundTests {
         var sawWait = false
         var stoodOnTop = false
         for index in 0..<240 {
-            let bottom = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
+            let bottom = stepInControllerTickOrder(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
             let center = presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
             if ground.profile.segment?.overlaps(ground.bodySpan(of: presence, centerX: center)) == true {
                 #expect(bottom >= top - GroundBody.stepUpTolerance)
@@ -934,13 +933,13 @@ struct PetGroundTests {
         presence.spriteSheet = PetGroundTests.flightSheet
         let frames = PetSpriteFrames()
         var sawWait = false
-        for index in 0..<20 { _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait) }
+        for index in 0..<20 { _ = stepInControllerTickOrder(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait) }
         var shown: [ShownFrame] = []
         var landing: Int?
         for index in 0..<60 {
             let progress = easeOut(Double(index) * tick / DockSlide.showSeconds)
             sensing.listFrame = CGRect(x: 76, y: 1117 - 84 * progress, width: 1576, height: 74)
-            _ = step(presence, ground: ground, now: Double(20 + index) * tick, sawWait: &sawWait)
+            _ = stepInControllerTickOrder(presence, ground: ground, now: Double(20 + index) * tick, sawWait: &sawWait)
             if let frame = record(presence, frames: frames) { shown.append(frame) }
             if landing == nil, shown.contains(where: { frame in frame.animationName == .fall }), presence.groundBody?.phase == .standing {
                 landing = shown.count - 1
@@ -961,7 +960,7 @@ struct PetGroundTests {
         var shown: [ShownFrame] = []
         var landing: Int?
         for index in 0..<120 {
-            _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
+            _ = stepInControllerTickOrder(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
             if let frame = record(presence, frames: frames) { shown.append(frame) }
             if landing == nil, shown.contains(where: { frame in frame.animationName == .fall }), presence.groundBody?.phase == .standing {
                 landing = shown.count - 1
@@ -981,7 +980,7 @@ struct PetGroundTests {
         var sawWait = false
         var airborneTicks = 0
         for index in 0..<120 {
-            _ = step(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
+            _ = stepInControllerTickOrder(presence, ground: ground, now: Double(index) * tick, sawWait: &sawWait)
             guard presence.groundBody?.isAirborne == true, let shown = frames.shownFrame(for: presence) else { continue }
             airborneTicks += 1
             let standIn = shown.animationName.frames(in: presence.spriteSheet)

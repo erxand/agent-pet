@@ -1266,6 +1266,8 @@ missing key, an unknown key and a bad value all mean the default for that key, n
   "accentInks": true,
   "diveOnExit": true,
   "subagentToolsKeepNeedsInput": true,
+  "dockGround": true,
+  "hideLabelsWhileFloating": false,
   "display": "primary",
   "whenFullScreen": [
     {"bundleIds": ["com.example.screensaver"], "apply": {"physics": "float", "input": "off", "level": "above"}}

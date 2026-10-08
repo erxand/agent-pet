@@ -12,12 +12,9 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 import png
 
-# Each animation and the number of frames the sheet shows for it.
 ANIMATIONS = [('idle', 2), ('walk', 4), ('wave', 3), ('sit', 2), ('emerge', 3), ('dive', 3), ('jump', 2), ('fall', 2), ('highfive', 3)]
-# What agent-pet shows when a pack has no file for an optional animation (SpriteAnimationName.standIn).
 STAND_INS = {'jump': 'walk', 'fall': 'idle', 'highfive': 'wave'}
 TRANSPARENT = (0, 0, 0, 0)
-# The eight original packs lead the sheet in this order; the rest follow by name.
 FIRST_PACKS = ['claude', 'golem', 'hatchling', 'mossling', 'nimbus', 'seon', 'tinowl', 'walle']
 
 
@@ -57,8 +54,6 @@ def load_pack(pack_dir):
     for animation, _ in ANIMATIONS:
         path = os.path.join(pack_dir, animation + '.txt')
         frames_by_animation[animation] = read_frames(path) if os.path.exists(path) else None
-    # A missing emerge or dive holds idle frame 0; a missing jump plays walk, a missing fall
-    # plays idle and a missing highfive plays wave.
     for animation, frame_count in ANIMATIONS:
         if frames_by_animation[animation] is not None:
             continue
@@ -71,23 +66,23 @@ def load_pack(pack_dir):
 
 def frame_pixels(frame, frame_size, palette):
     """A frame as rows of colors; '.', unknown characters and short rows are transparent."""
-    def pixel(x, y):
-        if y >= len(frame) or x >= len(frame[y]) or frame[y][x] == '.':
+    def pixel(column, line):
+        if line >= len(frame) or column >= len(frame[line]) or frame[line][column] == '.':
             return TRANSPARENT
-        return palette.get(frame[y][x], TRANSPARENT)
-    return [[pixel(x, y) for x in range(frame_size)] for y in range(frame_size)]
+        return palette.get(frame[line][column], TRANSPARENT)
+    return [[pixel(column, line) for column in range(frame_size)] for line in range(frame_size)]
 
 
 def draw(canvas, pixels, left, top, scale):
     """Copy pixels onto canvas at (left, top), each pixel a scale by scale square. Transparent pixels are skipped."""
-    for y, row in enumerate(pixels):
-        for x, color in enumerate(row):
+    for row_index, row in enumerate(pixels):
+        for column_index, color in enumerate(row):
             if color[3] == 0:
                 continue
-            for dy in range(scale):
-                canvas_row = canvas[top + y * scale + dy]
-                for dx in range(scale):
-                    canvas_row[left + x * scale + dx] = color
+            for row_offset in range(scale):
+                canvas_row = canvas[top + row_index * scale + row_offset]
+                for column_offset in range(scale):
+                    canvas_row[left + column_index * scale + column_offset] = color
 
 
 def sheet(pack_dirs, out, scale=4, margin=4, frame_gap=4, animation_gap=16):
