@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ART_PATH="${SCRIPT_DIRECTORY}/AppIcon-art.png"
-SMALL_CROP="230,250,560"
+SMALL_CROP="88,220,704"
 ICON_SET_DIRECTORY="${SCRIPT_DIRECTORY}/AppIcon.iconset"
 ASSET_CATALOG_PATH="${SCRIPT_DIRECTORY}/Assets.car"
 ICON_NAME="AppIcon"
