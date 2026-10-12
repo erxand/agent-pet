@@ -157,6 +157,7 @@ final class PetView: NSView {
     private var groundOffsetFraction: CGFloat = 1
     private(set) var chromeOpacity: CGFloat = 0
     private(set) var spaceRotationInRadians: CGFloat?
+    private(set) var whirlpoolScale: CGFloat = 1
     private(set) var chromeRedrawCount = 0
 
     var isInert = false {
@@ -226,6 +227,12 @@ final class PetView: NSView {
         layoutParts()
     }
 
+    func update(whirlpoolScale scale: CGFloat) {
+        guard scale != whirlpoolScale else { return }
+        whirlpoolScale = scale
+        layoutParts()
+    }
+
     func update(petAppearance: PetAppearance) {
         guard petAppearance != self.petAppearance else { return }
         self.petAppearance = petAppearance
@@ -283,11 +290,12 @@ final class PetView: NSView {
         let rotationInDegrees = (spaceRotationInRadians ?? 0) * PetView.degreesPerRadian
         contentView.frameCenterRotation = 0
         contentView.frame = CGRect(
-            x: (bounds.width - content.width) / 2,
-            y: (bounds.height - content.height) / 2,
-            width: content.width,
-            height: content.height
+            x: (bounds.width - content.width * whirlpoolScale) / 2,
+            y: (bounds.height - content.height * whirlpoolScale) / 2,
+            width: content.width * whirlpoolScale,
+            height: content.height * whirlpoolScale
         )
+        contentView.bounds = content
         contentView.frameCenterRotation = rotationInDegrees
         let sideLength = petAppearance.spriteSideLength
         let groundOffset = groundOffsetFraction

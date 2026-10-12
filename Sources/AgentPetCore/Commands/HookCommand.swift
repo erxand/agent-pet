@@ -208,7 +208,7 @@ enum HookCommand {
     }
 
     private static func ensureDaemonWhenVisible(snapshot: PetRecordSnapshot) {
-        guard snapshot.visible else { return }
+        guard snapshot.visible || snapshot.heldByMinimize else { return }
         DaemonCommand.ensureRunning()
     }
 

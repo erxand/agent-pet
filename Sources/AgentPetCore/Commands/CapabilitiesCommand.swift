@@ -10,6 +10,7 @@ package enum AgentPetCapability: String, CaseIterable {
     case hideLabelsFloating = "hide-labels-floating"
     case dockGround = "dock-ground"
     case groundGap = "ground-gap"
+    case minimizeHide = "minimize-hide"
 }
 
 enum CapabilitiesCommand {

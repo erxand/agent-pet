@@ -1090,6 +1090,8 @@ final class FakeDockSystem: DockSystem {
     var windowsByOwner: [pid_t: [CGWindowID]] = [100: [7]]
     var liveWindows: [CGWindowID: DockWindowDescription] = [7: DockWindowDescription(isOnScreen: true, topLeftFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117))]
     var listFramesByProcess: [pid_t: CGRect] = [100: shownListFrame]
+    var itemsByProcess: [pid_t: [DockItemDescription]] = [:]
+    var dockPreferences = DockPreferences(autohides: true, tileSize: 54, tileCount: 19, separatorCount: 2)
     private(set) var lookups = 0
     private(set) var windowSearches = 0
     private(set) var accessibilityProcessIdentifiers: [pid_t] = []
@@ -1119,7 +1121,11 @@ final class FakeDockSystem: DockSystem {
         return listFramesByProcess[processIdentifier]
     }
 
-    func preferences() -> DockPreferences { DockPreferences(autohides: true, tileSize: 54, tileCount: 19, separatorCount: 2) }
+    func accessibilityDockItems(processIdentifier: pid_t) -> [DockItemDescription] {
+        itemsByProcess[processIdentifier] ?? []
+    }
+
+    func preferences() -> DockPreferences { dockPreferences }
 
     func pointerLocation() -> CGPoint { CGPoint(x: 800, y: 600) }
 }

@@ -19,6 +19,8 @@ final class PetPresence: LaneWalker, HighFiveParticipant {
     var groundBody: GroundBody?
     var waitsOnJump = false
     var greetingChromeFade: Double = 1
+    var whirlpool: WhirlpoolMotion?
+    var whirlpoolWindow: PetWhirlpoolWindow?
 
     var laneWidth: CGFloat { view.contentSize.width }
     var windowWidth: CGFloat { view.preferredSize.width }
@@ -67,4 +69,12 @@ struct SpriteImageCacheKey: Hashable {
     let animationName: SpriteAnimationName
     let frameIndex: Int
     let facingLeft: Bool
+}
+
+struct PetWhirlpoolWindow: Equatable {
+    let title: String
+    let applicationName: String?
+    var searchStartedAt: TimeInterval?
+    var lastSearchAt: TimeInterval?
+    var foundTile = false
 }

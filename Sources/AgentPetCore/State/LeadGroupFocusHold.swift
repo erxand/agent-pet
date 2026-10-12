@@ -23,9 +23,9 @@ enum LeadGroupFocusHold {
         guard let session = store.load(sessionId: sessionId) else { return false }
         var anyVisible = false
         for member in leadGroupmates(of: session, store: store) where member.sessionId != session.sessionId
-            && member.held == true
-            && PetTurnState.release(sessionId: member.sessionId, grace: grace).visible {
-            anyVisible = true
+            && member.held == true {
+            let released = PetTurnState.release(sessionId: member.sessionId, grace: grace)
+            if released.visible || released.heldByMinimize { anyVisible = true }
         }
         return anyVisible
     }

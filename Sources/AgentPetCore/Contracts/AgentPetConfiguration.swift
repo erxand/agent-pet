@@ -43,6 +43,7 @@ package struct AgentPetConfiguration: Equatable {
     package var hidesLabelsWhileFloating: Bool
     package var standsOnDock: Bool
     package var groundGap: CGFloat?
+    package var hidesWhenWindowMinimized: Bool
 
     package init(
         focuser: FocuserConfiguration,
@@ -61,7 +62,8 @@ package struct AgentPetConfiguration: Equatable {
         fullScreenRules: [PetFullScreenRule] = [],
         hidesLabelsWhileFloating: Bool = false,
         standsOnDock: Bool = true,
-        groundGap: CGFloat? = nil
+        groundGap: CGFloat? = nil,
+        hidesWhenWindowMinimized: Bool = false
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -80,6 +82,7 @@ package struct AgentPetConfiguration: Equatable {
         self.hidesLabelsWhileFloating = hidesLabelsWhileFloating
         self.standsOnDock = standsOnDock
         self.groundGap = groundGap
+        self.hidesWhenWindowMinimized = hidesWhenWindowMinimized
     }
 }
 
@@ -141,6 +144,9 @@ package enum ConfigurationFile {
         if let groundGap = raw.groundGap, groundGap.isFinite, groundGap >= 0, groundGap <= AgentPetConfiguration.maximumGroundGap {
             configuration.groundGap = CGFloat(groundGap)
         }
+        if let hidesWhenMinimized = raw.hideWhenWindowMinimized {
+            configuration.hidesWhenWindowMinimized = hidesWhenMinimized
+        }
         return configuration
     }
 
@@ -196,6 +202,7 @@ private struct RawConfiguration: Decodable {
     let hideLabelsWhileFloating: Bool?
     let dockGround: Bool?
     let groundGap: Double?
+    let hideWhenWindowMinimized: Bool?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -215,6 +222,7 @@ private struct RawConfiguration: Decodable {
         case hideLabelsWhileFloating
         case dockGround
         case groundGap
+        case hideWhenWindowMinimized
     }
 
     init(from decoder: Decoder) throws {
@@ -234,6 +242,7 @@ private struct RawConfiguration: Decodable {
         hideLabelsWhileFloating = try? container.decodeIfPresent(Bool.self, forKey: .hideLabelsWhileFloating)
         dockGround = try? container.decodeIfPresent(Bool.self, forKey: .dockGround)
         groundGap = try? container.decodeIfPresent(Double.self, forKey: .groundGap)
+        hideWhenWindowMinimized = try? container.decodeIfPresent(Bool.self, forKey: .hideWhenWindowMinimized)
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?

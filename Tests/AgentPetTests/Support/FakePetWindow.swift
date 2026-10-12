@@ -5,6 +5,7 @@ final class FakePetWindow: PetWindowing {
     private(set) var frame: NSRect
     var level: NSWindow.Level = .normal
     var ignoresMouseEvents = false
+    var alphaValue: CGFloat = 1
     private(set) var isClosed = false
 
     init(frame: NSRect) {

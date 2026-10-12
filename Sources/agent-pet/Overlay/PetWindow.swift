@@ -35,6 +35,7 @@ protocol PetWindowing: AnyObject {
     var frame: NSRect { get }
     var level: NSWindow.Level { get set }
     var ignoresMouseEvents: Bool { get set }
+    var alphaValue: CGFloat { get set }
     func setFrame(_ frameRect: NSRect, display flag: Bool)
     func orderOut(_ sender: Any?)
     func close()

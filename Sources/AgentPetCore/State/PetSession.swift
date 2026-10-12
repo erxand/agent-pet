@@ -55,6 +55,7 @@ package struct PetSession: Codable, Equatable {
     package var groupMode: PetGroupMode?
     package var disambiguator: String?
     package var disambiguationScope: String?
+    package var heldByMinimize: Bool?
 
     package var isPreview: Bool {
         sessionId.hasPrefix(PetSession.previewSessionIdPrefix)
@@ -138,6 +139,7 @@ extension PetSession {
         groupMode = (try? container.decodeIfPresent(PetGroupMode.self, forKey: .groupMode)) ?? nil
         disambiguator = try container.decodeIfPresent(String.self, forKey: .disambiguator)
         disambiguationScope = try container.decodeIfPresent(String.self, forKey: .disambiguationScope)
+        heldByMinimize = try container.decodeIfPresent(Bool.self, forKey: .heldByMinimize)
     }
 
     private static func decodeLegacySubagents(from decoder: Decoder, startedAt: TimeInterval) throws -> [TrackedSubagent] {
@@ -175,7 +177,8 @@ extension PetSession {
             updatedAt: Date().timeIntervalSince1970,
             groupMode: nil,
             disambiguator: nil,
-            disambiguationScope: nil
+            disambiguationScope: nil,
+            heldByMinimize: nil
         )
     }
 }

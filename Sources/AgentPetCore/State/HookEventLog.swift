@@ -8,6 +8,7 @@ enum HookEventLog {
     private static let activeSubagentCountFieldPrefix = "agents="
     private static let toolNameFieldPrefix = "tool="
     private static let heldField = "held=true"
+    private static let heldByMinimizeField = "minimized=true"
     private static let completedSubagentCountFieldPrefix = "completed="
     private static let interimSubagentCountFieldPrefix = "interim="
     private static let expiredSubagentCountFieldPrefix = "expired="
@@ -42,6 +43,9 @@ enum HookEventLog {
         }
         if result.snapshot.held {
             fields.append(heldField)
+        }
+        if result.snapshot.heldByMinimize {
+            fields.append(heldByMinimizeField)
         }
         if let reportedCleanup, reportedCleanup.foundAnything {
             fields.append(completedSubagentCountFieldPrefix + String(reportedCleanup.completedSubagentIds.count))

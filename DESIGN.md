@@ -44,6 +44,7 @@ agent-pet/
   sprites/<pack>/              installed sprite packs
   config.json                  optional, see "Configuration"
   focus.json                   written by a terminal integration: the pane in front, see "Held back"
+  minimized.json               written by a terminal integration: its minimized windows, see "Held by a minimized window"
   daemon.pid                   pid of the running overlay daemon
   dock-access.json             the daemon's own Accessibility state, see "The Dock as ground"
   control/dock-access-ask      a request from `dock-access --ask`, consumed by the daemon
@@ -91,6 +92,9 @@ file on every write (temp file in the same dir, then rename).
 - `held` is optional and present only as `true`, with `heldAt` (seconds since 1970) beside it: a hook wanted
   to show the pet but its pane was the one in front, so the pet stayed down. `release` decides later whether it
   comes up. Any hide, `off` and the start of a new turn drop it. See "Held back".
+- `heldByMinimize` is optional and present only as `true`: the pet would be up, but its pane's window is
+  minimized (see "Held by a minimized window"). It is a hold of its own, never beside `held`, and `release` leaves
+  it alone. Restoring the window ends it; any hide, `off` and the start of a new turn drop it.
 - `waitingSince` is optional: when the session last started waiting on the user. Every show (`Stop`, a
   `needsInput` notification, `show`) and every hold stamps it, a `release` keeps it, and a hide removes it. A record without it, including every
   record from before this field and every `preview`, shows at once. See "Settling".
@@ -311,9 +315,9 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `ensure-daemon` | kickstart the launchd agent when its plist exists, otherwise start `daemon` detached if `daemon.pid` is missing or dead; idempotent, see "Daemon lifecycle" |
 | `on [identity flags] [--no-color-sync]` | upsert record: enabled true, and visible false for a new or disabled record (an enabled record keeps `visible` and `held`, so a relabel never takes a pet down), `sprite` assigned if absent, then `accent` filled from that pack if absent; ensure-daemon; print one line naming the sprite and the resolved accent; then sync the prompt bar color. Re-running it updates the record in place: only the fields the flags name change, and `sprite`, `accent`, `focusTarget`, `activeSubagents` and the transcript offset are kept |
 | `off [--session ID] [--no-color-sync]` | enabled false, visible false; then reset the prompt bar color |
-| `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. Not enrolled or disabled: silent exit 0 |
+| `show [--mood MOOD] [--message TEXT]` | if enabled: visible true, mood, message; ensure-daemon. With `hideWhenWindowMinimized` on and the record's pane in a minimized window, it is held by that window instead (see "Held by a minimized window"). Not enrolled or disabled: silent exit 0 |
 | `hide [--session ID \| --focus-target T \| --pid N]` | visible false, `held` dropped. When a selected record is the lead of a lead group (its live flagged owner, whose own `groupMode` is `lead`), every other live member of that group that is visible and `ready`, or `held`, is hidden too and its hold dropped, see "Lead groups" |
-| `release [--session ID \| --focus-target T \| --pid N] [--grace S]` | for a `held` record: drop the hold, and when the record is enabled, not working, not visible and (with `--grace`) was held less than S seconds ago, show it with the mood and message it was held with; ensure-daemon when it came up. Anything else is untouched |
+| `release [--session ID \| --focus-target T \| --pid N] [--grace S]` | for a `held` record: drop the hold, and when the record is enabled, not working, not visible and (with `--grace`) was held less than S seconds ago, show it with the mood and message it was held with, or, when its pane's window is minimized by then, hold it by that window instead; ensure-daemon when it came up or was held. A record held only by a minimized window, and anything else, is untouched |
 | `remove [--session ID \| --focus-target T \| --pid N]` | delete the record |
 | `status [--json]` | table: session id (short), label, sprite, accent, enabled, visible, mood, active subagent count, alive; plus daemon pid. `--json` prints `{"daemonPid": N or null, "sessions": [...], "states": {...}}` (`states` is described under "Pet states") with `sessionId`, `group`, `label`, `sprite`, `accent`, `agent`, `enabled`, `visible`, `mood`, `activeSubagents` (a count), `alive`, `pid`, `focusTarget` and `updatedAt` per session, plus `group` (the record's `group`, else its session id) and `owner` (true when the session is the resolved owner of its live pet, false for every other member and for a dead session), `flaggedOwner` (the record's own `owner` flag), `groupMode` (`shared` or `lead`), `disambiguator` and `disambiguationScope` (null when absent) |
 | (selection) | `hide`, `release` and `remove` act on `--session`, else on every record whose `focusTarget` is `--focus-target` (what a terminal knows about its pane), else on every record whose `pid` is `--pid` (what knows the process after a `/clear` changed its id), else on `$CLAUDE_CODE_SESSION_ID` |
@@ -325,7 +329,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "downloaded"}]}` with `accent` null for a pack that yields none. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key), `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground") and `ground-gap` (the `groundGap` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key), `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"), `ground-gap` (the `groundGap` config key) and `minimize-hide` (the `hideWhenWindowMinimized` config key and `minimized.json`, see "Held by a minimized window"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `dock-access [--ask]` | print `granted`, `not granted` or `unknown`: whether the running daemon may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". The answer is the daemon's, read from `dock-access.json`, never the command's own process, because a command started from a terminal is judged by the terminal's grant. `unknown` means no running daemon has written a report. Without `--ask` it reads and never prompts. `--ask` ensures the daemon, leaves `control/dock-access-ask`, and waits up to 3 s for the daemon to call macOS itself (which shows the system prompt) and report. Exit 0 only for `granted` |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
@@ -710,6 +714,44 @@ first) still belongs to a live member of that group, so moving between the windo
 hold and its `heldAt`. Once focus has left the group, it releases that member and every other held member
 of the group, each on its own `heldAt`. A `hide` that names the lead drops the hold of every member whose
 held mood is `ready`; a held question keeps its hold.
+
+### Held by a minimized window
+
+The sibling of "Held back", and opt in: with `hideWhenWindowMinimized` off or absent nothing below happens and
+`minimized.json` is never read. A terminal integration lists its minimized windows in
+`~/.agent-pet/minimized.json`, written through a temp file and a rename, only on change:
+`{"pid": <its own pid>, "windows": [{"title": "<the title the Dock tile shows>", "focusTargets": ["termie:12",
+"termie:13"]}]}`. An empty `windows` means nothing is minimized. The whole file is ignored when it does not parse
+or the writer pid is dead, the same rule as `focus.json`, so a terminal that crashed holds nothing down.
+
+- Every show (`Stop`, the needs-input notifications, the `show` command and a `release` that would bring a pet
+  up) reads it inside the record lock. When the record's `focusTarget` is in a minimized window, the record
+  keeps the new mood and message but stays hidden with `heldByMinimize`, which is checked before the in-front
+  hold (a minimized window cannot be in front). `release --grace` never drops it: there is nothing to have seen.
+  A hook that holds a pet this way ensures the daemon, since only the daemon brings it back.
+- The daemon watches the state directory (a `DirectoryChangeMonitor`, with the usual 5 s rescan, which also
+  notices a writer that died) and rereads the file when it changes. A visible record whose pane is now
+  minimized is held the same way (`MinimizeHold.apply`). A record held by a window that is no longer
+  minimized loses that hold, and when its session still wants the user (enabled, not busy, no subagents, the
+  test `release` uses) it comes up with the mood and message it was held with and its old `waitingSince`;
+  when its pane is the one in front by `focus.json` (or, for a `ready` in a lead group, any pane of its
+  window), it gets the in-front hold of "Held back" instead, with a fresh `heldAt`.
+- A pet that is up when its window is minimized does not dive: it is pulled into a whirlpool toward that
+  window's tile in the Dock. Over 0.8 s, eased in, it spirals 1.75 turns into the tile, shrinking to nothing
+  and fading out as it turns, then is gone; a floating pet starts from wherever it is in the air. A pet that
+  shows for several sessions (a group pet) goes only when every member it is showing for is minimized; while
+  one of them is not, it stays up for that one.
+- The tile is found through the Accessibility access the Dock ground already uses: among the children of the
+  Dock's `AXList`, the item with subrole `AXMinimizedWindowDockItem` whose title matches the window's, both
+  compared with any leading status glyph and spaces trimmed. The tile appears only after macOS's own minimize
+  animation, so the pet sets off toward an estimate and looks again every 0.1 s for up to 1.5 s, gliding its aim
+  over when the tile turns up. With the Dock preference `minimize-to-application` on, it goes into the
+  application's own tile instead (`AXApplicationDockItem` titled with the writer's application name). Failing
+  both, and always without Accessibility, it goes where minimized tiles go: the trailing end of the Dock, one
+  tile in from the end before the Trash, for the Dock's orientation, from the Dock's list frame when it is
+  known and from the same estimate the Dock ground uses otherwise. A Dock that hides is aimed at where it
+  would be when shown.
+- Turning the key off releases every pet held this way at the next reload, as if each window were restored.
 
 ### Groups
 

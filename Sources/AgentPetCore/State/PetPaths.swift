@@ -13,6 +13,7 @@ package enum PetPaths {
     private static let daemonLogFileName = "daemon.log"
     private static let hookLogFileName = "hooks.log"
     private static let focusFileName = "focus.json"
+    private static let minimizedFileName = "minimized.json"
 
     package static var homeDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -50,6 +51,10 @@ package enum PetPaths {
 
     package static var focusFile: URL {
         stateDirectory.appendingPathComponent(focusFileName, isDirectory: false)
+    }
+
+    package static var minimizedFile: URL {
+        stateDirectory.appendingPathComponent(minimizedFileName, isDirectory: false)
     }
 
     package static func createStateDirectoriesIfNeeded() {

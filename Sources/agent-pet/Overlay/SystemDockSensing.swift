@@ -7,6 +7,15 @@ struct DockWindowDescription: Equatable {
     let topLeftFrame: CGRect?
 }
 
+struct DockItemDescription: Equatable {
+    static let minimizedWindowSubrole = "AXMinimizedWindowDockItem"
+    static let applicationSubrole = "AXApplicationDockItem"
+
+    let subrole: String?
+    let title: String?
+    let topLeftFrame: CGRect?
+}
+
 protocol DockSystem: AnyObject {
     var processChanges: Int { get }
     func uptime() -> TimeInterval
@@ -15,6 +24,7 @@ protocol DockSystem: AnyObject {
     func dockWindowIdentifiers(ownedBy processIdentifier: pid_t) -> [CGWindowID]
     func describeWindows(_ identifiers: [CGWindowID]) -> [DockWindowDescription]
     func accessibilityListFrame(processIdentifier: pid_t) -> CGRect?
+    func accessibilityDockItems(processIdentifier: pid_t) -> [DockItemDescription]
     func preferences() -> DockPreferences
     func pointerLocation() -> CGPoint
 }
@@ -187,6 +197,7 @@ final class LiveDockSystem: DockSystem {
         let tileSize = (value(DockPreferences.tileSizeKey, in: domain) as? NSNumber).map { number in CGFloat(number.doubleValue) }
             ?? DockPreferences.defaultTileSize
         let showsRecents = (value(DockPreferences.showsRecentsKey, in: domain) as? Bool) ?? true
+        let minimizesToApplication = (value(DockPreferences.minimizesToApplicationKey, in: domain) as? Bool) ?? false
         let pinnedApps = (value(DockPreferences.persistentAppsKey, in: domain) as? [[String: Any]]) ?? []
         let others = (value(DockPreferences.persistentOthersKey, in: domain) as? [[String: Any]]) ?? []
         let recents = (value(DockPreferences.recentAppsKey, in: domain) as? [[String: Any]]) ?? []
@@ -205,12 +216,41 @@ final class LiveDockSystem: DockSystem {
             tileSize: tileSize,
             magnifies: magnifies,
             tileCount: LiveDockSystem.fixedTileCount + pinnedApps.count + middleSection + others.count,
-            separatorCount: 1 + (middleSection > 0 ? 1 : 0)
+            separatorCount: 1 + (middleSection > 0 ? 1 : 0),
+            minimizesToApplication: minimizesToApplication
         )
+    }
+
+    func accessibilityDockItems(processIdentifier: pid_t) -> [DockItemDescription] {
+        guard let list = dockList(processIdentifier: processIdentifier) else { return [] }
+        var children: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(list, kAXChildrenAttribute as CFString, &children) == .success,
+              let items = children as? [AXUIElement]
+        else {
+            dockList = nil
+            return []
+        }
+        return items.map { item in
+            AXUIElementSetMessagingTimeout(item, LiveDockSystem.messagingTimeoutInSeconds)
+            let frame = pointValue(of: item, attribute: kAXPositionAttribute).flatMap { position in
+                sizeValue(of: item, attribute: kAXSizeAttribute).map { size in CGRect(origin: position, size: size) }
+            }
+            return DockItemDescription(
+                subrole: stringValue(of: item, attribute: kAXSubroleAttribute),
+                title: stringValue(of: item, attribute: kAXTitleAttribute),
+                topLeftFrame: frame
+            )
+        }
     }
 
     func pointerLocation() -> CGPoint {
         NSEvent.mouseLocation
+    }
+
+    private func stringValue(of element: AXUIElement, attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+        return value as? String
     }
 
     private func value(_ key: String, in domain: CFString) -> Any? {

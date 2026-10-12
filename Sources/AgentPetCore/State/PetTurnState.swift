@@ -3,11 +3,13 @@ import Foundation
 package struct PetRecordSnapshot {
     package let visible: Bool
     package let held: Bool
+    package let heldByMinimize: Bool
     package let activeSubagentCount: Int
 
     init(record: PetSession?) {
         visible = record?.visible ?? false
         held = record?.held == true
+        heldByMinimize = record?.heldByMinimize == true
         activeSubagentCount = record?.activeSubagents.count ?? 0
     }
 }
@@ -53,7 +55,11 @@ package enum PetTurnState {
     @discardableResult
     static func show(sessionId: String, mood: PetMood?, message: String?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            markVisible(&record, mood: mood, message: message)
+            if let session = record, MinimizedWindows.isMinimized(session, minimizedTargets: MinimizedWindows.current().focusTargets) {
+                markHeldByMinimize(&record, mood: mood ?? session.mood, message: message)
+            } else {
+                markVisible(&record, mood: mood, message: message)
+            }
             return PetRecordSnapshot(record: record)
         }
     }
@@ -61,7 +67,13 @@ package enum PetTurnState {
     @discardableResult
     static func showUnlessInFront(sessionId: String, mood: PetMood, message: String?) -> PetRecordSnapshot {
         PetSessionStore().withLockedRecord(sessionId: sessionId) { record in
-            markVisibleUnlessInFront(&record, mood: mood, message: message, focusedTarget: FocusedTarget.current())
+            markVisibleUnlessHeld(
+                &record,
+                mood: mood,
+                message: message,
+                focusedTarget: FocusedTarget.current(),
+                minimizedTargets: MinimizedWindows.current().focusTargets
+            )
             return PetRecordSnapshot(record: record)
         }
     }
@@ -78,11 +90,12 @@ package enum PetTurnState {
                 markHidden(&record)
             } else {
                 markDone(&record)
-                markVisibleUnlessInFront(
+                markVisibleUnlessHeld(
                     &record,
                     mood: mood,
                     message: message,
-                    focusedTarget: FocusedTarget.current()
+                    focusedTarget: FocusedTarget.current(),
+                    minimizedTargets: MinimizedWindows.current().focusTargets
                 )
             }
             return PetHookResult(record: record, cleanup: cleanup)
@@ -125,9 +138,57 @@ package enum PetTurnState {
             session.held = nil
             session.heldAt = nil
             if leftInTime && session.enabled && !session.isWorking && !session.visible {
-                session.visible = true
-                session.waitingSince = session.waitingSince ?? now
-                session.updatedAt = now
+                if MinimizedWindows.isMinimized(session, minimizedTargets: MinimizedWindows.current().focusTargets) {
+                    session.heldByMinimize = true
+                } else {
+                    session.visible = true
+                    session.waitingSince = session.waitingSince ?? now
+                    session.updatedAt = now
+                }
+            }
+            record = session
+            return PetRecordSnapshot(record: record)
+        }
+    }
+
+    @discardableResult
+    package static func holdWhileMinimized(
+        sessionId: String,
+        minimizedTargets: Set<String>,
+        store: PetSessionStore = PetSessionStore()
+    ) -> Bool {
+        store.withLockedRecord(sessionId: sessionId) { record in
+            guard var session = record, session.visible,
+                  MinimizedWindows.isMinimized(session, minimizedTargets: minimizedTargets) else { return false }
+            session.visible = false
+            session.held = nil
+            session.heldAt = nil
+            session.heldByMinimize = true
+            session.updatedAt = Date().timeIntervalSince1970
+            record = session
+            return true
+        }
+    }
+
+    @discardableResult
+    package static func endMinimizeHold(
+        sessionId: String,
+        focusedTarget: String?,
+        store: PetSessionStore = PetSessionStore()
+    ) -> PetRecordSnapshot {
+        store.withLockedRecord(sessionId: sessionId) { record in
+            guard var session = record, session.heldByMinimize == true else { return PetRecordSnapshot(record: record) }
+            let now = Date().timeIntervalSince1970
+            session.heldByMinimize = nil
+            if session.enabled && !session.isWorking && !session.visible {
+                if isHeldInFront(session, mood: session.mood, focusedTarget: focusedTarget, store: store) {
+                    session.held = true
+                    session.heldAt = now
+                } else {
+                    session.visible = true
+                    session.waitingSince = session.waitingSince ?? now
+                    session.updatedAt = now
+                }
             }
             record = session
             return PetRecordSnapshot(record: record)
@@ -167,6 +228,7 @@ package enum PetTurnState {
         session.visible = true
         session.held = nil
         session.heldAt = nil
+        session.heldByMinimize = nil
         session.mood = mood ?? session.mood
         session.message = message
         session.waitingSince = now
@@ -174,15 +236,19 @@ package enum PetTurnState {
         record = session
     }
 
-    private static func markVisibleUnlessInFront(
+    private static func markVisibleUnlessHeld(
         _ record: inout PetSession?,
         mood: PetMood,
         message: String?,
-        focusedTarget: String?
+        focusedTarget: String?,
+        minimizedTargets: Set<String>
     ) {
         guard var session = record, session.enabled else { return }
-        guard FocusedTarget.isInFront(session, focusedTarget: focusedTarget)
-            || (mood == .ready && LeadGroupFocusHold.isInFront(session, focusedTarget: focusedTarget)) else {
+        if MinimizedWindows.isMinimized(session, minimizedTargets: minimizedTargets) {
+            markHeldByMinimize(&record, mood: mood, message: message)
+            return
+        }
+        guard isHeldInFront(session, mood: mood, focusedTarget: focusedTarget) else {
             markVisible(&record, mood: mood, message: message)
             return
         }
@@ -190,6 +256,31 @@ package enum PetTurnState {
         session.visible = false
         if session.held != true { session.heldAt = now }
         session.held = true
+        session.heldByMinimize = nil
+        session.mood = mood
+        session.message = message
+        session.waitingSince = now
+        session.updatedAt = now
+        record = session
+    }
+
+    private static func isHeldInFront(
+        _ session: PetSession,
+        mood: PetMood,
+        focusedTarget: String?,
+        store: PetSessionStore = PetSessionStore()
+    ) -> Bool {
+        FocusedTarget.isInFront(session, focusedTarget: focusedTarget)
+            || (mood == .ready && LeadGroupFocusHold.isInFront(session, focusedTarget: focusedTarget, store: store))
+    }
+
+    private static func markHeldByMinimize(_ record: inout PetSession?, mood: PetMood, message: String?) {
+        guard var session = record, session.enabled else { return }
+        let now = Date().timeIntervalSince1970
+        session.visible = false
+        session.held = nil
+        session.heldAt = nil
+        session.heldByMinimize = true
         session.mood = mood
         session.message = message
         session.waitingSince = now
@@ -210,13 +301,14 @@ package enum PetTurnState {
     }
 
     private static func markHidden(_ record: inout PetSession?) {
-        guard var session = record, session.visible || session.held != nil else { return }
+        guard var session = record, session.visible || session.held != nil || session.heldByMinimize != nil else { return }
         if session.visible {
             session.visible = false
             session.updatedAt = Date().timeIntervalSince1970
         }
         session.held = nil
         session.heldAt = nil
+        session.heldByMinimize = nil
         session.waitingSince = nil
         record = session
     }
@@ -254,6 +346,7 @@ enum PetSubagentTracking {
             session.visible = false
             session.held = nil
             session.heldAt = nil
+            session.heldByMinimize = nil
             session.updatedAt = now
             record = session
             return PetHookResult(record: record, cleanup: cleanup)

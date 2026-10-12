@@ -73,6 +73,7 @@ enum PetSessionHandover {
         successor.visible = false
         successor.held = nil
         successor.heldAt = nil
+        successor.heldByMinimize = nil
         successor.busy = nil
         successor.waitingSince = nil
         successor.handoverPendingSince = nil

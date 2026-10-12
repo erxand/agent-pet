@@ -55,7 +55,7 @@ enum SessionCommands {
                 mood: requestedMood,
                 message: flags.value(for: .message)
             )
-            guard snapshot.visible else { return ExitCode.success }
+            guard snapshot.visible || snapshot.heldByMinimize else { return ExitCode.success }
             DaemonCommand.ensureRunning()
             return ExitCode.success
         } catch let failure as FlagParseFailure {
@@ -83,7 +83,8 @@ enum SessionCommands {
         let grace = flags.value(for: .grace).flatMap { rawValue in TimeInterval(rawValue) }
         var anyVisible = false
         for sessionId in sessionIds where !LeadGroupFocusHold.focusStaysInGroup(of: sessionId) {
-            if PetTurnState.release(sessionId: sessionId, grace: grace).visible { anyVisible = true }
+            let released = PetTurnState.release(sessionId: sessionId, grace: grace)
+            if released.visible || released.heldByMinimize { anyVisible = true }
             if LeadGroupFocusHold.releaseHeldMembers(ofMember: sessionId, grace: grace) { anyVisible = true }
         }
         if anyVisible { DaemonCommand.ensureRunning() }

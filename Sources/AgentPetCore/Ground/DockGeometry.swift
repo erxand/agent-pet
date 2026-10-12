@@ -17,6 +17,7 @@ package struct DockPreferences: Equatable {
     package static let persistentAppsKey = "persistent-apps"
     package static let persistentOthersKey = "persistent-others"
     package static let recentAppsKey = "recent-apps"
+    package static let minimizesToApplicationKey = "minimize-to-application"
     package static let defaultTileSize: CGFloat = 48
 
     package var orientation: DockOrientation
@@ -25,6 +26,7 @@ package struct DockPreferences: Equatable {
     package var magnifies: Bool
     package var tileCount: Int
     package var separatorCount: Int
+    package var minimizesToApplication: Bool
 
     package init(
         orientation: DockOrientation = .bottom,
@@ -32,7 +34,8 @@ package struct DockPreferences: Equatable {
         tileSize: CGFloat = DockPreferences.defaultTileSize,
         magnifies: Bool = false,
         tileCount: Int = 0,
-        separatorCount: Int = 0
+        separatorCount: Int = 0,
+        minimizesToApplication: Bool = false
     ) {
         self.orientation = orientation
         self.autohides = autohides
@@ -40,6 +43,7 @@ package struct DockPreferences: Equatable {
         self.magnifies = magnifies
         self.tileCount = tileCount
         self.separatorCount = separatorCount
+        self.minimizesToApplication = minimizesToApplication
     }
 }
 

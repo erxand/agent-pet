@@ -7,6 +7,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private static let animationIntervalInSeconds: TimeInterval = 1.0 / 30.0
     private static let maximumAnimationStepInSeconds: TimeInterval = 0.25
     private static let shutdownDeadlineInSeconds: TimeInterval = 2
+    private static let tileSearchIntervalInSeconds: TimeInterval = 0.1
 
     private let store: PetSessionStore
     private let spritePackRegistry: SpritePackRegistry
@@ -39,9 +40,14 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var displayChangeObserver: NSObjectProtocol?
     private var homeScreenFrame: CGRect?
     private let dockAccess: DockAccessReporter
+    private lazy var dockSystem = LiveDockSystem()
     private lazy var ground = PetGround { [weak self] in
-        DockGround(sensing: SystemDockSensing { self?.dockAccess.isGranted ?? false })
+        DockGround(sensing: SystemDockSensing(system: self?.dockSystem ?? LiveDockSystem()) { self?.dockAccess.isGranted ?? false })
     }
+    private lazy var dockTiles = DockTileLocator(system: dockSystem) { [weak self] in self?.dockAccess.isGranted ?? false }
+    private let minimizedChanges = DirectoryChangeMonitor()
+    private var minimizedRescanGate = RescanGate()
+    private var minimizedWindows = MinimizedWindows.none
     private let highFives = HighFiveDirector()
     private var shutdownCompletion: (() -> Void)?
 
@@ -296,10 +302,45 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         lastPetSessionsSignature = petSessionsSignature
         let settleDue = nextSettleDeadline.map { deadline in now >= deadline } ?? false
         let visibilityChanged = updateStates(now: now, forced: rescanForced)
+        let minimizeHoldsChanged = updateMinimizedWindows(now: now, forced: rescanForced)
 
-        if petSessionsChanged || claudeSessionsChanged || settleDue || visibilityChanged || screenChangedSincePlan {
+        if petSessionsChanged || claudeSessionsChanged || settleDue || visibilityChanged || screenChangedSincePlan
+            || minimizeHoldsChanged {
             applyRecords(store.list(), claudeSessions: currentClaudeSessions())
         }
+    }
+
+    private func updateMinimizedWindows(now: TimeInterval, forced: Bool) -> Bool {
+        guard contracts.configuration.hidesWhenWindowMinimized else {
+            minimizedChanges.watch(directories: [])
+            guard forced || minimizedWindows != .none else { return false }
+            minimizedWindows = .none
+            return !MinimizeHold.apply(minimizedTargets: [], focusedTarget: FocusedTarget.current(), store: store).isEmpty
+        }
+        guard minimizedRescanGate.shouldRescan(changeReported: changeReported(by: minimizedChanges), forced: forced, now: now) else {
+            return false
+        }
+        minimizedChanges.watch(directories: [PetPaths.stateDirectory])
+        let current = MinimizedWindows.read()
+        guard forced || current != minimizedWindows else { return false }
+        minimizedWindows = current
+        let minimizedTargets = current.focusTargets
+        let recordsBefore = Dictionary(store.list().map { record in (record.sessionId, record) }) { first, _ in first }
+        let changes = MinimizeHold.apply(minimizedTargets: minimizedTargets, focusedTarget: FocusedTarget.current(), store: store)
+        guard !changes.heldSessionIds.isEmpty else { return !changes.isEmpty }
+        let applicationName = current.writerProcessIdentifier
+            .flatMap { processIdentifier in NSRunningApplication(processIdentifier: processIdentifier)?.localizedName }
+        for presence in presencesBySessionId.values where presence.whirlpool == nil
+            && MinimizeHold.goesWithItsWindow(
+                memberSessionIds: presence.memberSessionIds,
+                records: recordsBefore,
+                minimizedTargets: minimizedTargets
+            ) {
+            let shownFor = presence.memberSessionIds.compactMap { sessionId in recordsBefore[sessionId] }
+            guard let window = shownFor.lazy.compactMap({ member in current.window(holding: member.focusTarget) }).first else { continue }
+            presence.whirlpoolWindow = PetWhirlpoolWindow(title: window.title, applicationName: applicationName)
+        }
+        return true
     }
 
     private func changeReported(by monitor: DirectoryChangeMonitor) -> Bool {
@@ -315,7 +356,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         let now = Date().timeIntervalSince1970
         let planner = contracts.displayPlanner
         let shownPetKeys = Set(presencesBySessionId.compactMap { petKey, presence in
-            presence.animator.isDiving || presence.animator.isSubmerged ? nil : petKey
+            presence.animator.isDiving || presence.animator.isSubmerged || presence.whirlpool != nil ? nil : petKey
         })
         let items = hidesPets ? [] : planner.displayItems(
             records: records,
@@ -327,7 +368,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
 
         let displayablePetKeys = Set(items.map { item in item.petKey })
         for (petKey, _) in presencesBySessionId where !displayablePetKeys.contains(petKey) {
-            beginDive(sessionId: petKey)
+            beginLeaving(sessionId: petKey)
+        }
+        for presence in presencesBySessionId.values where presence.whirlpool == nil && displayablePetKeys.contains(presence.sessionId) {
+            presence.whirlpoolWindow = nil
         }
 
         let screenFrames = OverlayScreenFrames.current(chooser: contracts.displayChooser)
@@ -341,6 +385,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             let chosenAccent = contracts.configuration.paintsAccentInks
                 ? record.chosenAccent(packAccent: spritePackRegistry.ownAccent(forPackNamed: packName))
                 : nil
+            if presencesBySessionId[item.petKey]?.whirlpool != nil {
+                removePresence(sessionId: item.petKey)
+            }
             let sessionSheet = spritePackRegistry.sheet(forPackNamed: packName, chosenAccent: chosenAccent)
             let spriteSheet = sessionSheet.sheet
             let petAppearance = PetAppearance(
@@ -435,7 +482,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         groundPets.removeAll(keepingCapacity: true)
         for presence in presencesBySessionId.values {
             presence.groundIndex = -1
-            guard presence.spaceMotion == nil, !presence.animator.isDiving, !presence.animator.isSubmerged else { continue }
+            guard presence.spaceMotion == nil, presence.whirlpool == nil,
+                  !presence.animator.isDiving, !presence.animator.isSubmerged else { continue }
             groundPets.append(presence)
         }
         guard groundPets.count > 1 else { return }
@@ -524,8 +572,70 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         )
     }
 
-    private func beginDive(sessionId: String) {
+    private func beginLeaving(sessionId: String) {
         guard let presence = presencesBySessionId[sessionId] else { return }
+        guard presence.whirlpoolWindow != nil, presence.whirlpool == nil,
+              !presence.animator.isDiving, !presence.animator.isSubmerged else {
+            beginDive(sessionId: sessionId)
+            return
+        }
+        beginWhirlpool(presence)
+    }
+
+    private func beginWhirlpool(_ presence: PetPresence) {
+        guard var window = presence.whirlpoolWindow else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        window.searchStartedAt = now
+        let location = locateTile(for: &window, now: now)
+        presence.whirlpoolWindow = window
+        let frame = presence.window.frame
+        presence.spaceMotion = nil
+        presence.walksHomeFromSpace = false
+        presence.groundBody = nil
+        presence.view.isInert = true
+        presence.window.ignoresMouseEvents = true
+        presence.whirlpool = WhirlpoolMotion(from: CGPoint(x: frame.midX, y: frame.midY), toward: location.center)
+    }
+
+    private func locateTile(for window: inout PetWhirlpoolWindow, now: TimeInterval) -> DockTileLocation {
+        window.lastSearchAt = now
+        let location = dockTiles.locate(
+            windowTitle: window.title,
+            applicationName: window.applicationName,
+            searchedForSeconds: now - (window.searchStartedAt ?? now)
+        )
+        window.foundTile = location.isFinal
+        return location
+    }
+
+    private func advanceWhirlpool(_ presence: PetPresence, elapsedSeconds: Double) -> Bool {
+        guard var motion = presence.whirlpool else { return false }
+        if var window = presence.whirlpoolWindow, !window.foundTile {
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - (window.lastSearchAt ?? 0) >= PetOverlayController.tileSearchIntervalInSeconds {
+                motion.retarget(locateTile(for: &window, now: now).center)
+                presence.whirlpoolWindow = window
+            }
+        }
+        motion.advance(elapsedSeconds: elapsedSeconds)
+        presence.whirlpool = motion
+        presence.view.update(spaceRotationInRadians: CGFloat(motion.rotationInRadians))
+        presence.view.update(whirlpoolScale: CGFloat(motion.scale))
+        presence.window.alphaValue = CGFloat(motion.opacity)
+        renderSprite(for: presence)
+        let size = presence.view.preferredSize
+        let frame = CGRect(
+            x: (motion.center.x - size.width / 2).rounded(),
+            y: (motion.center.y - size.height / 2).rounded(),
+            width: size.width,
+            height: size.height
+        )
+        if frame != presence.window.frame { presence.window.setFrame(frame, display: false) }
+        return true
+    }
+
+    private func beginDive(sessionId: String) {
+        guard let presence = presencesBySessionId[sessionId], presence.whirlpool == nil else { return }
         if PetChrome.shownOpacity(1, spaceMotion: presence.spaceMotion, hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating) == 0 {
             presence.animator.hideChrome()
         }
@@ -586,6 +696,10 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             )
         }
         for presence in presencesBySessionId.values {
+            if advanceWhirlpool(presence, elapsedSeconds: elapsedSeconds) {
+                if presence.whirlpool?.isFinished == true { submergedSessionIds.append(presence.sessionId) }
+                continue
+            }
             defer { applyInputPolicy(to: presence) }
             if PetSpaceFlight.advance(
                 presence,
@@ -642,7 +756,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames, elapsedSeconds: Double = 0) {
-        guard presence.spaceMotion == nil else { return }
+        guard presence.spaceMotion == nil, presence.whirlpool == nil else { return }
         let windowSize = presence.view.preferredSize
         let desiredCenter = presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
         let horizontalOrigin = PetGround.horizontalOrigin(

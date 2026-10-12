@@ -8,6 +8,7 @@ enum PetEnrollment {
                 enrolled.visible = false
                 enrolled.held = nil
                 enrolled.heldAt = nil
+                enrolled.heldByMinimize = nil
             }
             enrolled.enabled = true
             if enrolled.sprite == nil {
@@ -35,6 +36,7 @@ enum PetEnrollment {
             session.visible = false
             session.held = nil
             session.heldAt = nil
+            session.heldByMinimize = nil
             session.updatedAt = Date().timeIntervalSince1970
             record = session
             return session
