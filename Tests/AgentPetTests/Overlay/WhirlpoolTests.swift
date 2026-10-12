@@ -122,7 +122,7 @@ struct WhirlpoolMotionTests {
         var previousScale = motion.scale
         while !motion.isFinished {
             motion.advance(elapsedSeconds: 1.0 / 30.0)
-            #expect(motion.scale <= previousScale)
+            if motion.progress > WhirlpoolMotion.windUpShare { #expect(motion.scale <= previousScale) }
             previousScale = motion.scale
         }
         #expect(abs(motion.center.x - 1500) < 0.001)
@@ -148,5 +148,20 @@ struct WhirlpoolMotionTests {
         #expect(hypot(motion.center.x - unchanged.center.x, motion.center.y - unchanged.center.y) < 40)
         while !motion.isFinished { motion.advance(elapsedSeconds: 1.0 / 30.0) }
         #expect(motion.center == CGPoint(x: 1400, y: 40))
+    }
+
+    @Test func itStaysCloseToItsPathAndOnTheScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let start = CGPoint(x: 1480, y: 950), target = CGPoint(x: 40, y: 30)
+        var motion = WhirlpoolMotion(from: start, toward: target, bounds: screen, halfExtent: 30)
+        let dx = target.x - start.x, dy = target.y - start.y, length = hypot(dx, dy)
+        while !motion.isFinished {
+            motion.advance(elapsedSeconds: 1.0 / 60.0)
+            let half = 30 * CGFloat(motion.scale)
+            #expect(motion.center.x - half >= screen.minX - 0.001 && motion.center.x + half <= screen.maxX + 0.001)
+            #expect(motion.center.y - half >= screen.minY - 0.001 && motion.center.y + half <= screen.maxY + 0.001)
+            let offLine = abs((motion.center.x - start.x) * dy - (motion.center.y - start.y) * dx) / length
+            #expect(offLine <= CGFloat(WhirlpoolMotion.maximumSwirlRadius + WhirlpoolMotion.windUpDistance) + 0.001)
+        }
     }
 }

@@ -594,7 +594,15 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         presence.groundBody = nil
         presence.view.isInert = true
         presence.window.ignoresMouseEvents = true
-        presence.whirlpool = WhirlpoolMotion(from: CGPoint(x: frame.midX, y: frame.midY), toward: location.center)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) })
+            ?? NSScreen.screens.first(where: { $0.frame.contains(location.center) }) ?? NSScreen.main
+        let drawn = presence.view.preferredSize
+        presence.whirlpool = WhirlpoolMotion(
+            from: CGPoint(x: frame.midX, y: frame.midY),
+            toward: location.center,
+            bounds: screen?.frame,
+            halfExtent: min(drawn.width, drawn.height) / 2
+        )
     }
 
     private func locateTile(for window: inout PetWhirlpoolWindow, now: TimeInterval) -> DockTileLocation {
