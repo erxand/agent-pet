@@ -206,6 +206,24 @@ struct LeadGroupTests {
         #expect(try plan(sandbox, all).count == 1)
     }
 
+    @Test func aSharedPetWhoseAskingMemberHasItsOwnNameShowsNoCaption() throws {
+        let sandbox = try Sandbox()
+        for (index, sessionId) in all.enumerated() {
+            var arguments = [
+                "on", "--session", sessionId, "--group", LeadGroupTests.group, "--group-mode", "shared",
+                "--label", "Dev System", "--focus-target", LeadGroupTests.pane(sessionId),
+                "--pid", String(getpid()), "--no-color-sync"
+            ]
+            if index == 0 { arguments.append("--owner") }
+            #expect(try sandbox.run(arguments).exitStatus == 0)
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        try everyoneReady(sandbox)
+        let item = try #require(try plan(sandbox, all).first)
+        #expect(item.label == "Dev System")
+        #expect(item.bubbleCaption == nil)
+    }
+
     @Test func helpersAskingForTheModeGetNoPetOfTheirOwnWhenTheOwnerDoesNot() throws {
         let sandbox = try Sandbox()
         try enroll(sandbox, LeadGroupTests.dev, owner: true, mode: "shared")

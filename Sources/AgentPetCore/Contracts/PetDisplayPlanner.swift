@@ -152,16 +152,18 @@ package struct PetDisplayPlanner {
               let focusMember = group.focusMember,
               let mood = group.mood else { return nil }
         let waitingMember = group.mostRecentlyUpdatedWaitingMember
+        let label = PetLabel.resolve(session: owner, claudeSession: claudeSessions[owner.sessionId])
+        // A caption that only repeats the name tag says nothing and reads as the name twice.
         let bubbleCaption = group.members.count > 1
-            ? waitingMember.map { member in
-                PetDisplayPlanner.memberName(member, claudeSession: claudeSessions[member.sessionId])
-            }
+            ? waitingMember
+                .map { member in PetDisplayPlanner.memberName(member, claudeSession: claudeSessions[member.sessionId]) }
+                .flatMap { caption in PetDisplayPlanner.shownLabel(caption) == PetDisplayPlanner.shownLabel(label) ? nil : caption }
             : nil
         let focusClaudeSession = claudeSessions[focusMember.sessionId]
         return PetDisplayItem(
             petKey: group.key,
             session: owner,
-            label: PetLabel.resolve(session: owner, claudeSession: claudeSessions[owner.sessionId]),
+            label: label,
             mood: mood,
             message: waitingMember?.message,
             bubbleCaption: bubbleCaption,
