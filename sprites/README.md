@@ -44,6 +44,7 @@ A pack is a directory of plain text, so you can draw a new pet in any editor.
   a color and its shade, but that is convention, not a rule.
 - To use a pack, copy its directory to `~/.agent-pet/sprites/<name>/`. Every installed pack is in
   the pool that `/pet` draws from, and `agent-pet preview --sprite <name>` shows one on demand.
+  A new pack has never been handed out, so `/pet` favors it until it has had its turn.
 - Packs can also live outside `~/.agent-pet/sprites/`, for packs you do not want in this repo
   (prototypes, personal creatures, a folder synced through iCloud Drive). List the folders that
   hold them in `spriteDirectories` in `~/.agent-pet/config.json`:

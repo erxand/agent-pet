@@ -2,6 +2,7 @@ import Foundation
 
 enum PetEnrollment {
     static func enroll(sessionId: String, overrides: PetIdentityOverrides, spriteStrategy: SpriteStrategy) -> PetSession {
+        var assignedSpriteName: String?
         let enrolled = PetSessionStore().withLockedRecord(sessionId: sessionId) { record -> PetSession in
             var enrolled = overrides.applied(to: record ?? PetSession.newlyEnrolled(sessionId: sessionId))
             if record?.enabled != true {
@@ -10,6 +11,7 @@ enum PetEnrollment {
             enrolled.enabled = true
             if enrolled.sprite == nil {
                 enrolled.sprite = spriteStrategy.spriteName(forNewSessionId: sessionId, group: enrolled.group)
+                assignedSpriteName = enrolled.sprite
             }
             if enrolled.accent == nil, let spriteName = enrolled.sprite {
                 enrolled.accent = SpritePackAccent.accent(forPackNamed: spriteName)
@@ -22,6 +24,7 @@ enum PetEnrollment {
             record = enrolled
             return enrolled
         }
+        if let assignedSpriteName { spriteStrategy.recordAssignment(of: assignedSpriteName) }
         if overrides.owner { relinquishOwnership(of: enrolled) }
         return enrolled
     }

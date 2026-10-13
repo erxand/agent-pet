@@ -102,7 +102,7 @@ Nine commands are useful from any shell, plus `agent-pet demo`, described under 
   the overlay. `--accent` shows the pet as a session that chose that color would see it. `--animation`
   is one of `idle`, `walk`, `wave`, `sit`, `emerge`, `dive`, `jump`, `fall` and `highfive`.
 - `agent-pet packs [--json]` lists the installed packs with their accent, whether the config reserves
-  them, and how many live pets use each.
+  them, how many live pets use each, and when `/pet` last handed each one out (`3h ago`, `never`).
 - `agent-pet scan-transcript --path FILE [--from OFFSET]` is a diagnostic. It reads a
   transcript file from byte OFFSET (default 0) and prints one line per subagent completion
   that agent-pet would see, in file order: the byte offset, `finished` or `interim`, and the
@@ -370,6 +370,9 @@ Sessions differ in four ways.
 **Sprite pack**: each session gets its own creature. When `/pet` runs without a `sprite:` token,
 agent-pet picks one of the installed packs at random among the packs that the fewest other live
 sessions are using, so no two sessions share a pet until there are more sessions than packs.
+Among those it picks from the half you have had least recently (it remembers when it last handed out
+each pack in `~/.agent-pet/sprite-history.json`), so with the 22 shipped packs and one session at a
+time no creature comes back within 12 pets in a row.
 The pick is stored in the session's record, so it stays put for the life of the session.
 `sprite:<name>` chooses one explicitly. The repo ships 22: `claude` (the original orange
 critter), `golem`, `hatchling`, `mossling`, `nimbus`, `seon`, `tinowl`, `walle`, `astrocat`,
@@ -519,6 +522,8 @@ and stops the daemon if it is still running. It leaves `~/.agent-pet` in place a
   sessions/<session_id>.json   one record per enrolled session
   sessions/<session_id>.lock   the lock that keeps two writers off one record
   sprites/<pack>/              installed sprite packs
+  sprite-history.json          when each pack was last handed out, so new pets rotate
+  sprite-history.lock          the lock that keeps two writers off the history
   config.json                  optional settings, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
   daemon.log                   daemon output

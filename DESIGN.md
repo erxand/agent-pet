@@ -17,7 +17,7 @@ agent-pet/
     Commands/                  one file per subcommand, plus flag parsing and feedback; AgentPetCommandLine is the entry point
     Contracts/                 AgentPetConfiguration, ConfigurationFile, the contract protocols and their implementations, PetDisplayPlanner
     Focusing/                  Focuser, TmuxItermFocuser, CommandFocuser
-    State/                     PetSessionStore, ClaudeSessionDirectory, tmux run, hook log, subagent tracking, DirectoryChangeMonitor and RescanGate
+    State/                     PetSessionStore, SpriteAssignmentHistory, ClaudeSessionDirectory, tmux run, hook log, subagent tracking, DirectoryChangeMonitor and RescanGate
     PetStates/                 PetStates (physics, input, visibility, level, their resolution and files), WindowDetection, SpaceMotion, see "Pet states"
     Ground/                    GroundProfile, GroundBody and GroundPlacement, DockTracker and the Dock geometry rules, see "The Dock as ground"
     Sprites/                   SpriteContract (fixed), PixelRenderer, ClaudeSprite (claude8Bit art), SpritePackLoader, SpritePackRegistry, SpritePackAssignment, SpritePackAccent, PackAccentResolver, SpriteAccentTint, PixelFont (nametag glyphs), TerminalSpriteRenderer
@@ -40,6 +40,8 @@ agent-pet/
   sessions/<session_id>.json   one PetSession record per enrolled session
   sessions/<session_id>.lock   the flock file that serializes writers of that record
   sprites/<pack>/              installed sprite packs
+  sprite-history.json          when `on` last assigned each pack, see "Sprite assignment"
+  sprite-history.lock          the flock file that serializes writers of sprite-history.json
   config.json                  optional, see "Configuration"
   daemon.pid                   pid of the running overlay daemon
   dock-access.json             the daemon's own Accessibility state, see "The Dock as ground"
@@ -246,14 +248,35 @@ recolors. `render --accent` applies the same rule with the flag as the chosen ac
 `sprite`. It lists the installed packs (`~/.agent-pet/sprites/*/` plus the packs in the config's
 `spriteDirectories`) minus the `reservedSprites` of
 the config, counts how many other live pets use each one (a pet's sprite is its owner's, so a group
-counts once), keeps the packs with the lowest count, and picks one of those at random. A session
-that joins a group whose live owner already has a sprite takes that sprite instead, so the pet looks
-the same whichever member ends up owning it. A reserved pack is never picked at random, and with
-every pack reserved the record stays without `sprite`. With fewer live sessions than packs every session gets a different pet; past that the
-duplicates spread evenly. The pick is written into the record once, so a session keeps its pet
-across `show` and `hide`, and `/pet` on an already enrolled session keeps the pet it has. An
-explicit `--sprite` always wins, reserved or not, and with no packs installed the record stays without `sprite`
-and the daemon draws the compiled-in art.
+counts once), and keeps the packs with the lowest count. Among those it prefers a pack it has not
+handed out in a while: `LeastUsedSpriteStrategy.leastRecentlyAssignedPackName` is a pure function of
+the candidates, the history, the clock and a random generator. It orders the candidates by when `on`
+last assigned them, never assigned first and ties in random order, and picks uniformly at random from
+the oldest half (the count divided by `oldestShareDivisor`, 2, rounded down, and at least one). So of
+two candidates it always takes the older one, and one candidate is taken however recent it is. A
+session that joins a group whose live owner already has a sprite takes that sprite instead, so the
+pet looks the same whichever member ends up owning it. A reserved pack is never picked, and with
+every pack reserved the record stays without `sprite`. With fewer live sessions than packs every
+session gets a different pet; past that the duplicates spread evenly. The pick is written into the
+record once, so a session keeps its pet across `show` and `hide`, and `/pet` on an already enrolled
+session keeps the pet it has. An explicit `--sprite` always wins, reserved or not, and with no packs
+installed the record stays without `sprite` and the daemon draws the compiled-in art.
+
+The rotation guarantee: with `N` candidate packs and no other live pets, any `N - N/2 + 1`
+consecutive picks (`N/2` rounded down) are all different, 12 in a row for the 22 shipped packs. A
+pack just picked is the newest, it moves up one place with each later pick, and it is back in the
+oldest half only after `N - N/2` more picks. The bound is exact: the pick after that run can repeat
+the first one. No pack is ever certain to come up within a fixed number of picks, since each pick
+inside the oldest half is random.
+
+The history is `sprite-history.json`, one JSON object from pack name to the Unix time `on` last
+assigned that pack. `PetEnrollment.enroll` records the pack after the record is saved, and only when
+the strategy filled `sprite`, a sprite taken from a group's owner included. `--sprite`, a record
+that already has a sprite and `preview` never write it; `preview` still reads it to pick.
+`SpriteAssignmentHistory` writes under `sprite-history.lock` through `PetRecordLock`, drops the
+entries of packs no longer installed, and replaces the file through a temp file and a rename, with
+sorted keys. The file is created on first use. A missing or malformed file reads as empty, and a
+write that fails is ignored, so the history can never fail `on`.
 
 Right after the sprite is assigned or confirmed, `on` and `preview` fill the record's `accent`
 when it is absent and `sprite` names an installed pack that loads: `SpritePackAccent` writes the
@@ -315,7 +338,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `focus [--session ID] [--no-client-switch]` | run the configured Focuser the way a left click does, so focusing can be tested from a shell; exit 2 when the record is missing, or, with the `tmux-iterm` focuser, when it has no tmux target. `--no-client-switch` leaves every attached client alone: it skips both `switch-client` and the iTerm tab script, so a test can prove the window and pane selection without moving a real client. The CLI waits for a command focuser to finish |
 | `clear-subagents [--session ID]` | empty `activeSubagents` under the record lock and print how many entries it dropped; exit 2 when the record is missing. The manual unwedge for a pet held hidden by a subagent the tool still counts as running |
 | `render --pack NAME [--animation idle] [--frame N] [--accent COLOR]` | print one frame, recolored as a session that chose COLOR would see it (see "Accent on the sprite"), to stdout with truecolor half blocks: two pixel rows per text line, `▀` with the top pixel as foreground and the bottom as background, `▄` or a space where a pixel is transparent, so transparency shows the terminal background. Each line ends with a reset. A pack named `claude` that is not installed draws the compiled-in art. Exit 2 when `--pack` is missing, the pack does not load, the animation is unknown, N is not a frame of it, or COLOR is not an accent name |
-| `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), and live pets (live groups whose owner uses the pack). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets"}]}` with `accent` null for a pack that yields none |
+| `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), live pets (live groups whose owner uses the pack), and last assigned (when `on` last picked it, from `sprite-history.json`, as the largest whole unit such as `3h ago`, or `never`). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "lastAssignedAt"}]}` with `accent` null for a pack that yields none and `lastAssignedAt` the Unix time, or null for a pack never assigned |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
 | `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key), `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground") and `ground-gap` (the `groundGap` config key). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
@@ -1226,7 +1249,7 @@ the defaults.
 | Focuser | `tmux-iterm`, `TmuxItermFocuser` | `command`, `CommandFocuser` | `focuser` |
 | SessionSource | `~/.claude/sessions` | any list of directories | `sessionDirectories` |
 | ColorSync | `tmux-color`, `TmuxPromptBarColorSync` | `none`, `DisabledColorSync` | `colorSync` |
-| SpriteStrategy | least used at random, `LeastUsedSpriteStrategy` | the same with a reserved set left out of the random pick; `--sprite` is the explicit choice | `reservedSprites` |
+| SpriteStrategy | least used, then at random from the least recently assigned half, `LeastUsedSpriteStrategy` | the same with a reserved set left out of the random pick; `--sprite` is the explicit choice | `reservedSprites` |
 | Sprite pack folders | `~/.agent-pet/sprites` | that folder plus any list of folders searched after it | `spriteDirectories` |
 | PetGrouping | `SharedKeyGrouping`: one pet per session unless sessions name a `group` | `OnePetPerSessionGrouping` stays for comparison in tests | `--group` on the session, not config |
 | LabelPlacement | `pill` under the sprite | `nametag` over the head | `labelPlacement` |
