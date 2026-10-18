@@ -21,11 +21,12 @@ struct StatusReport: Encodable {
         let flaggedOwner: Bool
         let disambiguator: String?
         let disambiguationScope: String?
+        let bodyAccent: String?
 
         enum CodingKeys: String, CodingKey {
             case sessionId, group, owner, label, sprite, accent, agent, enabled, visible, mood
             case activeSubagents, alive, pid, focusTarget, updatedAt
-            case groupMode, flaggedOwner, disambiguator, disambiguationScope
+            case groupMode, flaggedOwner, disambiguator, disambiguationScope, bodyAccent
         }
 
         func encode(to encoder: Encoder) throws {
@@ -49,6 +50,7 @@ struct StatusReport: Encodable {
             try container.encode(flaggedOwner, forKey: .flaggedOwner)
             try container.encode(disambiguator, forKey: .disambiguator)
             try container.encode(disambiguationScope, forKey: .disambiguationScope)
+            try container.encode(bodyAccent, forKey: .bodyAccent)
         }
     }
 
@@ -118,7 +120,8 @@ struct StatusReport: Encodable {
             groupMode: (session.groupMode ?? .shared).rawValue,
             flaggedOwner: session.isFlaggedOwner,
             disambiguator: session.disambiguator,
-            disambiguationScope: session.disambiguationScope
+            disambiguationScope: session.disambiguationScope,
+            bodyAccent: session.bodyAccent?.rawValue
         )
     }
 }

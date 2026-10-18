@@ -337,7 +337,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
             let chosenAccent = contracts.configuration.paintsAccentInks
-                ? record.chosenAccent(packAccent: spritePackRegistry.ownAccent(forPackNamed: packName))
+                ? record.bodyChosenAccent(packAccent: spritePackRegistry.ownAccent(forPackNamed: packName))
                 : nil
             let sessionSheet = spritePackRegistry.sheet(forPackNamed: packName, chosenAccent: chosenAccent)
             let spriteSheet = sessionSheet.sheet

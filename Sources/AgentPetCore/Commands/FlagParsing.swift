@@ -39,6 +39,15 @@ enum FlagParsing {
         return accent
     }
 
+    static func bodyAccent(in flags: ParsedFlags) throws -> BodyAccentOverride? {
+        guard let rawValue = flags.valueOrEmpty(for: .bodyAccent) else { return nil }
+        if rawValue.isEmpty { return .cleared }
+        guard let accent = AccentColor(rawValue: rawValue) else {
+            throw FlagParseFailure.unknownAccent(rawValue)
+        }
+        return .color(accent)
+    }
+
     static func mood(in flags: ParsedFlags) throws -> PetMood? {
         guard let rawValue = flags.value(for: .mood) else { return nil }
         guard let mood = PetMood(rawValue: rawValue) else {
@@ -86,7 +95,8 @@ enum FlagParsing {
             owner: flags.isPresent(.owner),
             groupMode: try groupMode(in: flags),
             disambiguator: flags.valueOrEmpty(for: .disambiguator),
-            disambiguationScope: flags.valueOrEmpty(for: .disambiguationScope)
+            disambiguationScope: flags.valueOrEmpty(for: .disambiguationScope),
+            bodyAccent: try bodyAccent(in: flags)
         )
     }
 }
