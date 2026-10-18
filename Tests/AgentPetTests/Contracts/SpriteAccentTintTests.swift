@@ -151,4 +151,46 @@ struct SpriteAccentTintTests {
         #expect(unknown.exitStatus == 2)
         #expect(unknown.standardError.contains("unknown accent teal"))
     }
+
+    @Test func aBodyAccentPaintsTheCreatureAndLeavesTheLabelAccent() throws {
+        let sandbox = try Sandbox()
+        try sandbox.installPack("mossling")
+        let livePid = "\(getpid())"
+        try sandbox.run(["on", "--session", "split", "--sprite", "mossling", "--accent", "red", "--body-accent", "blue", "--pid", livePid])
+
+        let split = try #require(sandbox.record("split"))
+        #expect(split["accent"] as? String == "red")
+        #expect(split["bodyAccent"] as? String == "blue")
+
+        try sandbox.run(["on", "--session", "split", "--label", "renamed", "--pid", livePid])
+        #expect(sandbox.record("split")?["bodyAccent"] as? String == "blue")
+
+        try sandbox.run(["on", "--session", "split", "--body-accent", "", "--pid", livePid])
+        #expect(sandbox.record("split")?["bodyAccent"] == nil)
+        #expect(sandbox.record("split")?["accent"] as? String == "red")
+
+        let unknown = try sandbox.run(["on", "--session", "split", "--body-accent", "teal", "--pid", livePid])
+        #expect(unknown.exitStatus == 2)
+        #expect(unknown.standardError.contains("unknown accent teal"))
+
+        let decoder = JSONDecoder()
+        let chosen = try decoder.decode(
+            PetSession.self,
+            from: Data(#"{"sessionId":"b","accent":"red","accentFromPack":false,"bodyAccent":"blue"}"#.utf8)
+        )
+        #expect(chosen.resolvedAccent == .red)
+        #expect(chosen.bodyChosenAccent(packAccent: .red) == .blue)
+        #expect(chosen.bodyChosenAccent(packAccent: .blue) == nil)
+        let packFilled = try decoder.decode(
+            PetSession.self,
+            from: Data(#"{"sessionId":"c","accent":"red","accentFromPack":true}"#.utf8)
+        )
+        #expect(packFilled.bodyChosenAccent(packAccent: .red) == packFilled.chosenAccent(packAccent: .red))
+        let unreadable = try decoder.decode(
+            PetSession.self,
+            from: Data(#"{"sessionId":"d","accent":"red","bodyAccent":"teal"}"#.utf8)
+        )
+        #expect(unreadable.bodyAccent == nil)
+        #expect(unreadable.resolvedAccent == .red)
+    }
 }

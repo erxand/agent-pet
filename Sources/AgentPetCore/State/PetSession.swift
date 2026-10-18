@@ -53,6 +53,7 @@ package struct PetSession: Codable, Equatable {
     package var groupMode: PetGroupMode?
     package var disambiguator: String?
     package var disambiguationScope: String?
+    package var bodyAccent: AccentColor?
 
     package var isPreview: Bool {
         sessionId.hasPrefix(PetSession.previewSessionIdPrefix)
@@ -80,6 +81,11 @@ package struct PetSession: Codable, Equatable {
 
     package var resolvedAccent: AccentColor {
         accent ?? AccentColor.derived(fromSessionId: sessionId)
+    }
+
+    package func bodyChosenAccent(packAccent: AccentColor?) -> AccentColor? {
+        guard let bodyAccent else { return chosenAccent(packAccent: packAccent) }
+        return bodyAccent == packAccent ? nil : bodyAccent
     }
 
     package func chosenAccent(packAccent: AccentColor?) -> AccentColor? {
@@ -134,6 +140,7 @@ extension PetSession {
         groupMode = (try? container.decodeIfPresent(PetGroupMode.self, forKey: .groupMode)) ?? nil
         disambiguator = try container.decodeIfPresent(String.self, forKey: .disambiguator)
         disambiguationScope = try container.decodeIfPresent(String.self, forKey: .disambiguationScope)
+        bodyAccent = try? container.decodeIfPresent(AccentColor.self, forKey: .bodyAccent)
     }
 
     private static func decodeLegacySubagents(from decoder: Decoder, startedAt: TimeInterval) throws -> [TrackedSubagent] {

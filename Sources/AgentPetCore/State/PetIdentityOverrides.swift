@@ -1,5 +1,10 @@
 import Foundation
 
+enum BodyAccentOverride: Equatable {
+    case color(AccentColor)
+    case cleared
+}
+
 struct PetIdentityOverrides {
     let nickname: String?
     let label: String?
@@ -14,6 +19,7 @@ struct PetIdentityOverrides {
     let groupMode: PetGroupMode?
     let disambiguator: String?
     let disambiguationScope: String?
+    let bodyAccent: BodyAccentOverride?
 
     static let none = PetIdentityOverrides(
         nickname: nil,
@@ -28,7 +34,8 @@ struct PetIdentityOverrides {
         owner: false,
         groupMode: nil,
         disambiguator: nil,
-        disambiguationScope: nil
+        disambiguationScope: nil,
+        bodyAccent: nil
     )
 
     var hasAnyOverride: Bool {
@@ -45,6 +52,7 @@ struct PetIdentityOverrides {
             || groupMode != nil
             || disambiguator != nil
             || disambiguationScope != nil
+            || bodyAccent != nil
     }
 
     func applied(to session: PetSession) -> PetSession {
@@ -65,6 +73,11 @@ struct PetIdentityOverrides {
         if let groupMode { updated.groupMode = groupMode == .shared ? nil : groupMode }
         if let disambiguator { updated.disambiguator = disambiguator.isEmpty ? nil : disambiguator }
         if let disambiguationScope { updated.disambiguationScope = disambiguationScope.isEmpty ? nil : disambiguationScope }
+        switch bodyAccent {
+        case .color(let color)?: updated.bodyAccent = color
+        case .cleared?: updated.bodyAccent = nil
+        case nil: break
+        }
         if updated.group != nil, updated.enrolledAt == nil { updated.enrolledAt = Date().timeIntervalSince1970 }
         return updated
     }
