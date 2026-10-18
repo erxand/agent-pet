@@ -383,7 +383,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
             let record = item.session
             let packName = record.sprite ?? SpritePackLoader.defaultPackName
             let chosenAccent = contracts.configuration.paintsAccentInks
-                ? record.chosenAccent(packAccent: spritePackRegistry.ownAccent(forPackNamed: packName))
+                ? record.bodyChosenAccent(packAccent: spritePackRegistry.ownAccent(forPackNamed: packName))
                 : nil
             if presencesBySessionId[item.petKey]?.whirlpool != nil {
                 removePresence(sessionId: item.petKey)

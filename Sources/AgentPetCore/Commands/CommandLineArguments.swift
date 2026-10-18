@@ -52,6 +52,7 @@ enum CommandFlag: String, CaseIterable {
     case groupMode = "--group-mode"
     case disambiguator = "--disambiguator"
     case disambiguationScope = "--disambiguation-scope"
+    case bodyAccent = "--body-accent"
 }
 
 struct ParsedFlags {
