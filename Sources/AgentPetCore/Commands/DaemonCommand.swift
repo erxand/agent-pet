@@ -90,7 +90,7 @@ enum DaemonCommand {
             Starter(
                 homeIsForeign: AccountHome.isForeign,
                 prepare: PetPaths.createStateDirectoriesIfNeeded,
-                launchAgentIsInstalled: { LaunchAgent.isInstalled },
+                launchAgentIsInstalled: { LaunchAgent.isInstalled && !PetLoginItem.isTurnedOff() },
                 startLaunchAgent: { LaunchAgent.start() },
                 runningDaemon: {
                     guard let recorded = DaemonProcessIdentifierFile.read(),

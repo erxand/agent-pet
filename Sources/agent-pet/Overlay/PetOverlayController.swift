@@ -49,6 +49,9 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     private var minimizedRescanGate = RescanGate()
     private var minimizedWindows = MinimizedWindows.none
     private let highFives = HighFiveDirector()
+    private let shoo = PetShooDirector()
+    private var menuBar: PetMenuBar?
+    private var menuBarSettings = PetMenuBarSettings()
     private var shutdownCompletion: (() -> Void)?
 
     var isShuttingDown: Bool { shutdownCompletion != nil }
@@ -78,6 +81,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         lastConfigurationModification = ConfigurationFile.modificationDate(of: configurationFile)
         PetStateFile.clearCommands()
         PetStateFile.saveEffective(effectiveStates)
+        updateMenuBar(starting: true)
         reconcile(forceReload: true)
         scheduleTimers()
         observeDisplayChanges()
@@ -137,7 +141,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     func petViewDidReceiveLeftClick(sessionId petKey: String) {
-        guard acceptsInput(forPetKey: petKey) else { return }
+        guard acceptsInput(forPetKey: petKey), !shiftIsShooing else { return }
         if let focusRequest = presencesBySessionId[petKey]?.focusRequest {
             contracts.focuser.focus(focusRequest)
         }
@@ -146,9 +150,69 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     func petViewDidReceiveRightClick(sessionId petKey: String) {
-        guard acceptsInput(forPetKey: petKey) else { return }
+        guard acceptsInput(forPetKey: petKey), !shiftIsShooing else { return }
         hideSession(forPetKey: petKey)
         beginDive(sessionId: petKey)
+    }
+
+    private var shiftIsShooing: Bool {
+        contracts.configuration.shiftShoos && NSEvent.modifierFlags.contains(.shift)
+    }
+
+    private func updateMenuBar(starting: Bool = false) {
+        guard contracts.configuration.showsMenuBarIcon else {
+            menuBar?.remove()
+            menuBar = nil
+            return
+        }
+        guard menuBar == nil else { return }
+        menuBarSettings = PetMenuBarSettings.load()
+        if menuBarSettings.hidesPets, starting || stateCommands.visibility == nil {
+            setPetsHidden(true)
+        }
+        if !menuBarSettings.opensAtLogin { applyLoginItem(false) }
+        menuBar = PetMenuBar(
+            settings: menuBarSettings,
+            hidePetsChanged: { [weak self] hidden in self?.menuBarHidePetsChanged(hidden) },
+            opensAtLoginChanged: { [weak self] opens in self?.menuBarOpensAtLoginChanged(opens) }
+        )
+    }
+
+    private func menuBarHidePetsChanged(_ hidden: Bool) {
+        menuBarSettings.hidesPets = hidden
+        menuBarSettings.save()
+        setPetsHidden(hidden)
+        menuBar?.show(hidesPets: hidden)
+    }
+
+    private func menuBarOpensAtLoginChanged(_ opens: Bool) {
+        menuBarSettings.opensAtLogin = opens
+        menuBarSettings.save()
+        applyLoginItem(opens)
+    }
+
+    private func setPetsHidden(_ hidden: Bool) {
+        PetStateFile.withLockedCommands { commands in
+            commands.visibility = hidden ? .hidden : nil
+            PetStateFile.saveCommands(commands)
+        }
+    }
+
+    private func applyLoginItem(_ opens: Bool) {
+        DispatchQueue.global(qos: .utility).async {
+            guard !PetLoginItem.apply(opensAtLogin: opens) else { return }
+            SpritePackRegistry.writeToStandardError("agent-pet: could not \(opens ? "enable" : "disable") the LaunchAgent for login")
+        }
+    }
+
+    /// `agent-pet visibility` can change the same state from a shell, so the toggle follows it.
+    private func followVisibilityCommand() {
+        guard let menuBar else { return }
+        let hidden = stateCommands.visibility == .hidden
+        guard hidden != menuBarSettings.hidesPets else { return }
+        menuBarSettings.hidesPets = hidden
+        menuBarSettings.save()
+        menuBar.show(hidesPets: hidden)
     }
 
     private func acceptsInput(forPetKey petKey: String) -> Bool {
@@ -170,7 +234,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
     }
 
     private func applyInputPolicy(to presence: PetPresence) {
-        let inert = !PetInputPolicy.acceptsInput(
+        let inert = shoo.keepsClicksOff(presence) || !PetInputPolicy.acceptsInput(
             input: effectiveStates.input,
             isReturningFromSpace: isReturningFromSpace(presence)
         )
@@ -191,6 +255,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         guard modification != lastConfigurationModification else { return false }
         lastConfigurationModification = modification
         contracts = AgentPetContracts(configuration: ConfigurationFile.load(from: configurationFile), focusCompletion: .detaches)
+        updateMenuBar()
         return true
     }
 
@@ -198,6 +263,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         if stateCommandRescanGate.shouldRescan(changeReported: changeReported(by: stateCommandChanges), forced: forced, now: now) {
             stateCommandChanges.watch(directories: [PetStateFile.controlDirectory])
             stateCommands = PetStateFile.loadCommands()
+            followVisibilityCommand()
         }
         var watched = Set(contracts.configuration.fullScreenRules.flatMap { rule in rule.bundleIdentifiers })
         if case .above(let bundleIdentifier) = stateCommands.level {
@@ -482,7 +548,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         groundPets.removeAll(keepingCapacity: true)
         for presence in presencesBySessionId.values {
             presence.groundIndex = -1
-            guard presence.spaceMotion == nil, presence.whirlpool == nil,
+            guard presence.spaceMotion == nil, presence.shooFlight == nil, presence.whirlpool == nil,
                   !presence.animator.isDiving, !presence.animator.isSubmerged else { continue }
             groundPets.append(presence)
         }
@@ -497,7 +563,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         HighFiveDirector.isFree(
             animator: presence.animator,
             mood: presence.view.petAppearance.mood,
-            inFlight: presence.spaceMotion != nil,
+            inFlight: presence.isInFlight || presence.shooStaysAwayUntil != nil,
             body: presence.groundBody
         )
     }
@@ -590,6 +656,8 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         presence.whirlpoolWindow = window
         let frame = presence.window.frame
         presence.spaceMotion = nil
+        presence.shooFlight = nil
+        presence.shooStaysAwayUntil = nil
         presence.walksHomeFromSpace = false
         presence.groundBody = nil
         presence.view.isInert = true
@@ -644,7 +712,7 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
 
     private func beginDive(sessionId: String) {
         guard let presence = presencesBySessionId[sessionId], presence.whirlpool == nil else { return }
-        if PetChrome.shownOpacity(1, spaceMotion: presence.spaceMotion, hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating) == 0 {
+        if presence.shooFlight != nil || PetChrome.shownOpacity(1, spaceMotion: presence.spaceMotion, hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating) == 0 {
             presence.animator.hideChrome()
         }
         presence.animator.requestDive()
@@ -683,6 +751,13 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
         followScreen(to: screenFrames.visibleFrame)
         refreshGround(screenFrames: screenFrames, elapsedSeconds: elapsedSeconds)
         var submergedSessionIds: [String] = []
+        shoo.beginTick(
+            enabled: contracts.configuration.shiftShoos && !hidesPets && !isShuttingDown && effectiveStates.input == .on,
+            elapsedSeconds: elapsedSeconds
+        )
+        let shooStage = ShooStage(visibleFrame: screenFrames.visibleFrame) { [ground] presence, x in
+            ground.profile.height(over: ground.bodySpan(of: presence, centerX: x))
+        }
         collideFloatingPets()
         sortGroundPets()
         highFives.tick(
@@ -709,6 +784,21 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 continue
             }
             defer { applyInputPolicy(to: presence) }
+            let shooOrder = shoo.advance(
+                presence,
+                elapsedSeconds: elapsedSeconds,
+                now: ProcessInfo.processInfo.systemUptime,
+                stage: shooStage
+            )
+            switch shooOrder {
+            case .flying:
+                renderSprite(for: presence)
+                continue
+            case .landed:
+                assignLanes(screenFrame: screenFrames.visibleFrame)
+            case .free, .stayPut, .flee:
+                break
+            }
             if PetSpaceFlight.advance(
                 presence,
                 elapsedSeconds: elapsedSeconds,
@@ -722,12 +812,21 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 presence.groundBody = nil
                 continue
             }
-            presence.animator.advance(
-                elapsedSeconds: elapsedSeconds,
-                mood: presence.view.petAppearance.mood,
-                airborne: presence.groundBody?.isAirborne ?? false
-            ) { offset in
-                self.allowsStep(presence, toOffset: offset)
+            switch shooOrder {
+            case .flee(let direction, let speed, let range):
+                presence.animator.flee(elapsedSeconds: elapsedSeconds, direction: direction, speed: speed, within: range) { offset in
+                    self.ground.allowsStep(presence, toOffset: offset)
+                }
+            case .stayPut, .landed:
+                presence.animator.stayPut(elapsedSeconds: elapsedSeconds)
+            case .free, .flying:
+                presence.animator.advance(
+                    elapsedSeconds: elapsedSeconds,
+                    mood: presence.view.petAppearance.mood,
+                    airborne: presence.groundBody?.isAirborne ?? false
+                ) { offset in
+                    self.allowsStep(presence, toOffset: offset)
+                }
             }
             ground.finishStep(presence)
             if presence.animator.isSubmerged {
@@ -759,12 +858,12 @@ final class PetOverlayController: NSObject, PetViewInteractionHandler {
                 presence.animator.chromeOpacity,
                 spaceMotion: presence.spaceMotion,
                 hidesLabelsWhileFloating: contracts.configuration.hidesLabelsWhileFloating
-            ) * presence.greetingChromeFade)
+            ) * presence.greetingChromeFade * (presence.shooFlight == nil ? 1 : 0))
         )
     }
 
     private func applyGeometry(to presence: PetPresence, screenFrames: OverlayScreenFrames, elapsedSeconds: Double = 0) {
-        guard presence.spaceMotion == nil, presence.whirlpool == nil else { return }
+        guard presence.spaceMotion == nil, presence.shooFlight == nil, presence.whirlpool == nil else { return }
         let windowSize = presence.view.preferredSize
         let desiredCenter = presence.homeHorizontalCenter + presence.animator.horizontalOffsetFromHome
         let horizontalOrigin = PetGround.horizontalOrigin(

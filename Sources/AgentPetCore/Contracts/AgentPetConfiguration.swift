@@ -44,6 +44,8 @@ package struct AgentPetConfiguration: Equatable {
     package var standsOnDock: Bool
     package var groundGap: CGFloat?
     package var hidesWhenWindowMinimized: Bool
+    package var shiftShoos: Bool
+    package var showsMenuBarIcon: Bool
 
     package init(
         focuser: FocuserConfiguration,
@@ -63,7 +65,9 @@ package struct AgentPetConfiguration: Equatable {
         hidesLabelsWhileFloating: Bool = false,
         standsOnDock: Bool = true,
         groundGap: CGFloat? = nil,
-        hidesWhenWindowMinimized: Bool = false
+        hidesWhenWindowMinimized: Bool = false,
+        shiftShoos: Bool = false,
+        showsMenuBarIcon: Bool = false
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -83,6 +87,8 @@ package struct AgentPetConfiguration: Equatable {
         self.standsOnDock = standsOnDock
         self.groundGap = groundGap
         self.hidesWhenWindowMinimized = hidesWhenWindowMinimized
+        self.shiftShoos = shiftShoos
+        self.showsMenuBarIcon = showsMenuBarIcon
     }
 }
 
@@ -147,6 +153,8 @@ package enum ConfigurationFile {
         if let hidesWhenMinimized = raw.hideWhenWindowMinimized {
             configuration.hidesWhenWindowMinimized = hidesWhenMinimized
         }
+        if let shiftShoo = raw.shiftShoo { configuration.shiftShoos = shiftShoo }
+        if let menuBarIcon = raw.menuBarIcon { configuration.showsMenuBarIcon = menuBarIcon }
         return configuration
     }
 
@@ -203,6 +211,8 @@ private struct RawConfiguration: Decodable {
     let dockGround: Bool?
     let groundGap: Double?
     let hideWhenWindowMinimized: Bool?
+    let shiftShoo: Bool?
+    let menuBarIcon: Bool?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -223,6 +233,8 @@ private struct RawConfiguration: Decodable {
         case dockGround
         case groundGap
         case hideWhenWindowMinimized
+        case shiftShoo
+        case menuBarIcon
     }
 
     init(from decoder: Decoder) throws {
@@ -243,6 +255,8 @@ private struct RawConfiguration: Decodable {
         dockGround = try? container.decodeIfPresent(Bool.self, forKey: .dockGround)
         groundGap = try? container.decodeIfPresent(Double.self, forKey: .groundGap)
         hideWhenWindowMinimized = try? container.decodeIfPresent(Bool.self, forKey: .hideWhenWindowMinimized)
+        shiftShoo = try? container.decodeIfPresent(Bool.self, forKey: .shiftShoo)
+        menuBarIcon = try? container.decodeIfPresent(Bool.self, forKey: .menuBarIcon)
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?

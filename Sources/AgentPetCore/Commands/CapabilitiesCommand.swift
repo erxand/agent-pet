@@ -12,6 +12,8 @@ package enum AgentPetCapability: String, CaseIterable {
     case groundGap = "ground-gap"
     case minimizeHide = "minimize-hide"
     case bodyAccent = "body-accent"
+    case shiftShoo = "shift-shoo"
+    case menuBarIcon = "menu-bar-icon"
 }
 
 enum CapabilitiesCommand {

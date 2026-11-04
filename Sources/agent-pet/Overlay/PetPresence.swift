@@ -21,19 +21,23 @@ final class PetPresence: LaneWalker, HighFiveParticipant {
     var greetingChromeFade: Double = 1
     var whirlpool: WhirlpoolMotion?
     var whirlpoolWindow: PetWhirlpoolWindow?
+    var shooFlight: ShooFlight?
+    var shooStaysAwayUntil: TimeInterval?
+    var shooNextHitAt: TimeInterval?
 
     var laneWidth: CGFloat { view.contentSize.width }
     var windowWidth: CGFloat { view.preferredSize.width }
-    var isInFlight: Bool { spaceMotion != nil }
+    var isInFlight: Bool { spaceMotion != nil || shooFlight != nil }
     var petKey: String { sessionId }
     var spriteSideLength: CGFloat { view.petAppearance.spriteSideLength }
 
     var shownAnimationName: SpriteAnimationName {
-        spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName
+        shooFlight?.animationName ?? spaceMotion?.animationName ?? groundBodyAnimationName ?? animator.animationName
     }
 
     var groundBodyFrameIndex: Int? {
         guard spaceMotion == nil, animator.isGrounded else { return nil }
+        if let shooFlight { return shooFlight.frameIndex }
         return groundBody?.frameIndex
     }
 
@@ -43,7 +47,7 @@ final class PetPresence: LaneWalker, HighFiveParticipant {
     }
 
     var shownFacingLeft: Bool {
-        spaceMotion?.facingLeft ?? animator.facingLeft
+        shooFlight?.facingLeft ?? spaceMotion?.facingLeft ?? animator.facingLeft
     }
 
     init(

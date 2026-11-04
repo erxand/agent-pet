@@ -49,6 +49,7 @@ agent-pet/
   minimized.json               written by a terminal integration: its minimized windows, see "Held by a minimized window"
   daemon.pid                   pid of the running overlay daemon
   dock-access.json             the daemon's own Accessibility state, see "The Dock as ground"
+  menu-bar.json                what the menu bar icon's two switches remember, see "The menu bar icon"
   control/dock-access-ask      a request from `dock-access --ask`, consumed by the daemon
   daemon.log                   daemon stderr
   hooks.log                    one line per handled hook event
@@ -352,7 +353,7 @@ KEY, and `--owner` makes it that pet's owner and clears `owner` on every other r
 | `packs [--json]` | one row per installed pack: name, accent (as `on` would fill it), reserved (in the config's `reservedSprites`), live pets (live groups whose owner uses the pack), and last assigned (when `on` last picked it, from `sprite-history.json`, as the largest whole unit such as `3h ago`, or `never`). `--json` prints `{"packs": [{"name", "accent", "reserved", "livePets", "lastAssignedAt", "downloaded"}]}` with `accent` null for a pack that yields none and `lastAssignedAt` the Unix time, or null for a pack never assigned. A pack that is not downloaded yet has `downloaded` false and `accent` null, and its text row ends with `not downloaded` |
 | `scan-transcript --path FILE [--from OFFSET]` | diagnostic: run `TranscriptCompletionScanner` over FILE from byte OFFSET (default 0) and print one line per event in file order, as `<byte offset> <finished\|interim> <agent_id>`. It reads the file only and touches no record; exit 2 when `--path` is missing, OFFSET is not a number of 0 or more, or the file cannot be read |
 | `physics ground\|float\|auto`, `input on\|off\|auto`, `visibility shown\|hidden\|auto`, `level normal\|above BUNDLE_ID\|auto` | set one pet state for every pet, or hand it back with `auto`; prints `<state>: <value>`; exit 2 for any other value. See "Pet states" |
-| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key), `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"), `ground-gap` (the `groundGap` config key) and `minimize-hide` (the `hideWhenWindowMinimized` config key and `minimized.json`, see "Held by a minimized window"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
+| `capabilities` | print one word per line, in `AgentPetCapability` order, naming each feature a caller may depend on: `release-grace` (`release --grace`), `focus-hold` (hooks read `focus.json`, see "Held back"), `lead-focus-hold` (that hold, its release and its hide cover a whole lead group), `focus-target-select` (`hide` and `remove` take `--focus-target`), `group-mode-lead` (`on --group-mode lead`, see "Lead groups"), `disambiguator` (`on --disambiguator` and `--disambiguation-scope`), `hide-labels-floating` (the `hideLabelsWhileFloating` config key), `dock-ground` (the `dockGround` config key, the `dock-access` command and the optional `jump` and `fall` animations, see "The Dock as ground"), `ground-gap` (the `groundGap` config key), `minimize-hide` (the `hideWhenWindowMinimized` config key and `minimized.json`, see "Held by a minimized window"), `body-accent` (`on --body-accent`), `shift-shoo` (the `shiftShoo` config key, see "Shift shoos a pet") and `menu-bar-icon` (the `menuBarIcon` config key, see "The menu bar icon"). It reads and writes nothing. A word is added with the feature it names and never renamed, so a caller tests for the word rather than for a version. A build without the command exits 2 with the usage text |
 | `dock-access [--ask]` | print `granted`, `not granted` or `unknown`: whether the running daemon may read the Dock's exact frame through the Accessibility API, see "The Dock as ground". The answer is the daemon's, read from `dock-access.json`, never the command's own process, because a command started from a terminal is judged by the terminal's grant. `unknown` means no running daemon has written a report. Without `--ask` it reads and never prompts. `--ask` ensures the daemon, leaves `control/dock-access-ask`, and waits up to 3 s for the daemon to call macOS itself (which shows the system prompt) and report. Exit 0 only for `granted` |
 | `demo [--scene NAME] [--list] [--auto] [--speed N] [--dry-run] [--snapshot DIR]` | play the scripted tour described under "Demo". `--list` prints the scenes, `--auto` plays every scene on a timer instead of waiting for the space bar, `--dry-run` prints the timeline instead of drawing it, `--snapshot` writes PNGs of the panels and exits. Exit 2 for an unknown scene or a speed that is not a number above 0; 130 after ctrl-c and 143 after SIGTERM |
 
@@ -1571,3 +1572,44 @@ first.
   flags, and file names are enums or `static let` constants.
 - Every `switch` over an enum is exhaustive with no `default`.
 - Avoid `as!` and `try!`; decode with `Codable`. No em dashes in any prose.
+
+## Shift shoos a pet
+
+Opt in with `shiftShoo`; off, nothing below runs and nothing is sampled. Each animation tick reads the
+modifier flags, the time since the last key press and the cursor from the window server, which needs no
+macOS permission (`LiveShooInput`, behind `ShooInputSource`).
+
+`ShooArming` decides whether Shift counts. Capital letters also use Shift, and the cursor is often parked on a
+pet while typing, so it counts only held with no other modifier, for at least 0.12 s, with no key pressed since
+it went down and none in the 0.3 s before. A key pressed while it is down cancels it until it is released.
+
+`ShooReach` measures the cursor's whole path since the last tick against the drawn part of the sprite (the ink
+bounds of its first idle frame), because a fast cursor crosses a pet between ticks:
+
+| the path | what happens |
+|---|---|
+| ends within 70 pt of the body | the pet runs away along the ground, faster the closer the cursor is; in the air it is pushed away |
+| crosses or ends in the body | a jolt: away from where the cursor met the body, harder the faster it came in, turned by how far off center it hit. Hit from above, a grounded pet bounces up, and it always moves sideways so it does not land back under the cursor |
+| comes within the inner half of the body | a launch: away from the cursor, at least 30 degrees up and never straight up, at 1700 pt/s or more |
+
+Pressing Shift with the cursor already on a pet counts too. A pet can be hit again in the air after 0.12 s.
+`ShooFlight` flies it under the same gravity as the rest of the overlay, bouncing off the sides of the screen,
+the menu bar and the ground, which includes running into the end of the Dock. It skids to a stop upright, then
+stays put for 6 s before wandering again, so the spot stays clear. A floating pet (`physics float`) has the same
+hits added to its drift instead. Clicks go through a pet while Shift is held and while it flies, and the name
+tag and bubble are hidden while it tumbles.
+
+## The menu bar icon
+
+Opt in with `menuBarIcon`. The daemon shows a template icon (a pet coming up out of the ground) whose menu holds two
+switches, remembered in `menu-bar.json`.
+
+**Hide pets** sets the `visibility` state command to `hidden`, or clears it. Commands are cleared when the daemon
+starts, so the daemon sets it again from `menu-bar.json`. `agent-pet visibility` from a shell moves the
+switch too. The icon dims while the pets are hidden.
+
+**Re-open after computer restarts** runs `launchctl enable` or `disable` on `com.agent-pet.daemon`. launchd remembers
+that across restarts and leaves the running daemon alone. A disabled service cannot be started at all, so
+while the switch is off `ensureRunning` treats the LaunchAgent as not installed and spawns the daemon itself when
+a session wants a pet. An installer that enables the service again is undone the next time the daemon starts.
+
