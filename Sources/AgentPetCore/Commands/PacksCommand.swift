@@ -9,21 +9,36 @@ enum PacksCommand {
     private static let nameColumnWidth = 12
     private static let accentColumnWidth = 8
     private static let reservedColumnWidth = 9
+    private static let livePetsColumnWidth = 4
     private static let packHeader = "PACK"
     private static let accentHeader = "ACCENT"
     private static let reservedHeader = "RESERVED"
     private static let livePetsHeader = "PETS"
+    private static let lastAssignedHeader = "LAST ASSIGNED"
+    private static let neverAssigned = "never"
+    private static let agoSuffix = " ago"
     private static let lineEnding = "\n"
+    private static let secondsPerMinute = 60
+    private static let secondsPerHour = 60 * secondsPerMinute
+    private static let secondsPerDay = 24 * secondsPerHour
+    private static let smallestAgeUnit = (seconds: 1, suffix: "s")
+    private static let ageUnits: [(seconds: Int, suffix: String)] = [
+        (seconds: secondsPerDay, suffix: "d"),
+        (seconds: secondsPerHour, suffix: "h"),
+        (seconds: secondsPerMinute, suffix: "m"),
+        smallestAgeUnit
+    ]
 
     struct PackEntry: Encodable {
         let name: String
         let accent: String?
         let reserved: Bool
         let livePets: Int
+        let lastAssignedAt: TimeInterval?
         let downloaded: Bool
 
         enum CodingKeys: String, CodingKey {
-            case name, accent, reserved, livePets, downloaded
+            case name, accent, reserved, livePets, lastAssignedAt, downloaded
         }
 
         func encode(to encoder: Encoder) throws {
@@ -32,6 +47,7 @@ enum PacksCommand {
             try container.encode(accent, forKey: .accent)
             try container.encode(reserved, forKey: .reserved)
             try container.encode(livePets, forKey: .livePets)
+            try container.encode(lastAssignedAt, forKey: .lastAssignedAt)
             try container.encode(downloaded, forKey: .downloaded)
         }
     }
@@ -51,20 +67,38 @@ enum PacksCommand {
             FileHandle.standardOutput.write(Data(lineEnding.utf8))
             return ExitCode.success
         }
-        print(row(name: packHeader, accent: accentHeader, reserved: reservedHeader, livePets: livePetsHeader))
+        print(row(
+            name: packHeader,
+            accent: accentHeader,
+            reserved: reservedHeader,
+            livePets: livePetsHeader,
+            lastAssigned: lastAssignedHeader
+        ))
+        let now = Date()
         for entry in entries {
             print(row(
                 name: entry.name,
                 accent: entry.accent ?? noAccent,
                 reserved: entry.reserved ? affirmative : negative,
-                livePets: entry.downloaded ? "\(entry.livePets)" : "\(entry.livePets)\(columnGap)\(notDownloadedMarker)"
+                livePets: "\(entry.livePets)",
+                lastAssigned: entry.downloaded
+                    ? lastAssignedText(entry.lastAssignedAt, now: now)
+                    : "\(lastAssignedText(entry.lastAssignedAt, now: now))\(columnGap)\(notDownloadedMarker)"
             ))
         }
         return ExitCode.success
     }
 
+    static func lastAssignedText(_ lastAssignedAt: TimeInterval?, now: Date) -> String {
+        guard let lastAssignedAt else { return neverAssigned }
+        let elapsedSeconds = Int(max(0, now.timeIntervalSince1970 - lastAssignedAt))
+        let unit = ageUnits.first { unit in elapsedSeconds >= unit.seconds } ?? smallestAgeUnit
+        return "\(elapsedSeconds / unit.seconds)\(unit.suffix)\(agoSuffix)"
+    }
+
     static func packEntries(contracts: AgentPetContracts) -> [PackEntry] {
         let reserved = Set(contracts.configuration.reservedSprites)
+        let lastAssignedAtByPackName = SpriteAssignmentHistory().lastAssignedAtByPackName()
         var livePetsByPack: [String: Int] = [:]
         let livePets = LivePets.groups(
             records: PetSessionStore().list(),
@@ -83,17 +117,19 @@ enum PacksCommand {
                 accent: SpritePackAccent.accent(in: outcome, loader: loader)?.rawValue,
                 reserved: reserved.contains(packName),
                 livePets: livePetsByPack[packName] ?? 0,
+                lastAssignedAt: lastAssignedAtByPackName[packName],
                 downloaded: downloaded
             )
         }
     }
 
-    private static func row(name: String, accent: String, reserved: String, livePets: String) -> String {
+    private static func row(name: String, accent: String, reserved: String, livePets: String, lastAssigned: String) -> String {
         [
             padded(name, width: nameColumnWidth),
             padded(accent, width: accentColumnWidth),
             padded(reserved, width: reservedColumnWidth),
-            livePets
+            padded(livePets, width: livePetsColumnWidth),
+            lastAssigned
         ].joined(separator: columnGap)
     }
 

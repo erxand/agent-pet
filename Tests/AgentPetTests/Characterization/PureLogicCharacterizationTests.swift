@@ -22,21 +22,13 @@ struct PureLogicCharacterizationTests {
             availablePackNames: ["claude", "golem", "nimbus"],
             packNamesInUse: ["claude", "golem", "golem"]
         )
-        var generator = SeededGenerator(seed: 7)
-        for _ in 0..<20 {
-            #expect(assignment.pickLeastUsedPackName(using: &generator) == "nimbus")
-        }
+        #expect(assignment.leastUsedPackNames() == ["nimbus"])
     }
 
-    @Test func leastUsedAssignmentSpreadsTiesAndHandlesNoPacks() {
+    @Test func leastUsedAssignmentKeepsEveryTiedPackAndHandlesNoPacks() {
         let tied = SpritePackAssignment(availablePackNames: ["golem", "nimbus"], packNamesInUse: ["golem", "nimbus"])
-        var generator = SeededGenerator(seed: 11)
-        var picked: Set<String> = []
-        for _ in 0..<50 {
-            if let packName = tied.pickLeastUsedPackName(using: &generator) { picked.insert(packName) }
-        }
-        #expect(picked == ["golem", "nimbus"])
-        #expect(SpritePackAssignment(availablePackNames: [], packNamesInUse: []).pickLeastUsedPackName() == nil)
+        #expect(tied.leastUsedPackNames() == ["golem", "nimbus"])
+        #expect(SpritePackAssignment(availablePackNames: [], packNamesInUse: []).leastUsedPackNames().isEmpty)
     }
 
     @Test func aLegacyRecordDecodesItsSubagentIdsAtUpdatedAt() throws {

@@ -36,13 +36,7 @@ struct SpritePackAssignment {
         spriteByPetKey[petKey]
     }
 
-    func pickLeastUsedPackName() -> String? {
-        var generator = SystemRandomNumberGenerator()
-        return pickLeastUsedPackName(using: &generator)
-    }
-
-    func pickLeastUsedPackName<Generator: RandomNumberGenerator>(using generator: inout Generator) -> String? {
-        guard !availablePackNames.isEmpty else { return nil }
+    func leastUsedPackNames() -> [String] {
         var usageCountByPackName: [String: Int] = [:]
         for packName in packNamesInUse {
             usageCountByPackName[packName, default: 0] += 1
@@ -50,9 +44,8 @@ struct SpritePackAssignment {
         let lowestUsageCount = availablePackNames
             .map { packName in usageCountByPackName[packName] ?? 0 }
             .min() ?? 0
-        let leastUsedPackNames = availablePackNames.filter { packName in
+        return availablePackNames.filter { packName in
             (usageCountByPackName[packName] ?? 0) == lowestUsageCount
         }
-        return leastUsedPackNames.randomElement(using: &generator)
     }
 }
