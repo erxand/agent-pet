@@ -1,11 +1,13 @@
 import Foundation
 
-enum LaunchctlSubcommand: String {
+package enum LaunchctlSubcommand: String {
     case kickstart
     case bootstrap
+    case enable
+    case disable
 }
 
-enum LaunchctlOutcome: Equatable {
+package enum LaunchctlOutcome: Equatable {
     case succeeded
     case failed
     case timedOut
@@ -58,7 +60,7 @@ enum LaunchAgent {
     }
 
     @discardableResult
-    private static func runLaunchctl(subcommand: LaunchctlSubcommand, arguments: [String]) -> LaunchctlOutcome {
+    static func runLaunchctl(subcommand: LaunchctlSubcommand, arguments: [String]) -> LaunchctlOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchctlExecutablePath)
         process.arguments = [subcommand.rawValue] + arguments

@@ -43,6 +43,8 @@ package struct AgentPetConfiguration: Equatable {
     package var hidesLabelsWhileFloating: Bool
     package var standsOnDock: Bool
     package var groundGap: CGFloat?
+    package var shiftShoos: Bool
+    package var showsMenuBarIcon: Bool
 
     package init(
         focuser: FocuserConfiguration,
@@ -61,7 +63,9 @@ package struct AgentPetConfiguration: Equatable {
         fullScreenRules: [PetFullScreenRule] = [],
         hidesLabelsWhileFloating: Bool = false,
         standsOnDock: Bool = true,
-        groundGap: CGFloat? = nil
+        groundGap: CGFloat? = nil,
+        shiftShoos: Bool = false,
+        showsMenuBarIcon: Bool = false
     ) {
         self.focuser = focuser
         self.sessionDirectoryPatterns = sessionDirectoryPatterns
@@ -80,6 +84,8 @@ package struct AgentPetConfiguration: Equatable {
         self.hidesLabelsWhileFloating = hidesLabelsWhileFloating
         self.standsOnDock = standsOnDock
         self.groundGap = groundGap
+        self.shiftShoos = shiftShoos
+        self.showsMenuBarIcon = showsMenuBarIcon
     }
 }
 
@@ -141,6 +147,8 @@ package enum ConfigurationFile {
         if let groundGap = raw.groundGap, groundGap.isFinite, groundGap >= 0, groundGap <= AgentPetConfiguration.maximumGroundGap {
             configuration.groundGap = CGFloat(groundGap)
         }
+        if let shiftShoo = raw.shiftShoo { configuration.shiftShoos = shiftShoo }
+        if let menuBarIcon = raw.menuBarIcon { configuration.showsMenuBarIcon = menuBarIcon }
         return configuration
     }
 
@@ -196,6 +204,8 @@ private struct RawConfiguration: Decodable {
     let hideLabelsWhileFloating: Bool?
     let dockGround: Bool?
     let groundGap: Double?
+    let shiftShoo: Bool?
+    let menuBarIcon: Bool?
 
     enum CodingKeys: String, CodingKey {
         case focuser
@@ -215,6 +225,8 @@ private struct RawConfiguration: Decodable {
         case hideLabelsWhileFloating
         case dockGround
         case groundGap
+        case shiftShoo
+        case menuBarIcon
     }
 
     init(from decoder: Decoder) throws {
@@ -234,6 +246,8 @@ private struct RawConfiguration: Decodable {
         hideLabelsWhileFloating = try? container.decodeIfPresent(Bool.self, forKey: .hideLabelsWhileFloating)
         dockGround = try? container.decodeIfPresent(Bool.self, forKey: .dockGround)
         groundGap = try? container.decodeIfPresent(Double.self, forKey: .groundGap)
+        shiftShoo = try? container.decodeIfPresent(Bool.self, forKey: .shiftShoo)
+        menuBarIcon = try? container.decodeIfPresent(Bool.self, forKey: .menuBarIcon)
         labelPlacement = try? container.decodeIfPresent(String.self, forKey: .labelPlacement)
         disambiguateLabels = try? container.decodeIfPresent(Bool.self, forKey: .disambiguateLabels)
         reservedSprites = (try? container.decodeIfPresent([LenientString].self, forKey: .reservedSprites))?

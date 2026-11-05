@@ -223,6 +223,38 @@ final class PetAnimator {
         }
     }
 
+    /// Runs from the cursor. The walk frames play faster the faster it runs.
+    func flee(
+        elapsedSeconds: Double,
+        direction: CGFloat,
+        speed: CGFloat,
+        within range: ClosedRange<CGFloat>,
+        canMoveTo: (CGFloat) -> Bool
+    ) {
+        advanceFrameClock(elapsedSeconds: elapsedSeconds * Double(speed / PetAnimator.walkSpeedInPointsPerSecond))
+        advanceBubbleBob(elapsedSeconds: elapsedSeconds)
+        strollDestination = nil
+        isWalkingHome = false
+        walkDirection = direction
+        facingLeft = direction < 0
+        if animationName != .walk {
+            animationName = .walk
+            frameTick = 0
+        }
+        let next = min(max(horizontalOffsetFromHome + direction * speed * CGFloat(elapsedSeconds), range.lowerBound), range.upperBound)
+        guard next != horizontalOffsetFromHome, canMoveTo(next) else { return }
+        horizontalOffsetFromHome = next
+    }
+
+    /// Stands still where it ended up after being shooed, so the spot stays clear.
+    func stayPut(elapsedSeconds: Double) {
+        advanceFrameClock(elapsedSeconds: elapsedSeconds)
+        advanceBubbleBob(elapsedSeconds: elapsedSeconds)
+        strollDestination = nil
+        isWalkingHome = false
+        settle(on: .idle)
+    }
+
     func walkHomeNow() {
         guard horizontalOffsetFromHome != 0 else { return }
         isWalkingHome = true
