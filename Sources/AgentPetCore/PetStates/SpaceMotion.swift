@@ -99,6 +99,12 @@ package struct SpaceMotion: Equatable {
         }
     }
 
+    /// Adds to a floating pet's speed. It eases back to its cruise speed on its own.
+    package mutating func shove(by change: CGVector) {
+        guard phase == .floating else { return }
+        velocity = CGVector(dx: velocity.dx + change.dx, dy: velocity.dy + change.dy)
+    }
+
     package mutating func advance(elapsedSeconds: Double, area: SpaceArea) {
         guard elapsedSeconds > 0 else { return }
         switch phase {

@@ -90,7 +90,7 @@ enum DaemonCommand {
             Starter(
                 homeIsForeign: AccountHome.isForeign,
                 prepare: PetPaths.createStateDirectoriesIfNeeded,
-                launchAgentIsInstalled: { LaunchAgent.isInstalled },
+                launchAgentIsInstalled: { LaunchAgent.isInstalled && !PetLoginItem.isTurnedOff() },
                 startLaunchAgent: { LaunchAgent.start() },
                 runningDaemon: {
                     guard let recorded = DaemonProcessIdentifierFile.read(),
@@ -332,7 +332,7 @@ enum ForeignHomeNotice {
         guard fileManager.fileExists(atPath: stateDirectory.path) else { return false }
         let marker = stateDirectory.appendingPathComponent(markerFileName)
         if let noted = (try? fileManager.attributesOfItem(atPath: marker.path))?[.modificationDate] as? Date,
-           noted <= now,
+           noted.timeIntervalSince(now) <= 0,
            now.timeIntervalSince(noted) < intervalInSeconds {
             return false
         }
